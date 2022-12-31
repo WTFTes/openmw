@@ -12,6 +12,8 @@ namespace Debug
 
 static std::mutex sLock;
 
+std::shared_ptr<std::ostream> Log::mStream;
+
 Log::Log(Debug::Level level)
     : mShouldLog(level <= Debug::CurrentDebugLevel)
 {
@@ -27,7 +29,7 @@ Log::Log(Debug::Level level)
     if (Debug::CurrentDebugLevel == Debug::NoLevel)
         return;
 
-    std::cout << static_cast<unsigned char>(level);
+    (mStream.get() ? *mStream.get() : std::cout) << static_cast<unsigned char>(level);
 }
 
 Log::~Log()
@@ -35,14 +37,14 @@ Log::~Log()
     if (!mShouldLog)
         return;
 
-    std::cout << std::endl;
+    (mStream.get() ? *mStream.get() : std::cout) << std::endl;
     sLock.unlock();
 }
 
 Log& Log::operator<<(std::filesystem::path&& rhs)
 {
     if (mShouldLog)
-        std::cout << Files::pathToUnicodeString(std::move(rhs));
+        (mStream.get() ? *mStream.get() : std::cout) << Files::pathToUnicodeString(std::move(rhs));
 
     return *this;
 }
@@ -50,7 +52,7 @@ Log& Log::operator<<(std::filesystem::path&& rhs)
 Log& Log::operator<<(const std::filesystem::path& rhs)
 {
     if (mShouldLog)
-        std::cout << Files::pathToUnicodeString(rhs);
+        (mStream.get() ? *mStream.get() : std::cout) << Files::pathToUnicodeString(rhs);
 
     return *this;
 }
@@ -58,7 +60,7 @@ Log& Log::operator<<(const std::filesystem::path& rhs)
 Log& Log::operator<<(std::u8string&& rhs)
 {
     if (mShouldLog)
-        std::cout << Misc::StringUtils::u8StringToString(std::move(rhs));
+        (mStream.get() ? *mStream.get() : std::cout) << Misc::StringUtils::u8StringToString(std::move(rhs));
 
     return *this;
 }
@@ -66,7 +68,7 @@ Log& Log::operator<<(std::u8string&& rhs)
 Log& Log::operator<<(const std::u8string_view rhs)
 {
     if (mShouldLog)
-        std::cout << Misc::StringUtils::u8StringToString(rhs);
+        (mStream.get() ? *mStream.get() : std::cout) << Misc::StringUtils::u8StringToString(rhs);
 
     return *this;
 }
@@ -74,7 +76,7 @@ Log& Log::operator<<(const std::u8string_view rhs)
 Log& Log::operator<<(const char8_t* rhs)
 {
     if (mShouldLog)
-        std::cout << Misc::StringUtils::u8StringToString(rhs);
+        (mStream.get() ? *mStream.get() : std::cout) << Misc::StringUtils::u8StringToString(rhs);
 
     return *this;
 }

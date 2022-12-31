@@ -27,12 +27,17 @@ public:
     explicit Log(Debug::Level level);
     ~Log();
 
+    static void SetBuffer(std::shared_ptr<std::ostream> stream) {
+        mStream = stream;
+    }
+
+
     // Perfect forwarding wrappers to give the chain of objects to cout
     template <typename T>
     Log& operator<<(T&& rhs)
     {
         if (mShouldLog)
-            std::cout << std::forward<T>(rhs);
+            (mStream.get() ? *mStream.get() : std::cout) << std::forward<T>(rhs);
 
         return *this;
     }
@@ -49,6 +54,7 @@ public:
 
 private:
     const bool mShouldLog;
+    static std::shared_ptr<std::ostream> mStream;
 };
 
 #endif
