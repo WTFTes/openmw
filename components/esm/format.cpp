@@ -1,6 +1,7 @@
 #include "format.hpp"
 
 #include <cstring>
+#include <string>
 #include <istream>
 #include <stdexcept>
 

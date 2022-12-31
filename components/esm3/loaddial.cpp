@@ -70,12 +70,17 @@ namespace ESM
         mInfo.clear();
     }
 
-    void Dialogue::readInfo(ESMReader& esm, bool merge)
-    {
+    void Dialogue::readInfo(ESMReader& esm, bool merge) {
         DialInfo info;
         bool isDeleted = false;
         info.load(esm, isDeleted);
 
+        storeInfo(info, isDeleted, merge);
+    }
+
+    void Dialogue::storeInfo(DialInfo& info, bool isDeleted, bool merge)
+    {
+        info.mDialogue = this;
         if (!merge || mInfo.empty())
         {
             mLookup[info.mId] = std::make_pair(mInfo.insert(mInfo.end(), info), isDeleted);

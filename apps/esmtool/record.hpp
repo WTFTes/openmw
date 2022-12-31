@@ -79,6 +79,8 @@ namespace EsmTool
         void load(ESM::ESMReader& esm) override { mData.load(esm, mIsDeleted); }
 
         void print() override;
+
+        bool getIsDeleted() const { return mIsDeleted; }
     };
 
     template <>

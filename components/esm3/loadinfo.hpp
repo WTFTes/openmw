@@ -13,6 +13,7 @@ namespace ESM
 
     class ESMReader;
     class ESMWriter;
+    class Dialogue;
 
     /*
      * Dialogue information. A series of these follow after DIAL records,
@@ -86,6 +87,9 @@ namespace ESM
 
         // Status of this quest item
         QuestStatus mQuestStatus;
+
+        // dialogue reference
+        ESM::Dialogue* mDialogue = nullptr;
 
         // Hexadecimal versions of the various subrecord names.
         enum SubNames
