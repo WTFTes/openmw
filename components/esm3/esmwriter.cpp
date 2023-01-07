@@ -154,11 +154,13 @@ namespace ESM
 
     void ESMWriter::writeHNString(NAME name, const std::string& data, size_t size)
     {
-        assert(data.size() <= size);
-        startSubRecord(name);
-        writeHString(data);
+        const std::string_view string = mEncoder != nullptr ? mEncoder->getLegacyEnc(data) : data;
+        assert(string.size() <= size);
 
-        if (data.size() < size)
+        startSubRecord(name);
+        int bytesCnt = writeHString(string.data(), false);
+
+        if (bytesCnt < size)
         {
             for (size_t i = data.size(); i < size; ++i)
                 write("\0", 1);
@@ -176,16 +178,31 @@ namespace ESM
         write(string.c_str(), string.size());
     }
 
-    void ESMWriter::writeHString(const std::string& data)
+    int ESMWriter::writeHString(const std::string& data, bool encode)
     {
         if (data.size() == 0)
+        {
             write("\0", 1);
+
+            return 1;
+        }
         else
         {
-            // Convert to UTF8 and return
-            const std::string_view string = mEncoder != nullptr ? mEncoder->getLegacyEnc(data) : data;
+            if (encode)
+            {
+                // Convert to UTF8 and return
+                const std::string_view string = mEncoder != nullptr ? mEncoder->getLegacyEnc(data) : data;
 
-            write(string.data(), string.size());
+                write(string.data(), string.size());
+
+                return string.size();
+            }
+            else
+            {
+                write(data.data(), data.size());
+
+                return data.size();
+            }
         }
     }
 

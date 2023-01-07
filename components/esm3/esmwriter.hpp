@@ -137,7 +137,7 @@ namespace ESM
         void endRecord(NAME name);
         void endRecord(uint32_t name);
         void writeFixedSizeString(const std::string& data, int size);
-        void writeHString(const std::string& data);
+        int writeHString(const std::string& data, bool encode = true);
         void writeHCString(const std::string& data);
         void writeName(NAME data);
         void write(const char* data, size_t size);
