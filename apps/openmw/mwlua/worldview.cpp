@@ -4,11 +4,12 @@
 #include <components/esm3/esmwriter.hpp>
 #include <components/esm3/loadcell.hpp>
 
+#include <components/misc/resourcehelpers.hpp>
+
 #include "../mwbase/windowmanager.hpp"
 
 #include "../mwclass/container.hpp"
 
-#include "../mwworld/cellutils.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/timestamp.hpp"
 #include "../mwworld/worldmodel.hpp"
@@ -39,18 +40,18 @@ namespace MWLua
     {
         // It is important to check `isMarker` first.
         // For example "prisonmarker" has class "Door" despite that it is only an invisible marker.
-        if (isMarker(ptr))
+        if (Misc::ResourceHelpers::isHiddenMarker(ptr.getCellRef().getRefId()))
             return nullptr;
         const MWWorld::Class& cls = ptr.getClass();
         if (cls.isActivator())
             return &mActivatorsInScene;
         if (cls.isActor())
             return &mActorsInScene;
-        if (cls.isDoor())
+        if (ptr.mRef->getType() == ESM::REC_DOOR || ptr.mRef->getType() == ESM::REC_DOOR4)
             return &mDoorsInScene;
         if (typeid(cls) == typeid(MWClass::Container))
             return &mContainersInScene;
-        if (cls.hasToolTip(ptr))
+        if (cls.isItem(ptr) || ptr.mRef->getType() == ESM::REC_LIGH)
             return &mItemsInScene;
         return nullptr;
     }
@@ -80,15 +81,16 @@ namespace MWLua
     void WorldView::load(ESM::ESMReader& esm)
     {
         esm.getHNT(mSimulationTime, "LUAW");
-        ObjectId lastAssignedId;
-        lastAssignedId.load(esm, true);
-        MWBase::Environment::get().getWorldModel()->setLastGeneratedRefNum(lastAssignedId);
+        ESM::FormId lastGenerated = esm.getFormId(true);
+        if (lastGenerated.hasContentFile())
+            throw std::runtime_error("Last generated RefNum is invalid");
+        MWBase::Environment::get().getWorldModel()->setLastGeneratedRefNum(lastGenerated);
     }
 
     void WorldView::save(ESM::ESMWriter& esm) const
     {
         esm.writeHNT("LUAW", mSimulationTime);
-        MWBase::Environment::get().getWorldModel()->getLastGeneratedRefNum().save(esm, true);
+        esm.writeFormId(MWBase::Environment::get().getWorldModel()->getLastGeneratedRefNum(), true);
     }
 
     void WorldView::ObjectGroup::updateList()

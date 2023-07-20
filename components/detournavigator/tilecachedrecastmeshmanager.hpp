@@ -10,17 +10,24 @@
 #include "recastmesh.hpp"
 #include "recastmeshobject.hpp"
 #include "tileposition.hpp"
+#include "updateguard.hpp"
 #include "version.hpp"
-
-#include <components/esm/refid.hpp>
 
 #include <boost/geometry/geometries/box.hpp>
 #include <boost/geometry/geometries/point.hpp>
 #include <boost/geometry/index/rtree.hpp>
 
+#include <LinearMath/btTransform.h>
+
+#include <osg/Vec2i>
+
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace DetourNavigator
@@ -30,25 +37,19 @@ namespace DetourNavigator
     class TileCachedRecastMeshManager
     {
     public:
-        class UpdateGuard
-        {
-        public:
-            explicit UpdateGuard(TileCachedRecastMeshManager& manager)
-                : mImpl(manager.mMutex)
-            {
-            }
-
-        private:
-            const std::lock_guard<std::mutex> mImpl;
-        };
-
         explicit TileCachedRecastMeshManager(const RecastSettings& settings);
 
-        void setBounds(const TileBounds& bounds, const UpdateGuard* guard);
+        ScopedUpdateGuard makeUpdateGuard()
+        {
+            mMutex.lock();
+            return ScopedUpdateGuard(&mUpdateGuard);
+        }
 
-        TilesPositionsRange getRange() const;
+        void setRange(const TilesPositionsRange& range, const UpdateGuard* guard);
 
-        void setWorldspace(const ESM::RefId& worldspace, const UpdateGuard* guard);
+        TilesPositionsRange getLimitedObjectsRange() const;
+
+        void setWorldspace(std::string_view worldspace, const UpdateGuard* guard);
 
         bool addObject(ObjectId id, const CollisionShape& shape, const btTransform& transform, AreaType areaType,
             const UpdateGuard* guard);
@@ -66,11 +67,11 @@ namespace DetourNavigator
 
         void removeHeightfield(const osg::Vec2i& cellPosition, const UpdateGuard* guard);
 
-        std::shared_ptr<RecastMesh> getMesh(const ESM::RefId& worldspace, const TilePosition& tilePosition);
+        std::shared_ptr<RecastMesh> getMesh(std::string_view worldspace, const TilePosition& tilePosition);
 
-        std::shared_ptr<RecastMesh> getCachedMesh(const ESM::RefId& worldspace, const TilePosition& tilePosition) const;
+        std::shared_ptr<RecastMesh> getCachedMesh(std::string_view worldspace, const TilePosition& tilePosition) const;
 
-        std::shared_ptr<RecastMesh> getNewMesh(const ESM::RefId& worldspace, const TilePosition& tilePosition) const;
+        std::shared_ptr<RecastMesh> getNewMesh(std::string_view worldspace, const TilePosition& tilePosition) const;
 
         std::size_t getRevision() const { return mRevision; }
 
@@ -126,9 +127,8 @@ namespace DetourNavigator
         using HeightfieldIndexValue = std::pair<IndexBox, std::map<osg::Vec2i, HeightfieldData>::const_iterator>;
 
         const RecastSettings& mSettings;
-        TileBounds mBounds;
         TilesPositionsRange mRange;
-        ESM::RefId mWorldspace;
+        std::string mWorldspace;
         std::unordered_map<ObjectId, std::unique_ptr<ObjectData>> mObjects;
         boost::geometry::index::rtree<ObjectIndexValue, boost::geometry::index::quadratic<16>> mObjectIndex;
         std::map<osg::Vec2i, WaterData> mWater;
@@ -142,6 +142,7 @@ namespace DetourNavigator
         std::size_t mGeneration = 0;
         std::size_t mRevision = 0;
         mutable std::mutex mMutex;
+        UpdateGuard mUpdateGuard{ mMutex };
 
         inline static IndexPoint makeIndexPoint(const TilePosition& tilePosition);
 

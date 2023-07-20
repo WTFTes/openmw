@@ -60,8 +60,6 @@ namespace MWGui
         bool toggleFullHelp(); ///< show extra info in item tooltips (owner, script)
         bool getFullHelp() const;
 
-        void setDelay(float delay);
-
         void clear();
 
         void setFocusObject(const MWWorld::Ptr& focus);
@@ -93,8 +91,8 @@ namespace MWGui
 
         // these do not create an actual tooltip, but they fill in the data that is required so the tooltip
         // system knows what to show in case this widget is hovered
-        static void createSkillToolTip(MyGUI::Widget* widget, int skillId);
-        static void createAttributeToolTip(MyGUI::Widget* widget, int attributeId);
+        static void createSkillToolTip(MyGUI::Widget* widget, ESM::RefId skillId);
+        static void createAttributeToolTip(MyGUI::Widget* widget, ESM::Attribute::AttributeID attributeId);
         static void createSpecializationToolTip(MyGUI::Widget* widget, const std::string& name, int specId);
         static void createBirthsignToolTip(MyGUI::Widget* widget, const ESM::RefId& birthsignId);
         static void createRaceToolTip(MyGUI::Widget* widget, const ESM::Race* playerRace);
@@ -122,11 +120,8 @@ namespace MWGui
         /// Adjust position for a tooltip so that it doesn't leave the screen and does not obscure the mouse cursor
         void position(MyGUI::IntPoint& position, MyGUI::IntSize size, MyGUI::IntSize viewportSize);
 
-        static std::string sSchoolNames[6];
-
         int mHorizontalScrollIndex;
 
-        float mDelay;
         float mRemainingDelay; // remaining time until tooltip will show
 
         int mLastMouseX;
@@ -135,8 +130,6 @@ namespace MWGui
         bool mEnabled;
 
         bool mFullHelp;
-
-        int mShowOwned;
 
         float mFrameDuration;
     };

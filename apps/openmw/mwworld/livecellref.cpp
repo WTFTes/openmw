@@ -9,7 +9,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "class.hpp"
 #include "esmstore.hpp"
@@ -22,9 +21,16 @@ MWWorld::LiveCellRefBase::LiveCellRefBase(unsigned int type, const ESM::CellRef&
 {
 }
 
+MWWorld::LiveCellRefBase::LiveCellRefBase(unsigned int type, const ESM4::Reference& cref)
+    : mClass(&Class::get(type))
+    , mRef(cref)
+    , mData(cref)
+{
+}
+
 void MWWorld::LiveCellRefBase::loadImp(const ESM::ObjectState& state)
 {
-    mRef = state.mRef;
+    mRef = MWWorld::CellRef(state.mRef);
     mData = RefData(state, mData.isDeletedByContentFile());
 
     Ptr ptr(this);
@@ -36,7 +42,7 @@ void MWWorld::LiveCellRefBase::loadImp(const ESM::ObjectState& state)
         if (!scriptId.empty())
         {
             if (const ESM::Script* script
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Script>().search(scriptId))
+                = MWBase::Environment::get().getESMStore()->get<ESM::Script>().search(scriptId))
             {
                 try
                 {
@@ -55,10 +61,10 @@ void MWWorld::LiveCellRefBase::loadImp(const ESM::ObjectState& state)
     mClass->readAdditionalState(ptr, state);
 
     if (!mRef.getSoul().empty()
-        && !MWBase::Environment::get().getWorld()->getStore().get<ESM::Creature>().search(mRef.getSoul()))
+        && !MWBase::Environment::get().getESMStore()->get<ESM::Creature>().search(mRef.getSoul()))
     {
         Log(Debug::Warning) << "Soul '" << mRef.getSoul() << "' not found, removing the soul from soul gem";
-        mRef.setSoul(ESM::RefId::sEmpty);
+        mRef.setSoul(ESM::RefId());
     }
 
     MWBase::Environment::get().getLuaManager()->loadLocalScripts(ptr, state.mLuaScripts);

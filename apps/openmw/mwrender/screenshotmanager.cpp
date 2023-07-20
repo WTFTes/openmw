@@ -9,14 +9,14 @@
 #include <osg/TextureCubeMap>
 
 #include <components/misc/strings/algorithm.hpp>
+#include <components/misc/strings/conversion.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
+#include <components/settings/values.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/stereo/multiview.hpp>
 #include <components/stereo/stereomanager.hpp>
-
-#include <components/settings/settings.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -166,17 +166,17 @@ namespace MWRender
         Screenshot360Type screenshotMapping = Spherical;
 
         const std::string& settingStr = Settings::Manager::getString("screenshot type", "Video");
-        std::vector<std::string> settingArgs;
+        std::vector<std::string_view> settingArgs;
         Misc::StringUtils::split(settingStr, settingArgs);
 
         if (settingArgs.size() > 0)
         {
-            std::string typeStrings[4] = { "spherical", "cylindrical", "planet", "cubemap" };
+            std::string_view typeStrings[4] = { "spherical", "cylindrical", "planet", "cubemap" };
             bool found = false;
 
             for (int i = 0; i < 4; ++i)
             {
-                if (settingArgs[0].compare(typeStrings[i]) == 0)
+                if (settingArgs[0] == typeStrings[i])
                 {
                     screenshotMapping = static_cast<Screenshot360Type>(i);
                     found = true;
@@ -195,13 +195,19 @@ namespace MWRender
         int cubeSize = screenshotMapping == Planet ? screenshotW : screenshotW / 2;
 
         if (settingArgs.size() > 1)
-            screenshotW = std::min(10000, std::atoi(settingArgs[1].c_str()));
+        {
+            screenshotW = std::min(10000, Misc::StringUtils::toNumeric<int>(settingArgs[1], 0));
+        }
 
         if (settingArgs.size() > 2)
-            screenshotH = std::min(10000, std::atoi(settingArgs[2].c_str()));
+        {
+            screenshotH = std::min(10000, Misc::StringUtils::toNumeric<int>(settingArgs[2], 0));
+        }
 
         if (settingArgs.size() > 3)
-            cubeSize = std::min(5000, std::atoi(settingArgs[3].c_str()));
+        {
+            cubeSize = std::min(5000, Misc::StringUtils::toNumeric<int>(settingArgs[3], 0));
+        }
 
         bool rawCubemap = screenshotMapping == RawCubemap;
 
@@ -264,18 +270,10 @@ namespace MWRender
         osg::ref_ptr<osg::Camera> screenshotCamera(new osg::Camera);
         osg::ref_ptr<osg::ShapeDrawable> quad(new osg::ShapeDrawable(new osg::Box(osg::Vec3(0, 0, 0), 2.0)));
 
-        std::map<std::string, std::string> defineMap;
-
-        Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
-        osg::ref_ptr<osg::Shader> fragmentShader(
-            shaderMgr.getShader("s360_fragment.glsl", defineMap, osg::Shader::FRAGMENT));
-        osg::ref_ptr<osg::Shader> vertexShader(shaderMgr.getShader("s360_vertex.glsl", defineMap, osg::Shader::VERTEX));
         osg::ref_ptr<osg::StateSet> stateset = quad->getOrCreateStateSet();
 
-        osg::ref_ptr<osg::Program> program(new osg::Program);
-        program->addShader(fragmentShader);
-        program->addShader(vertexShader);
-        stateset->setAttributeAndModes(program, osg::StateAttribute::ON);
+        Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
+        stateset->setAttributeAndModes(shaderMgr.getProgram("360"), osg::StateAttribute::ON);
 
         stateset->addUniform(new osg::Uniform("cubeMap", 0));
         stateset->addUniform(new osg::Uniform("mapping", screenshotMapping));
@@ -317,6 +315,8 @@ namespace MWRender
         texture->setResizeNonPowerOfTwoHint(false);
         texture->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
         texture->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+        texture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        texture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
         camera->attach(osg::Camera::COLOR_BUFFER, texture);
 
         image->setDataType(GL_UNSIGNED_BYTE);
@@ -342,8 +342,8 @@ namespace MWRender
     void ScreenshotManager::makeCubemapScreenshot(osg::Image* image, int w, int h, const osg::Matrixd& cameraTransform)
     {
         osg::ref_ptr<osg::Camera> rttCamera(new osg::Camera);
-        float nearClip = Settings::Manager::getFloat("near clip", "Camera");
-        float viewDistance = Settings::Manager::getFloat("viewing distance", "Camera");
+        const float nearClip = Settings::camera().mNearClip;
+        const float viewDistance = Settings::camera().mViewingDistance;
         // each cubemap side sees 90 degrees
         if (SceneUtil::AutoDepth::isReversed())
             rttCamera->setProjectionMatrix(

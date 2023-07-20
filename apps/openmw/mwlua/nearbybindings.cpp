@@ -1,9 +1,9 @@
-#include "luabindings.hpp"
+#include "nearbybindings.hpp"
 
 #include <components/detournavigator/navigator.hpp>
 #include <components/detournavigator/navigatorutils.hpp>
 #include <components/lua/luastate.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -115,13 +115,20 @@ namespace MWLua
             MWBase::Environment::get().getWorld()->castRenderingRay(res, from, to, false, false);
             return res;
         };
-        api["asyncCastRenderingRay"] = [context](const LuaUtil::Callback& callback, const osg::Vec3f& from,
-                                           const osg::Vec3f& to) {
-            context.mLuaManager->addAction([context, callback, from, to] {
+        api["asyncCastRenderingRay"] = [context](
+                                           const sol::table& callback, const osg::Vec3f& from, const osg::Vec3f& to) {
+            context.mLuaManager->addAction([context, callback = LuaUtil::Callback::fromLua(callback), from, to] {
                 MWPhysics::RayCastingResult res;
                 MWBase::Environment::get().getWorld()->castRenderingRay(res, from, to, false, false);
                 context.mLuaManager->queueCallback(callback, sol::main_object(context.mLua->sol(), sol::in_place, res));
             });
+        };
+
+        api["getObjectByFormId"] = [](std::string_view formIdStr) -> LObject {
+            ESM::RefId refId = ESM::RefId::deserializeText(formIdStr);
+            if (!refId.is<ESM::FormIdRefId>())
+                throw std::runtime_error("FormId expected, got " + std::string(formIdStr) + "; use core.getFormId");
+            return LObject(refId.getIf<ESM::FormIdRefId>()->getValue());
         };
 
         api["activators"] = LObjectList{ worldView->getActivatorsInScene() };
@@ -129,6 +136,7 @@ namespace MWLua
         api["containers"] = LObjectList{ worldView->getContainersInScene() };
         api["doors"] = LObjectList{ worldView->getDoorsInScene() };
         api["items"] = LObjectList{ worldView->getItemsInScene() };
+        api["players"] = LObjectList{ worldView->getPlayers() };
 
         api["NAVIGATOR_FLAGS"]
             = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, DetourNavigator::Flag>({
@@ -158,8 +166,8 @@ namespace MWLua
             }));
 
         static const DetourNavigator::AgentBounds defaultAgentBounds{
-            DetourNavigator::toCollisionShapeType(Settings::Manager::getInt("actor collision shape type", "Game")),
-            Settings::Manager::getVector3("default actor pathfind half extents", "Game"),
+            Settings::game().mActorCollisionShapeType,
+            Settings::game().mDefaultActorPathfindHalfExtents,
         };
         static const float defaultStepSize
             = 2 * std::max(defaultAgentBounds.mHalfExtents.x(), defaultAgentBounds.mHalfExtents.y());

@@ -2,10 +2,12 @@
 #include "magiceffects.hpp"
 
 #include <algorithm>
+#include <fstream>
 
 #include <components/debug/debuglog.hpp>
 
-#include <components/esm3/cellid.hpp>
+#include <components/esm/format.hpp>
+#include <components/esm/records.hpp>
 #include <components/esm3/cellref.hpp>
 #include <components/esm3/cellstate.hpp>
 #include <components/esm3/containerstate.hpp>
@@ -39,19 +41,26 @@
 #include <components/esm3/npcstate.hpp>
 #include <components/esm3/objectstate.hpp>
 #include <components/esm3/readerscache.hpp>
+#include <components/esm4/loadligh.hpp>
+#include <components/esm4/loadrefr.hpp>
+#include <components/esm4/loadstat.hpp>
+#include <components/esm4/readerutils.hpp>
+#include <components/files/openfile.hpp>
 #include <components/misc/tuplehelpers.hpp>
+#include <components/resource/resourcesystem.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
 
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/recharge.hpp"
+#include "../mwmechanics/spellutil.hpp"
 
 #include "class.hpp"
 #include "containerstore.hpp"
 #include "esmstore.hpp"
+#include "inventorystore.hpp"
 #include "ptr.hpp"
 #include "worldmodel.hpp"
 
@@ -201,10 +210,8 @@ namespace
 
     template <typename T>
     void readReferenceCollection(ESM::ESMReader& reader, MWWorld::CellRefList<T>& collection, const ESM::CellRef& cref,
-        const std::map<int, int>& contentFileMap, MWWorld::CellStore* cellstore)
+        const std::map<int, int>& contentFileMap, const MWWorld::ESMStore& esmStore, MWWorld::CellStore* cellstore)
     {
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
-
         using StateType = typename RecordToState<T>::StateType;
         StateType state;
         state.mRef = cref;
@@ -264,10 +271,9 @@ namespace
                     if (!iter->mData.isEnabled())
                     {
                         iter->mData.enable();
-                        MWBase::Environment::get().getWorld()->disable(MWWorld::Ptr(&*iter, cellstore));
+                        MWBase::Environment::get().getWorld()->disable(ptr);
                     }
-                    else
-                        MWBase::Environment::get().getWorldModel()->registerPtr(MWWorld::Ptr(&*iter, cellstore));
+                    MWBase::Environment::get().getWorldModel()->registerPtr(ptr);
                     return;
                 }
 
@@ -364,8 +370,30 @@ namespace MWWorld
         }
         else
         {
-            Log(Debug::Warning) << "Warning: could not resolve cell reference '" << ref.mRefID << "'"
+            Log(Debug::Warning) << "Warning: could not resolve cell reference " << ref.mRefID
                                 << " (dropping reference)";
+        }
+    }
+
+    template <typename X>
+    void CellRefList<X>::load(const ESM4::Reference& ref, bool deleted, const MWWorld::ESMStore& esmStore)
+    {
+
+        if constexpr (!ESM::isESM4Rec(X::sRecordId))
+            return;
+
+        const MWWorld::Store<X>& store = esmStore.get<X>();
+
+        if (const X* ptr = store.search(ref.mBaseObj))
+        {
+            LiveRef liveCellRef(ref, ptr);
+            if (deleted)
+                liveCellRef.mData.setDeletedByContentFile(true);
+            mList.push_back(liveCellRef);
+        }
+        else
+        {
+            Log(Debug::Warning) << "Warning: could not resolve cell reference " << ref.mId << " (dropping reference)";
         }
     }
 
@@ -400,7 +428,7 @@ namespace MWWorld
         {
             mMovedHere.insert(std::make_pair(object.getBase(), from));
         }
-        updateMergedRefs();
+        requestMergedRefsUpdate();
     }
 
     MWWorld::Ptr CellStore::moveTo(const Ptr& object, CellStore* cellToMoveTo)
@@ -412,10 +440,6 @@ namespace MWWorld
         if (mState != State_Loaded)
             throw std::runtime_error(
                 "moveTo: can't move object from a non-loaded cell (how did you get this object anyway?)");
-
-        // Ensure that the object actually exists in the cell
-        if (searchViaRefNum(object.getCellRef().getRefNum()).isEmpty())
-            throw std::runtime_error("moveTo: object is not in this cell");
 
         MWBase::Environment::get().getWorldModel()->registerPtr(MWWorld::Ptr(object.getBase(), cellToMoveTo));
 
@@ -436,15 +460,19 @@ namespace MWWorld
                 originalCell->moveTo(object, cellToMoveTo);
             }
 
-            updateMergedRefs();
+            requestMergedRefsUpdate();
             return MWWorld::Ptr(object.getBase(), cellToMoveTo);
         }
 
         cellToMoveTo->moveFrom(object, this);
         mMovedToAnotherCell.insert(std::make_pair(object.getBase(), cellToMoveTo));
 
-        updateMergedRefs();
-        return MWWorld::Ptr(object.getBase(), cellToMoveTo);
+        requestMergedRefsUpdate();
+        MWWorld::Ptr ptr(object.getBase(), cellToMoveTo);
+        const Class& cls = ptr.getClass();
+        if (cls.hasInventoryStore(ptr))
+            cls.getInventoryStore(ptr).setActor(ptr);
+        return ptr;
     }
 
     struct MergeVisitor
@@ -479,13 +507,19 @@ namespace MWWorld
         const std::map<LiveCellRefBase*, MWWorld::CellStore*>& mMovedToAnotherCell;
     };
 
-    void CellStore::updateMergedRefs()
+    void CellStore::requestMergedRefsUpdate()
+    {
+        mRechargingItemsUpToDate = false;
+        mMergedRefsNeedsUpdate = true;
+    }
+
+    void CellStore::updateMergedRefs() const
     {
         mMergedRefs.clear();
-        mRechargingItemsUpToDate = false;
         MergeVisitor visitor(mMergedRefs, mMovedHere, mMovedToAnotherCell);
-        CellStoreImp::forEachInternal(visitor, *this);
+        CellStoreImp::forEachInternal(visitor, const_cast<CellStore&>(*this));
         visitor.merge();
+        mMergedRefsNeedsUpdate = false;
     }
 
     bool CellStore::movedHere(const MWWorld::Ptr& ptr) const
@@ -499,26 +533,26 @@ namespace MWWorld
         return false;
     }
 
-    CellStore::CellStore(const ESM::Cell* cell, const MWWorld::ESMStore& esmStore, ESM::ReadersCache& readers)
+    CellStore::CellStore(MWWorld::Cell cell, const MWWorld::ESMStore& esmStore, ESM::ReadersCache& readers)
         : mStore(esmStore)
         , mReaders(readers)
-        , mCell(cell)
+        , mCellVariant(std::move(cell))
         , mState(State_Unloaded)
         , mHasState(false)
         , mLastRespawn(0, 0)
         , mCellStoreImp(std::make_unique<CellStoreImp>())
         , mRechargingItemsUpToDate(false)
     {
+
         std::apply([this](auto&... x) { (CellStoreImp::assignStoreToIndex(*this, x), ...); }, mCellStoreImp->mRefLists);
-        mWaterLevel = cell->mWater;
+        mWaterLevel = mCellVariant.getWaterHeight();
     }
 
     CellStore::~CellStore() = default;
-    CellStore::CellStore(CellStore&&) = default;
 
-    const ESM::Cell* CellStore::getCell() const
+    const MWWorld::Cell* CellStore::getCell() const
     {
-        return mCell;
+        return &mCellVariant;
     }
 
     CellStore::State CellStore::getState() const
@@ -583,10 +617,10 @@ namespace MWWorld
 
     Ptr CellStore::searchViaActorId(int id)
     {
-        if (Ptr ptr = ::searchViaActorId(get<ESM::NPC>(), id, this, mMovedToAnotherCell))
+        if (Ptr ptr = ::searchViaActorId(get<ESM::NPC>(), id, this, mMovedToAnotherCell); !ptr.isEmpty())
             return ptr;
 
-        if (Ptr ptr = ::searchViaActorId(get<ESM::Creature>(), id, this, mMovedToAnotherCell))
+        if (Ptr ptr = ::searchViaActorId(get<ESM::Creature>(), id, this, mMovedToAnotherCell); !ptr.isEmpty())
             return ptr;
 
         for (const auto& [base, _] : mMovedHere)
@@ -624,17 +658,10 @@ namespace MWWorld
         }
     };
 
-    Ptr CellStore::searchViaRefNum(const ESM::RefNum& refNum)
-    {
-        RefNumSearchVisitor searchVisitor(refNum);
-        forEach(searchVisitor);
-        return searchVisitor.mFound;
-    }
-
     float CellStore::getWaterLevel() const
     {
         if (isExterior())
-            return -1;
+            return getCell()->getWaterHeight();
         return mWaterLevel;
     }
 
@@ -646,6 +673,8 @@ namespace MWWorld
 
     std::size_t CellStore::count() const
     {
+        if (mMergedRefsNeedsUpdate)
+            updateMergedRefs();
         return mMergedRefs.size();
     }
 
@@ -672,28 +701,25 @@ namespace MWWorld
         }
     }
 
-    void CellStore::listRefs()
+    void CellStore::listRefs(const ESM::Cell& cell)
     {
-        assert(mCell);
-
-        if (mCell->mContextList.empty())
+        if (cell.mContextList.empty())
             return; // this is a dynamically generated cell -> skipping.
 
         // Load references from all plugins that do something with this cell.
-        for (size_t i = 0; i < mCell->mContextList.size(); i++)
+        for (size_t i = 0; i < cell.mContextList.size(); i++)
         {
             try
             {
                 // Reopen the ESM reader and seek to the right position.
-                const std::size_t index = static_cast<std::size_t>(mCell->mContextList[i].index);
+                const std::size_t index = static_cast<std::size_t>(cell.mContextList[i].index);
                 const ESM::ReadersCache::BusyItem reader = mReaders.get(index);
-                mCell->restore(*reader, i);
+                cell.restore(*reader, i);
 
                 ESM::CellRef ref;
 
                 // Get each reference in turn
                 ESM::MovedCellRef cMRef;
-                cMRef.mRefNum.mIndex = 0;
                 bool deleted = false;
                 bool moved = false;
                 while (ESM::Cell::getNextRef(
@@ -704,8 +730,8 @@ namespace MWWorld
 
                     // Don't list reference if it was moved to a different cell.
                     ESM::MovedCellRefTracker::const_iterator iter
-                        = std::find(mCell->mMovedRefs.begin(), mCell->mMovedRefs.end(), ref.mRefNum);
-                    if (iter != mCell->mMovedRefs.end())
+                        = std::find(cell.mMovedRefs.begin(), cell.mMovedRefs.end(), ref.mRefNum);
+                    if (iter != cell.mMovedRefs.end())
                     {
                         continue;
                     }
@@ -721,40 +747,50 @@ namespace MWWorld
         }
 
         // List moved references, from separately tracked list.
-        for (const auto& [ref, deleted] : mCell->mLeasedRefs)
+        for (const auto& [ref, deleted] : cell.mLeasedRefs)
         {
             if (!deleted)
                 mIds.push_back(ref.mRefID);
         }
+    }
 
+    template <typename ReferenceInvocable>
+    static void visitCell4References(
+        const ESM4::Cell& cell, const ESMStore& esmStore, ESM::ReadersCache& readers, ReferenceInvocable&& invocable)
+    {
+        for (const ESM4::Reference* ref : esmStore.get<ESM4::Reference>().getByCell(cell.mId))
+            invocable(*ref);
+    }
+
+    void CellStore::listRefs(const ESM4::Cell& cell)
+    {
+        visitCell4References(cell, mStore, mReaders, [&](const ESM4::Reference& ref) { mIds.push_back(ref.mBaseObj); });
+    }
+
+    void CellStore::listRefs()
+    {
+        ESM::visit([&](auto&& cell) { listRefs(cell); }, mCellVariant);
         std::sort(mIds.begin(), mIds.end());
     }
 
-    void CellStore::loadRefs()
+    void CellStore::loadRefs(const ESM::Cell& cell, std::map<ESM::RefNum, ESM::RefId>& refNumToID)
     {
-        assert(mCell);
-
-        if (mCell->mContextList.empty())
+        if (cell.mContextList.empty())
             return; // this is a dynamically generated cell -> skipping.
 
-        std::map<ESM::RefNum, ESM::RefId> refNumToID; // used to detect refID modifications
-
         // Load references from all plugins that do something with this cell.
-        for (size_t i = 0; i < mCell->mContextList.size(); i++)
+        for (size_t i = 0; i < cell.mContextList.size(); i++)
         {
             try
             {
                 // Reopen the ESM reader and seek to the right position.
-                const std::size_t index = static_cast<std::size_t>(mCell->mContextList[i].index);
+                const std::size_t index = static_cast<std::size_t>(cell.mContextList[i].index);
                 const ESM::ReadersCache::BusyItem reader = mReaders.get(index);
-                mCell->restore(*reader, i);
+                cell.restore(*reader, i);
 
                 ESM::CellRef ref;
-                ref.mRefNum.unset();
-
                 // Get each reference in turn
                 ESM::MovedCellRef cMRef;
-                cMRef.mRefNum.mIndex = 0;
                 bool deleted = false;
                 bool moved = false;
                 while (ESM::Cell::getNextRef(
@@ -765,8 +801,8 @@ namespace MWWorld
 
                     // Don't load reference if it was moved to a different cell.
                     ESM::MovedCellRefTracker::const_iterator iter
-                        = std::find(mCell->mMovedRefs.begin(), mCell->mMovedRefs.end(), ref.mRefNum);
-                    if (iter != mCell->mMovedRefs.end())
+                        = std::find(cell.mMovedRefs.begin(), cell.mMovedRefs.end(), ref.mRefNum);
+                    if (iter != cell.mMovedRefs.end())
                     {
                         continue;
                     }
@@ -780,27 +816,38 @@ namespace MWWorld
                                   << ": " << e.what();
             }
         }
-
         // Load moved references, from separately tracked list.
-        for (const auto& leasedRef : mCell->mLeasedRefs)
+        for (const auto& leasedRef : cell.mLeasedRefs)
         {
             ESM::CellRef& ref = const_cast<ESM::CellRef&>(leasedRef.first);
             bool deleted = leasedRef.second;
 
             loadRef(ref, deleted, refNumToID);
         }
+    }
 
-        updateMergedRefs();
+    void CellStore::loadRefs(const ESM4::Cell& cell, std::map<ESM::RefNum, ESM::RefId>& refNumToID)
+    {
+        visitCell4References(cell, mStore, mReaders, [&](const ESM4::Reference& ref) { loadRef(ref, false); });
+    }
+
+    void CellStore::loadRefs()
+    {
+        std::map<ESM::RefNum, ESM::RefId> refNumToID; // used to detect refID modifications
+
+        ESM::visit([&](auto&& cell) { loadRefs(cell, refNumToID); }, mCellVariant);
+
+        requestMergedRefsUpdate();
     }
 
     bool CellStore::isExterior() const
     {
-        return mCell->isExterior();
+        return mCellVariant.isExterior();
     }
 
     bool CellStore::isQuasiExterior() const
     {
-        return (mCell->mData.mFlags & ESM::Cell::QuasiEx) != 0;
+        return mCellVariant.isQuasiExterior();
     }
 
     Ptr CellStore::searchInContainer(const ESM::RefId& id)
@@ -809,18 +856,30 @@ namespace MWWorld
 
         mHasState = true;
 
-        if (Ptr ptr = searchInContainerList(get<ESM::Container>(), id))
+        if (Ptr ptr = searchInContainerList(get<ESM::Container>(), id); !ptr.isEmpty())
             return ptr;
 
-        if (Ptr ptr = searchInContainerList(get<ESM::Creature>(), id))
+        if (Ptr ptr = searchInContainerList(get<ESM::Creature>(), id); !ptr.isEmpty())
             return ptr;
 
-        if (Ptr ptr = searchInContainerList(get<ESM::NPC>(), id))
+        if (Ptr ptr = searchInContainerList(get<ESM::NPC>(), id); !ptr.isEmpty())
             return ptr;
 
         mHasState = oldState;
 
         return Ptr();
+    }
+
+    void CellStore::loadRef(const ESM4::Reference& ref, bool deleted)
+    {
+        const MWWorld::ESMStore& store = mStore;
+
+        ESM::RecNameInts foundType = static_cast<ESM::RecNameInts>(store.find(ref.mBaseObj));
+
+        Misc::tupleForEach(this->mCellStoreImp->mRefLists, [&ref, &deleted, &store, foundType](auto& x) {
+            recNameSwitcher(
+                x, foundType, [&ref, &deleted, &store](auto& storeIn) { storeIn.load(ref, deleted, store); });
+        });
     }
 
     void CellStore::loadRef(ESM::CellRef& ref, bool deleted, std::map<ESM::RefNum, ESM::RefId>& refNumToID)
@@ -857,13 +916,13 @@ namespace MWWorld
         }
         else
         {
-            Log(Debug::Error) << "Cell reference '" + ref.mRefID.getRefIdString() + "' not found!";
+            Log(Debug::Error) << "Cell reference " << ref.mRefID << " is not found!";
             return;
         }
 
         if (!handledType)
         {
-            Log(Debug::Error) << "Error: Ignoring reference '" << ref.mRefID.getRefIdString() << "' of unhandled type";
+            Log(Debug::Error) << "Error: Ignoring reference " << ref.mRefID << " of unhandled type";
             return;
         }
 
@@ -874,7 +933,7 @@ namespace MWWorld
     {
         mHasState = true;
 
-        if (mCell->mData.mFlags & ESM::Cell::Interior && mCell->mData.mFlags & ESM::Cell::HasWater)
+        if (!mCellVariant.isExterior() && mCellVariant.hasWater())
             mWaterLevel = state.mWaterLevel;
 
         mLastRespawn = MWWorld::TimeStamp(state.mLastRespawn);
@@ -882,11 +941,11 @@ namespace MWWorld
 
     void CellStore::saveState(ESM::CellState& state) const
     {
-        state.mId = mCell->getCellId();
+        state.mId = mCellVariant.getId();
 
-        if (mCell->mData.mFlags & ESM::Cell::Interior && mCell->mData.mFlags & ESM::Cell::HasWater)
+        if (!mCellVariant.isExterior() && mCellVariant.hasWater())
             state.mWaterLevel = mWaterLevel;
-
+        state.mIsInterior = !mCellVariant.isExterior();
         state.mHasFogOfWar = (mFogState.get() ? 1 : 0);
         state.mLastRespawn = mLastRespawn.toEsm();
     }
@@ -895,7 +954,7 @@ namespace MWWorld
     {
         if (mFogState.get())
         {
-            mFogState->save(writer, mCell->mData.mFlags & ESM::Cell::Interior);
+            mFogState->save(writer, !mCellVariant.isExterior());
         }
     }
 
@@ -913,10 +972,10 @@ namespace MWWorld
         for (const auto& [base, store] : mMovedToAnotherCell)
         {
             ESM::RefNum refNum = base->mRef.getRefNum();
-            ESM::CellId movedTo = store->getCell()->getCellId();
+            ESM::RefId movedTo = store->getCell()->getId();
 
-            refNum.save(writer, true, "MVRF");
-            movedTo.save(writer);
+            writer.writeFormId(refNum, true, "MVRF");
+            writer.writeCellId(movedTo);
         }
     }
 
@@ -934,10 +993,10 @@ namespace MWWorld
             ESM::CellRef cref;
             cref.loadId(reader, true);
 
-            int type = MWBase::Environment::get().getWorld()->getStore().find(cref.mRefID);
+            int type = mStore.find(cref.mRefID);
             if (type == 0)
             {
-                Log(Debug::Warning) << "Dropping reference to '" << cref.mRefID << "' (object no longer exists)";
+                Log(Debug::Warning) << "Dropping reference to " << cref.mRefID << " (object no longer exists)";
                 // Skip until the next OBJE or MVRF
                 while (reader.hasMoreSubs() && !reader.peekNextSub("OBJE") && !reader.peekNextSub("MVRF"))
                 {
@@ -955,7 +1014,7 @@ namespace MWWorld
                         recNameSwitcher(x, static_cast<ESM::RecNameInts>(type),
                             [&reader, this, &cref, &contentFileMap, &foundCorrespondingStore](auto& store) {
                                 foundCorrespondingStore = true;
-                                readReferenceCollection(reader, store, cref, contentFileMap, this);
+                                readReferenceCollection(reader, store, cref, contentFileMap, mStore, this);
                             });
                     });
 
@@ -964,18 +1023,11 @@ namespace MWWorld
             }
         }
 
-        // Do another update here to make sure objects referred to by MVRF tags can be found
-        // This update is only needed for old saves that used the old copy&delete way of moving objects
-        updateMergedRefs();
-
         while (reader.isNextSub("MVRF"))
         {
             reader.cacheSubName();
-            ESM::RefNum refnum;
-            ESM::CellId movedTo;
-            refnum.load(reader, true, "MVRF");
-            movedTo.load(reader);
-
+            ESM::RefNum refnum = reader.getFormId(true, "MVRF");
+            ESM::RefId movedToId = reader.getCellId();
             if (refnum.hasContentFile())
             {
                 auto iter = contentFileMap.find(refnum.mContentFile);
@@ -984,7 +1036,7 @@ namespace MWWorld
             }
 
             // Search for the reference. It might no longer exist if its content file was removed.
-            Ptr movedRef = searchViaRefNum(refnum);
+            Ptr movedRef = MWBase::Environment::get().getWorldModel()->getPtr(refnum);
             if (movedRef.isEmpty())
             {
                 Log(Debug::Warning) << "Warning: Dropping moved ref tag for " << refnum.mIndex
@@ -992,15 +1044,15 @@ namespace MWWorld
                 continue;
             }
 
-            CellStore* otherCell = callback->getCellStore(movedTo);
+            CellStore* otherCell = callback->getCellStore(movedToId);
 
             if (otherCell == nullptr)
             {
                 Log(Debug::Warning) << "Warning: Dropping moved ref tag for " << movedRef.getCellRef().getRefId()
-                                    << " (target cell " << movedTo.mWorldspace
+                                    << " (target cell " << movedToId
                                     << " no longer exists). Reference moved back to its original location.";
-                // Note by dropping tag the object will automatically re-appear in its original cell, though potentially
-                // at inapproriate coordinates. Restore original coordinates:
+                // Note by dropping tag the object will automatically re-appear in its original cell, though
+                // potentially at inapproriate coordinates. Restore original coordinates:
                 movedRef.getRefData().setPosition(movedRef.getCellRef().getPosition());
                 continue;
             }
@@ -1014,16 +1066,8 @@ namespace MWWorld
 
             moveTo(movedRef, otherCell);
         }
-    }
 
-    bool operator==(const CellStore& left, const CellStore& right)
-    {
-        return left.getCell()->getCellId() == right.getCell()->getCellId();
-    }
-
-    bool operator!=(const CellStore& left, const CellStore& right)
-    {
-        return !(left == right);
+        requestMergedRefsUpdate();
     }
 
     void CellStore::setFog(std::unique_ptr<ESM::FogState>&& fog)
@@ -1036,15 +1080,11 @@ namespace MWWorld
         return mFogState.get();
     }
 
-    void clearCorpse(const MWWorld::Ptr& ptr)
+    static void clearCorpse(const MWWorld::Ptr& ptr, const ESMStore& store)
     {
         const MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
-        static const float fCorpseClearDelay = MWBase::Environment::get()
-                                                   .getWorld()
-                                                   ->getStore()
-                                                   .get<ESM::GameSetting>()
-                                                   .find("fCorpseClearDelay")
-                                                   ->mValue.getFloat();
+        static const float fCorpseClearDelay
+            = store.get<ESM::GameSetting>().find("fCorpseClearDelay")->mValue.getFloat();
         if (creatureStats.isDead() && creatureStats.isDeathAnimationFinished() && !ptr.getClass().isPersistent(ptr)
             && creatureStats.getTimeOfDeath() + fCorpseClearDelay
                 <= MWBase::Environment::get().getWorld()->getTimeStamp())
@@ -1122,12 +1162,8 @@ namespace MWWorld
     {
         if (mState == State_Loaded)
         {
-            static const int iMonthsToRespawn = MWBase::Environment::get()
-                                                    .getWorld()
-                                                    ->getStore()
-                                                    .get<ESM::GameSetting>()
-                                                    .find("iMonthsToRespawn")
-                                                    ->mValue.getInteger();
+            static const int iMonthsToRespawn
+                = mStore.get<ESM::GameSetting>().find("iMonthsToRespawn")->mValue.getInteger();
             if (MWBase::Environment::get().getWorld()->getTimeStamp() - mLastRespawn > 24 * 30 * iMonthsToRespawn)
             {
                 mLastRespawn = MWBase::Environment::get().getWorld()->getTimeStamp();
@@ -1143,14 +1179,14 @@ namespace MWWorld
                  it != get<ESM::Creature>().mList.end(); ++it)
             {
                 Ptr ptr = getCurrentPtr(&*it);
-                clearCorpse(ptr);
+                clearCorpse(ptr, mStore);
                 ptr.getClass().respawn(ptr);
             }
             for (CellRefList<ESM::NPC>::List::iterator it(get<ESM::NPC>().mList.begin());
                  it != get<ESM::NPC>().mList.end(); ++it)
             {
                 Ptr ptr = getCurrentPtr(&*it);
-                clearCorpse(ptr);
+                clearCorpse(ptr, mStore);
                 ptr.getClass().respawn(ptr);
             }
             for (CellRefList<ESM::CreatureLevList>::List::iterator it(get<ESM::CreatureLevList>().mList.begin());
@@ -1203,18 +1239,18 @@ namespace MWWorld
         if (enchantmentId.empty())
             return;
 
-        const ESM::Enchantment* enchantment
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().search(enchantmentId);
+        const ESM::Enchantment* enchantment = mStore.get<ESM::Enchantment>().search(enchantmentId);
         if (!enchantment)
         {
-            Log(Debug::Warning) << "Warning: Can't find enchantment '" << enchantmentId << "' on item "
+            Log(Debug::Warning) << "Warning: Can't find enchantment " << enchantmentId << " on item "
                                 << ptr.getCellRef().getRefId();
             return;
         }
 
         if (enchantment->mData.mType == ESM::Enchantment::WhenUsed
             || enchantment->mData.mType == ESM::Enchantment::WhenStrikes)
-            mRechargingItems.emplace_back(ptr.getBase(), static_cast<float>(enchantment->mData.mCharge));
+            mRechargingItems.emplace_back(
+                ptr.getBase(), static_cast<float>(MWMechanics::getEnchantmentCharge(*enchantment)));
     }
 
     Ptr MWWorld::CellStore::getMovedActor(int actorId) const
@@ -1229,5 +1265,25 @@ namespace MWWorld
             }
         }
         return {};
+    }
+
+    Ptr CellStore::getPtr(ESM::RefId id)
+    {
+        if (mState == CellStore::State_Unloaded)
+            preload();
+
+        if (mState == CellStore::State_Preloaded)
+        {
+            if (!std::binary_search(mIds.begin(), mIds.end(), id))
+                return Ptr();
+            load();
+        }
+
+        Ptr ptr = search(id);
+
+        if (!ptr.isEmpty() && isAccessible(ptr.getRefData(), ptr.getCellRef()))
+            return ptr;
+
+        return Ptr();
     }
 }

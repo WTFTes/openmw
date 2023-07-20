@@ -5,6 +5,7 @@
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadmgef.hpp>
+#include <components/esm3/loadskil.hpp>
 
 #include "../mwbase/dialoguemanager.hpp"
 #include "../mwbase/environment.hpp"
@@ -381,13 +382,15 @@ int MWDialogue::Filter::getSelectStructInteger(const SelectWrapper& select) cons
                 .getModified(false);
 
         case SelectWrapper::Function_PcAttribute:
-
-            return player.getClass().getCreatureStats(player).getAttribute(select.getArgument()).getModified();
-
+        {
+            auto attribute = static_cast<ESM::Attribute::AttributeID>(select.getArgument());
+            return player.getClass().getCreatureStats(player).getAttribute(attribute).getModified();
+        }
         case SelectWrapper::Function_PcSkill:
-
-            return static_cast<int>(player.getClass().getNpcStats(player).getSkill(select.getArgument()).getModified());
-
+        {
+            ESM::RefId skill = ESM::Skill::indexToRefId(select.getArgument());
+            return static_cast<int>(player.getClass().getNpcStats(player).getSkill(skill).getModified());
+        }
         case SelectWrapper::Function_FriendlyHit:
         {
             int hits = mActor.getClass().getCreatureStats(mActor).getFriendlyHits();
@@ -509,7 +512,7 @@ int MWDialogue::Filter::getSelectStructInteger(const SelectWrapper& select) cons
         {
             MWWorld::Ptr target;
             mActor.getClass().getCreatureStats(mActor).getAiSequence().getCombatTarget(target);
-            if (target)
+            if (!target.isEmpty())
             {
                 if (target.getClass().isNpc() && target.getClass().getNpcStats(target).isWerewolf())
                     return 2;
@@ -582,7 +585,7 @@ bool MWDialogue::Filter::getSelectStructBoolean(const SelectWrapper& select) con
             return player.getClass()
                        .getCreatureStats(player)
                        .getMagicEffects()
-                       .get(ESM::MagicEffect::Corprus)
+                       .getOrDefault(ESM::MagicEffect::Corprus)
                        .getMagnitude()
                 != 0;
 
@@ -601,7 +604,7 @@ bool MWDialogue::Filter::getSelectStructBoolean(const SelectWrapper& select) con
             return player.getClass()
                        .getCreatureStats(player)
                        .getMagicEffects()
-                       .get(ESM::MagicEffect::Vampirism)
+                       .getOrDefault(ESM::MagicEffect::Vampirism)
                        .getMagnitude()
                 > 0;
 
@@ -644,33 +647,27 @@ int MWDialogue::Filter::getFactionRank(const MWWorld::Ptr& actor, const ESM::Ref
 bool MWDialogue::Filter::hasFactionRankSkillRequirements(
     const MWWorld::Ptr& actor, const ESM::RefId& factionId, int rank) const
 {
-    if (rank < 0 || rank >= 10)
-        throw std::runtime_error("rank index out of range");
-
     if (!actor.getClass().getNpcStats(actor).hasSkillsForRank(factionId, rank))
         return false;
 
-    const ESM::Faction& faction
-        = *MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(factionId);
+    const ESM::Faction& faction = *MWBase::Environment::get().getESMStore()->get<ESM::Faction>().find(factionId);
 
     MWMechanics::CreatureStats& stats = actor.getClass().getCreatureStats(actor);
 
-    return stats.getAttribute(faction.mData.mAttribute[0]).getBase() >= faction.mData.mRankData[rank].mAttribute1
-        && stats.getAttribute(faction.mData.mAttribute[1]).getBase() >= faction.mData.mRankData[rank].mAttribute2;
+    return stats.getAttribute(ESM::Attribute::AttributeID(faction.mData.mAttribute[0])).getBase()
+        >= faction.mData.mRankData[rank].mAttribute1
+        && stats.getAttribute(ESM::Attribute::AttributeID(faction.mData.mAttribute[1])).getBase()
+        >= faction.mData.mRankData[rank].mAttribute2;
 }
 
 bool MWDialogue::Filter::hasFactionRankReputationRequirements(
     const MWWorld::Ptr& actor, const ESM::RefId& factionId, int rank) const
 {
-    if (rank < 0 || rank >= 10)
-        throw std::runtime_error("rank index out of range");
-
     MWMechanics::NpcStats& stats = actor.getClass().getNpcStats(actor);
 
-    const ESM::Faction& faction
-        = *MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(factionId);
+    const ESM::Faction& faction = *MWBase::Environment::get().getESMStore()->get<ESM::Faction>().find(factionId);
 
-    return stats.getFactionReputation(factionId) >= faction.mData.mRankData[rank].mFactReaction;
+    return stats.getFactionReputation(factionId) >= faction.mData.mRankData.at(rank).mFactReaction;
 }
 
 MWDialogue::Filter::Filter(const MWWorld::Ptr& actor, int choice, bool talkedToPlayer)
@@ -680,12 +677,13 @@ MWDialogue::Filter::Filter(const MWWorld::Ptr& actor, int choice, bool talkedToP
 {
 }
 
-const ESM::DialInfo* MWDialogue::Filter::search(const ESM::Dialogue& dialogue, const bool fallbackToInfoRefusal) const
+MWDialogue::Filter::Response MWDialogue::Filter::search(
+    const ESM::Dialogue& dialogue, const bool fallbackToInfoRefusal) const
 {
-    std::vector<const ESM::DialInfo*> suitableInfos = list(dialogue, fallbackToInfoRefusal, false);
+    auto suitableInfos = list(dialogue, fallbackToInfoRefusal, false);
 
     if (suitableInfos.empty())
-        return nullptr;
+        return {};
     else
         return suitableInfos[0];
 }
@@ -695,22 +693,21 @@ bool MWDialogue::Filter::couldPotentiallyMatch(const ESM::DialInfo& info) const
     return testActor(info) && matchesStaticFilters(info, mActor);
 }
 
-std::vector<const ESM::DialInfo*> MWDialogue::Filter::list(
+std::vector<MWDialogue::Filter::Response> MWDialogue::Filter::list(
     const ESM::Dialogue& dialogue, bool fallbackToInfoRefusal, bool searchAll, bool invertDisposition) const
 {
-    std::vector<const ESM::DialInfo*> infos;
+    std::vector<MWDialogue::Filter::Response> infos;
 
     bool infoRefusal = false;
 
     // Iterate over topic responses to find a matching one
-    for (ESM::Dialogue::InfoContainer::const_iterator iter = dialogue.mInfo.begin(); iter != dialogue.mInfo.end();
-         ++iter)
+    for (const auto& info : dialogue.mInfo)
     {
-        if (testActor(*iter) && testPlayer(*iter) && testSelectStructs(*iter))
+        if (testActor(info) && testPlayer(info) && testSelectStructs(info))
         {
-            if (testDisposition(*iter, invertDisposition))
+            if (testDisposition(info, invertDisposition))
             {
-                infos.push_back(&*iter);
+                infos.emplace_back(&dialogue, &info);
                 if (!searchAll)
                     break;
             }
@@ -724,17 +721,15 @@ std::vector<const ESM::DialInfo*> MWDialogue::Filter::list(
         // No response is valid because of low NPC disposition,
         // search a response in the topic "Info Refusal"
 
-        const MWWorld::Store<ESM::Dialogue>& dialogues
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Dialogue>();
+        const MWWorld::Store<ESM::Dialogue>& dialogues = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>();
 
         const ESM::Dialogue& infoRefusalDialogue = *dialogues.find(ESM::RefId::stringRefId("Info Refusal"));
 
-        for (ESM::Dialogue::InfoContainer::const_iterator iter = infoRefusalDialogue.mInfo.begin();
-             iter != infoRefusalDialogue.mInfo.end(); ++iter)
-            if (testActor(*iter) && testPlayer(*iter) && testSelectStructs(*iter)
-                && testDisposition(*iter, invertDisposition))
+        for (const auto& info : infoRefusalDialogue.mInfo)
+            if (testActor(info) && testPlayer(info) && testSelectStructs(info)
+                && testDisposition(info, invertDisposition))
             {
-                infos.push_back(&*iter);
+                infos.emplace_back(&infoRefusalDialogue, &info);
                 if (!searchAll)
                     break;
             }

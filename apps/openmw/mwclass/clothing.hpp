@@ -21,19 +21,19 @@ namespace MWClass
         std::string_view getName(const MWWorld::ConstPtr& ptr) const override;
         ///< \return name or ID; can return an empty string.
 
+        bool isItem(const MWWorld::ConstPtr&) const override { return true; }
+
         std::unique_ptr<MWWorld::Action> activate(const MWWorld::Ptr& ptr, const MWWorld::Ptr& actor) const override;
         ///< Generate action for activation
 
-        const ESM::RefId& getScript(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getScript(const MWWorld::ConstPtr& ptr) const override;
         ///< Return name of the script attached to ptr
 
         std::pair<std::vector<int>, bool> getEquipmentSlots(const MWWorld::ConstPtr& ptr) const override;
         ///< \return first: Return IDs of the slot this object can be equipped in; second: can object
         /// stay stacked when equipped?
 
-        int getEquipmentSkill(const MWWorld::ConstPtr& ptr) const override;
-        /// Return the index of the skill this item corresponds to when equipped or -1, if there is
-        /// no such skill.
+        ESM::RefId getEquipmentSkill(const MWWorld::ConstPtr& ptr) const override;
 
         MWGui::ToolTipInfo getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const override;
         ///< @return the content of the tool tip to be displayed. raises exception if the object has no tooltip.
@@ -50,7 +50,7 @@ namespace MWClass
         const std::string& getInventoryIcon(const MWWorld::ConstPtr& ptr) const override;
         ///< Return name of inventory icon.
 
-        const ESM::RefId& getEnchantment(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getEnchantment(const MWWorld::ConstPtr& ptr) const override;
         ///< @return the enchantment ID if the object is enchanted, otherwise an empty string
 
         const ESM::RefId& applyEnchantment(const MWWorld::ConstPtr& ptr, const ESM::RefId& enchId, int enchCharge,

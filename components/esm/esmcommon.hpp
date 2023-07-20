@@ -28,6 +28,8 @@ namespace ESM
         FLAG_Blocked = 0x00002000
     };
 
+    using StringSizeType = std::uint32_t;
+
     template <std::size_t capacity>
     struct FixedString
     {
@@ -121,23 +123,23 @@ namespace ESM
         }
     };
 
-    template <std::size_t capacity, class T, typename = std::enable_if_t<std::is_same_v<T, char>>>
-    inline bool operator==(const FixedString<capacity>& lhs, const T* const& rhs) noexcept
+    template <std::size_t capacity>
+    inline bool operator==(const FixedString<capacity>& lhs, std::string_view rhs) noexcept
     {
-        for (std::size_t i = 0; i < capacity; ++i)
+        for (std::size_t i = 0, n = std::min(rhs.size(), capacity); i < n; ++i)
         {
             if (lhs.mData[i] != rhs[i])
                 return false;
             if (lhs.mData[i] == '\0')
                 return true;
         }
-        return rhs[capacity] == '\0';
+        return rhs.size() <= capacity || rhs[capacity] == '\0';
     }
 
-    template <std::size_t capacity>
-    inline bool operator==(const FixedString<capacity>& lhs, const std::string& rhs) noexcept
+    template <std::size_t capacity, class T, typename = std::enable_if_t<std::is_same_v<T, char>>>
+    inline bool operator==(const FixedString<capacity>& lhs, const T* const& rhs) noexcept
     {
-        return lhs == rhs.c_str();
+        return lhs == std::string_view(rhs, capacity);
     }
 
     template <std::size_t capacity, std::size_t rhsSize>
@@ -154,6 +156,12 @@ namespace ESM
     inline bool operator==(const FixedString<4>& lhs, const FixedString<4>& rhs) noexcept
     {
         return lhs.toInt() == rhs.toInt();
+    }
+
+    template <class T, typename = std::enable_if_t<std::is_same_v<T, char>>>
+    inline bool operator==(const FixedString<4>& lhs, const T* const& rhs) noexcept
+    {
+        return lhs == std::string_view(rhs, 5);
     }
 
     template <std::size_t capacity, class Rhs>
@@ -182,8 +190,9 @@ namespace ESM
     struct ESM_Context
     {
         std::filesystem::path filename;
-        uint32_t leftRec, leftSub;
-        size_t leftFile;
+        std::streamsize leftRec;
+        std::uint32_t leftSub;
+        std::streamsize leftFile;
         NAME recName, subName;
         // When working with multiple esX files, we will generate lists of all files that
         //  actually contribute to a specific cell. Therefore, we need to store the index

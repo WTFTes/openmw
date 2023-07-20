@@ -1,7 +1,6 @@
 #include "terrainstorage.hpp"
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 #include "../mwworld/esmstore.hpp"
 
 #include "landmanager.hpp"
@@ -26,36 +25,60 @@ namespace MWRender
         mResourceSystem->removeResourceManager(mLandManager.get());
     }
 
-    bool TerrainStorage::hasData(int cellX, int cellY)
+    bool TerrainStorage::hasData(ESM::ExteriorCellLocation cellLocation)
     {
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
 
-        const ESM::Land* land = esmStore.get<ESM::Land>().search(cellX, cellY);
-        return land != nullptr;
+        if (ESM::isEsm4Ext(cellLocation.mWorldspace))
+        {
+            return esmStore.get<ESM4::Land>().search(cellLocation) != nullptr;
+        }
+        else
+        {
+            return esmStore.get<ESM::Land>().search(cellLocation.mX, cellLocation.mY) != nullptr;
+        }
     }
 
-    void TerrainStorage::getBounds(float& minX, float& maxX, float& minY, float& maxY)
+    static void BoundUnion(float& minX, float& maxX, float& minY, float& maxY, float x, float y)
+    {
+        if (x < minX)
+            minX = x;
+        if (x > maxX)
+            maxX = x;
+        if (y < minY)
+            minY = y;
+        if (y > maxY)
+            maxY = y;
+    }
+
+    void TerrainStorage::getBounds(float& minX, float& maxX, float& minY, float& maxY, ESM::RefId worldspace)
     {
         minX = 0;
         minY = 0;
         maxX = 0;
         maxY = 0;
 
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
 
-        MWWorld::Store<ESM::Land>::iterator it = esmStore.get<ESM::Land>().begin();
-        for (; it != esmStore.get<ESM::Land>().end(); ++it)
+        if (ESM::isEsm4Ext(worldspace))
         {
-            if (it->mX < minX)
-                minX = static_cast<float>(it->mX);
-            if (it->mX > maxX)
-                maxX = static_cast<float>(it->mX);
-            if (it->mY < minY)
-                minY = static_cast<float>(it->mY);
-            if (it->mY > maxY)
-                maxY = static_cast<float>(it->mY);
+            const auto& lands = esmStore.get<ESM4::Land>().getLands();
+            for (const auto& [landPos, _] : lands)
+            {
+                if (landPos.mWorldspace == worldspace)
+                {
+                    BoundUnion(minX, maxX, minY, maxY, static_cast<float>(landPos.mX), static_cast<float>(landPos.mY));
+                }
+            }
         }
-
+        else
+        {
+            MWWorld::Store<ESM::Land>::iterator it = esmStore.get<ESM::Land>().begin();
+            for (; it != esmStore.get<ESM::Land>().end(); ++it)
+            {
+                BoundUnion(minX, maxX, minY, maxY, static_cast<float>(it->mX), static_cast<float>(it->mY));
+            }
+        }
         // since grid coords are at cell origin, we need to add 1 cell
         maxX += 1;
         maxY += 1;
@@ -66,14 +89,14 @@ namespace MWRender
         return mLandManager.get();
     }
 
-    osg::ref_ptr<const ESMTerrain::LandObject> TerrainStorage::getLand(int cellX, int cellY)
+    osg::ref_ptr<const ESMTerrain::LandObject> TerrainStorage::getLand(ESM::ExteriorCellLocation cellLocation)
     {
-        return mLandManager->getLand(cellX, cellY);
+        return mLandManager->getLand(cellLocation);
     }
 
     const ESM::LandTexture* TerrainStorage::getLandTexture(int index, short plugin)
     {
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
         return esmStore.get<ESM::LandTexture>().search(index, plugin);
     }
 

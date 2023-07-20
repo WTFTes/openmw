@@ -14,6 +14,10 @@
 #include <components/misc/algorithm.hpp>
 
 #include <components/esm4/common.hpp>
+#include <components/esm4/loadland.hpp>
+#include <components/esm4/loadwrld.hpp>
+#include <components/esm4/reader.hpp>
+#include <components/esm4/readerutils.hpp>
 #include <components/esmloader/load.hpp>
 
 #include "../mwmechanics/spelllist.hpp"
@@ -44,7 +48,6 @@ namespace
             const ESM::ReadersCache::BusyItem reader = readers.get(index);
             cell.restore(*reader, i);
             ESM::CellRef ref;
-            ref.mRefNum.unset();
             bool deleted = false;
             while (cell.getNextRef(*reader, ref, deleted))
             {
@@ -103,9 +106,9 @@ namespace
                 const ESM::Faction* fact = factions.search(npcFaction);
                 if (!fact)
                 {
-                    Log(Debug::Verbose) << "NPC '" << npc.mId << "' (" << npc.mName << ") has nonexistent faction '"
-                                        << npc.mFaction << "', ignoring it.";
-                    npc.mFaction = ESM::RefId::sEmpty;
+                    Log(Debug::Verbose) << "NPC " << npc.mId << " (" << npc.mName << ") has nonexistent faction "
+                                        << npc.mFaction << ", ignoring it.";
+                    npc.mFaction = ESM::RefId();
                     npc.mNpdt.mRank = 0;
                     changed = true;
                 }
@@ -115,8 +118,8 @@ namespace
             const ESM::Class* cls = classes.search(npcClass);
             if (!cls)
             {
-                Log(Debug::Verbose) << "NPC '" << npc.mId << "' (" << npc.mName << ") has nonexistent class '"
-                                    << npc.mClass << "', using '" << defaultCls << "' class as replacement.";
+                Log(Debug::Verbose) << "NPC " << npc.mId << " (" << npc.mName << ") has nonexistent class "
+                                    << npc.mClass << ", using " << defaultCls << " class as replacement.";
                 npc.mClass = defaultCls;
                 changed = true;
             }
@@ -137,9 +140,9 @@ namespace
         {
             if (!item.mScript.empty() && !scripts.search(item.mScript))
             {
-                item.mScript = ESM::RefId::sEmpty;
-                Log(Debug::Verbose) << "Item '" << id << "' (" << item.mName << ") has nonexistent script '"
-                                    << item.mScript << "', ignoring it.";
+                item.mScript = ESM::RefId();
+                Log(Debug::Verbose) << "Item " << id << " (" << item.mName << ") has nonexistent script "
+                                    << item.mScript << ", ignoring it.";
             }
         }
     }
@@ -180,6 +183,35 @@ namespace MWWorld
                 }
             }
         }
+
+        template <typename T>
+        static bool typedReadRecordESM4(ESM4::Reader& reader, Store<T>& store)
+        {
+            auto recordType = static_cast<ESM4::RecordTypes>(reader.hdr().record.typeId);
+
+            ESM::RecNameInts esm4RecName = static_cast<ESM::RecNameInts>(ESM::esm4Recname(recordType));
+            if constexpr (HasRecordId<T>::value)
+            {
+                if constexpr (ESM::isESM4Rec(T::sRecordId))
+                {
+                    if (T::sRecordId == esm4RecName)
+                    {
+                        reader.getRecordData();
+                        T value;
+                        value.load(reader);
+                        store.insertStatic(value);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        static bool readRecord(ESM4::Reader& reader, ESMStore& store)
+        {
+            return std::apply(
+                [&reader](auto&... x) { return (typedReadRecordESM4(reader, x) || ...); }, store.mStoreImp->mStores);
+        }
     };
 
     int ESMStore::find(const ESM::RefId& id) const
@@ -216,6 +248,7 @@ namespace MWWorld
     {
         for (const auto& store : mDynamicStores)
             store->clearDynamic();
+        mStoreImp->mIds = mStoreImp->mStaticIds;
 
         movePlayerRecord();
     }
@@ -245,6 +278,20 @@ namespace MWWorld
             case ESM::REC_STAT:
             case ESM::REC_WEAP:
             case ESM::REC_BODY:
+            case ESM::REC_STAT4:
+            case ESM::REC_LIGH4:
+            case ESM::REC_ACTI4:
+            case ESM::REC_ALCH4:
+            case ESM::REC_AMMO4:
+            case ESM::REC_ARMO4:
+            case ESM::REC_BOOK4:
+            case ESM::REC_CONT4:
+            case ESM::REC_DOOR4:
+            case ESM::REC_FURN4:
+            case ESM::REC_INGR4:
+            case ESM::REC_MISC4:
+            case ESM::REC_TREE4:
+            case ESM::REC_WEAP4:
                 return true;
                 break;
         }
@@ -282,7 +329,7 @@ namespace MWWorld
                 {
                     if (dialogue)
                     {
-                        dialogue->readInfo(esm, esm.getIndex() != 0);
+                        dialogue->readInfo(esm);
                     }
                     else
                     {
@@ -338,6 +385,12 @@ namespace MWWorld
         }
     }
 
+    void ESMStore::loadESM4(ESM4::Reader& reader)
+    {
+        auto visitorRec = [this](ESM4::Reader& reader) { return ESMStoreImp::readRecord(reader, *this); };
+        ESM4::ReaderUtils::readAll(reader, visitorRec, [](ESM4::Reader&) {});
+    }
+
     void ESMStore::setIdType(const ESM::RefId& id, ESM::RecNameInts type)
     {
         mStoreImp->mIds[id] = type;
@@ -374,32 +427,36 @@ namespace MWWorld
 
     void ESMStore::setUp()
     {
+        if (mIsSetUpDone)
+            throw std::logic_error("ESMStore::setUp() is called twice");
+        mIsSetUpDone = true;
+
+        for (const auto& [_, store] : mStoreImp->mRecNameToStore)
+            store->setUp();
+
+        getWritable<ESM::Skill>().setUp(get<ESM::GameSetting>());
+        getWritable<ESM::MagicEffect>().setUp();
+        getWritable<ESM::Attribute>().setUp(get<ESM::GameSetting>());
+        getWritable<ESM4::Land>().updateLandPositions(get<ESM4::Cell>());
+        getWritable<ESM4::Reference>().preprocessReferences(get<ESM4::Cell>());
+
+        rebuildIdsIndex();
+        mStoreImp->mStaticIds = mStoreImp->mIds;
+    }
+
+    void ESMStore::rebuildIdsIndex()
+    {
         mStoreImp->mIds.clear();
-
-        std::map<ESM::RecNameInts, DynamicStore*>::iterator storeIt = mStoreImp->mRecNameToStore.begin();
-        for (; storeIt != mStoreImp->mRecNameToStore.end(); ++storeIt)
+        for (const auto& [recordType, store] : mStoreImp->mRecNameToStore)
         {
-            storeIt->second->setUp();
-
-            if (isCacheableRecord(storeIt->first))
+            if (isCacheableRecord(recordType))
             {
                 std::vector<ESM::RefId> identifiers;
-                storeIt->second->listIdentifier(identifiers);
-
+                store->listIdentifier(identifiers);
                 for (auto& record : identifiers)
-                    mStoreImp->mIds[record] = storeIt->first;
+                    mStoreImp->mIds[record] = recordType;
             }
         }
-
-        if (mStoreImp->mStaticIds.empty())
-            for (const auto& [k, v] : mStoreImp->mIds)
-                mStoreImp->mStaticIds.emplace(k, v);
-
-        getWritable<ESM::Skill>().setUp();
-        getWritable<ESM::MagicEffect>().setUp();
-        ;
-        getWritable<ESM::Attribute>().setUp();
-        getWritable<ESM::Dialogue>().setUp();
     }
 
     void ESMStore::validateRecords(ESM::ReadersCache& readers)
@@ -490,7 +547,7 @@ namespace MWWorld
                     {
                         iter->mAttribute = -1;
                         Log(Debug::Verbose)
-                            << ESM::MagicEffect::effectIdToString(iter->mEffectID) << " effect of spell '" << spell.mId
+                            << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect of spell '" << spell.mId
                             << "' has an attribute argument present. Dropping the argument.";
                         changed = true;
                     }
@@ -501,7 +558,7 @@ namespace MWWorld
                     {
                         iter->mSkill = -1;
                         Log(Debug::Verbose)
-                            << ESM::MagicEffect::effectIdToString(iter->mEffectID) << " effect of spell '" << spell.mId
+                            << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect of spell '" << spell.mId
                             << "' has a skill argument present. Dropping the argument.";
                         changed = true;
                     }
@@ -510,7 +567,7 @@ namespace MWWorld
                 {
                     iter->mSkill = -1;
                     iter->mAttribute = -1;
-                    Log(Debug::Verbose) << ESM::MagicEffect::effectIdToString(iter->mEffectID) << " effect of spell '"
+                    Log(Debug::Verbose) << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect of spell '"
                                         << spell.mId << "' has argument(s) present. Dropping the argument(s).";
                     changed = true;
                 }
@@ -556,8 +613,8 @@ namespace MWWorld
         removeMissingObjects(getWritable<ESM::ItemLevList>());
     }
 
-    // Leveled lists can be modified by scripts. This removes items that no longer exist (presumably because the plugin
-    // was removed) from modified lists
+    // Leveled lists can be modified by scripts. This removes items that no longer exist (presumably because the
+    // plugin was removed) from modified lists
     template <class T>
     void ESMStore::removeMissingObjects(Store<T>& store)
     {
@@ -566,8 +623,8 @@ namespace MWWorld
             auto first = std::remove_if(entry.second.mList.begin(), entry.second.mList.end(), [&](const auto& item) {
                 if (!find(item.mId))
                 {
-                    Log(Debug::Verbose) << "Leveled list '" << entry.first << "' has nonexistent object '" << item.mId
-                                        << "', ignoring it.";
+                    Log(Debug::Verbose) << "Leveled list " << entry.first << " has nonexistent object " << item.mId
+                                        << ", ignoring it.";
                     return true;
                 }
                 return false;
@@ -583,6 +640,7 @@ namespace MWWorld
             + get<ESM::Book>().getDynamicSize() + get<ESM::Class>().getDynamicSize()
             + get<ESM::Clothing>().getDynamicSize() + get<ESM::Enchantment>().getDynamicSize()
             + get<ESM::NPC>().getDynamicSize() + get<ESM::Spell>().getDynamicSize()
+            + get<ESM::Activator>().getDynamicSize() + get<ESM::Miscellaneous>().getDynamicSize()
             + get<ESM::Weapon>().getDynamicSize() + get<ESM::CreatureLevList>().getDynamicSize()
             + get<ESM::ItemLevList>().getDynamicSize() + get<ESM::Creature>().getDynamicSize()
             + get<ESM::Container>().getDynamicSize();
@@ -603,6 +661,8 @@ namespace MWWorld
         get<ESM::Clothing>().write(writer, progress);
         get<ESM::Enchantment>().write(writer, progress);
         get<ESM::NPC>().write(writer, progress);
+        get<ESM::Miscellaneous>().write(writer, progress);
+        get<ESM::Activator>().write(writer, progress);
         get<ESM::Spell>().write(writer, progress);
         get<ESM::Weapon>().write(writer, progress);
         get<ESM::CreatureLevList>().write(writer, progress);
@@ -617,6 +677,8 @@ namespace MWWorld
         switch (type)
         {
             case ESM::REC_ALCH:
+            case ESM::REC_MISC:
+            case ESM::REC_ACTI:
             case ESM::REC_ARMO:
             case ESM::REC_BOOK:
             case ESM::REC_CLAS:
@@ -647,8 +709,6 @@ namespace MWWorld
 
     void ESMStore::checkPlayer()
     {
-        setUp();
-
         const ESM::NPC* player = get<ESM::NPC>().find(ESM::RefId::stringRefId("Player"));
 
         if (!get<ESM::Race>().find(player->mRace) || !get<ESM::Class>().find(player->mClass))
@@ -689,12 +749,9 @@ namespace MWWorld
         {
             return npcs.insert(npc);
         }
-        const ESM::RefId id = ESM::RefId::stringRefId("$dynamic" + std::to_string(mDynamicCount++));
+        const ESM::RefId id = ESM::RefId::generated(mDynamicCount++);
         if (npcs.search(id) != nullptr)
-        {
-            const std::string msg = "Try to override existing record '" + id.getRefIdString() + "'";
-            throw std::runtime_error(msg);
-        }
+            throw std::runtime_error("Try to override existing record: " + id.toDebugString());
         ESM::NPC record = npc;
 
         record.mId = id;

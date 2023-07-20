@@ -3,6 +3,8 @@
 
 #include <memory>
 
+#include "components/esm3/quickkeys.hpp"
+
 #include "itemselection.hpp"
 #include "spellmodel.hpp"
 #include "windowbase.hpp"
@@ -38,16 +40,6 @@ namespace MWGui
         void activateQuickKey(int index);
         void updateActivatedQuickKey();
 
-        /// @note This enum is serialized, so don't move the items around!
-        enum QuickKeyType
-        {
-            Type_Item,
-            Type_Magic,
-            Type_MagicItem,
-            Type_Unassigned,
-            Type_HandToHand
-        };
-
         void write(ESM::ESMWriter& writer);
         void readRecord(ESM::ESMReader& reader, uint32_t type);
         void clear() override;
@@ -55,19 +47,11 @@ namespace MWGui
     private:
         struct keyData
         {
-            int index;
-            ItemWidget* button;
-            QuickKeysMenu::QuickKeyType type;
+            int index = -1;
+            ItemWidget* button = nullptr;
+            ESM::QuickKeys::Type type = ESM::QuickKeys::Type::Unassigned;
             ESM::RefId id;
             std::string name;
-            keyData()
-                : index(-1)
-                , button(nullptr)
-                , type(Type_Unassigned)
-                , id(ESM::RefId::sEmpty)
-                , name("")
-            {
-            }
         };
 
         std::vector<keyData> mKey;

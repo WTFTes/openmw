@@ -3,6 +3,8 @@
 #include <osg/Group>
 #include <osg/UserDataContainer>
 
+#include <components/misc/resourcehelpers.hpp>
+#include <components/misc/strings/algorithm.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/sceneutil/unrefqueue.hpp>
 
@@ -68,12 +70,21 @@ namespace MWRender
         ptr.getRefData().setBaseNode(insert);
     }
 
-    void Objects::insertModel(const MWWorld::Ptr& ptr, const std::string& mesh, bool animated, bool allowLight)
+    void Objects::insertModel(const MWWorld::Ptr& ptr, const std::string& mesh, bool allowLight)
     {
         insertBegin(ptr);
         ptr.getRefData().getBaseNode()->setNodeMask(Mask_Object);
+        bool animated = ptr.getClass().useAnim();
+        std::string animationMesh = mesh;
+        if (animated && !mesh.empty())
+        {
+            animationMesh = Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS());
+            if (animationMesh == mesh && Misc::StringUtils::ciEndsWith(animationMesh, ".nif"))
+                animated = false;
+        }
 
-        osg::ref_ptr<ObjectAnimation> anim(new ObjectAnimation(ptr, mesh, mResourceSystem, animated, allowLight));
+        osg::ref_ptr<ObjectAnimation> anim(
+            new ObjectAnimation(ptr, animationMesh, mResourceSystem, animated, allowLight));
 
         mObjects.emplace(ptr.mRef, std::move(anim));
     }
@@ -83,13 +94,18 @@ namespace MWRender
         insertBegin(ptr);
         ptr.getRefData().getBaseNode()->setNodeMask(Mask_Actor);
 
+        bool animated = true;
+        std::string animationMesh = Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS());
+        if (animationMesh == mesh && Misc::StringUtils::ciEndsWith(animationMesh, ".nif"))
+            animated = false;
+
         // CreatureAnimation
         osg::ref_ptr<Animation> anim;
 
         if (weaponsShields)
-            anim = new CreatureWeaponAnimation(ptr, mesh, mResourceSystem);
+            anim = new CreatureWeaponAnimation(ptr, animationMesh, mResourceSystem, animated);
         else
-            anim = new CreatureAnimation(ptr, mesh, mResourceSystem);
+            anim = new CreatureAnimation(ptr, animationMesh, mResourceSystem, animated);
 
         if (mObjects.emplace(ptr.mRef, anim).second)
             ptr.getClass().getContainerStore(ptr).setContListener(static_cast<ActorAnimation*>(anim.get()));
@@ -105,7 +121,7 @@ namespace MWRender
 
         if (mObjects.emplace(ptr.mRef, anim).second)
         {
-            ptr.getClass().getInventoryStore(ptr).setInvListener(anim.get(), ptr);
+            ptr.getClass().getInventoryStore(ptr).setInvListener(anim.get());
             ptr.getClass().getInventoryStore(ptr).setContListener(anim.get());
         }
     }
@@ -125,7 +141,7 @@ namespace MWRender
             if (ptr.getClass().isActor())
             {
                 if (ptr.getClass().hasInventoryStore(ptr))
-                    ptr.getClass().getInventoryStore(ptr).setInvListener(nullptr, ptr);
+                    ptr.getClass().getInventoryStore(ptr).setInvListener(nullptr);
 
                 ptr.getClass().getContainerStore(ptr).setContListener(nullptr);
             }
@@ -148,7 +164,7 @@ namespace MWRender
                 if (ptr.getClass().isActor() && ptr.getRefData().getCustomData())
                 {
                     if (ptr.getClass().hasInventoryStore(ptr))
-                        ptr.getClass().getInventoryStore(ptr).setInvListener(nullptr, ptr);
+                        ptr.getClass().getInventoryStore(ptr).setInvListener(nullptr);
                     ptr.getClass().getContainerStore(ptr).setContListener(nullptr);
                 }
 

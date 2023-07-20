@@ -16,6 +16,7 @@
 #include <components/esm3/projectilestate.hpp>
 
 #include <components/misc/constants.hpp>
+#include <components/misc/convert.hpp>
 #include <components/misc/resourcehelpers.hpp>
 
 #include <components/resource/resourcesystem.hpp>
@@ -26,7 +27,7 @@
 #include <components/sceneutil/nodecallback.hpp>
 #include <components/sceneutil/visitor.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -59,7 +60,7 @@ namespace
     ESM::EffectList getMagicBoltData(std::vector<ESM::RefId>& projectileIDs, std::set<ESM::RefId>& sounds, float& speed,
         std::string& texture, std::string& sourceName, const ESM::RefId& id)
     {
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
         const ESM::EffectList* effects;
         if (const ESM::Spell* spell = esmStore.get<ESM::Spell>().search(id)) // check if it's a spell
         {
@@ -82,7 +83,7 @@ namespace
              ++iter)
         {
             const ESM::MagicEffect* magicEffect
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(iter->mEffectID);
+                = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(iter->mEffectID);
 
             // Speed of multi-effect projectiles should be the average of the constituent effects,
             // based on observation of the original engine.
@@ -97,12 +98,14 @@ namespace
             else
                 projectileIDs.push_back(magicEffect->mBolt);
 
-            static const std::string schools[]
-                = { "alteration", "conjuration", "destruction", "illusion", "mysticism", "restoration" };
             if (!magicEffect->mBoltSound.empty())
                 sounds.emplace(magicEffect->mBoltSound);
             else
-                sounds.emplace(ESM::RefId::stringRefId(schools[magicEffect->mData.mSchool] + " bolt"));
+                sounds.emplace(MWBase::Environment::get()
+                                   .getESMStore()
+                                   ->get<ESM::Skill>()
+                                   .find(magicEffect->mData.mSchool)
+                                   ->mSchool->mBoltSound);
             projectileEffects.mList.push_back(*iter);
         }
 
@@ -113,7 +116,7 @@ namespace
         if (projectileEffects.mList.size() == 1)
         {
             const ESM::MagicEffect* magicEffect
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(
+                = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(
                     effects->mList.begin()->mEffectID);
             texture = magicEffect->mParticle;
         }
@@ -133,21 +136,14 @@ namespace
     {
         // Calculate combined light diffuse color from magical effects
         osg::Vec4 lightDiffuseColor;
-        float lightDiffuseRed = 0.0f;
-        float lightDiffuseGreen = 0.0f;
-        float lightDiffuseBlue = 0.0f;
-        for (std::vector<ESM::ENAMstruct>::const_iterator iter(effects.mList.begin()); iter != effects.mList.end();
-             ++iter)
+        for (const ESM::ENAMstruct& enam : effects.mList)
         {
             const ESM::MagicEffect* magicEffect
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(iter->mEffectID);
-            lightDiffuseRed += (static_cast<float>(magicEffect->mData.mRed) / 255.f);
-            lightDiffuseGreen += (static_cast<float>(magicEffect->mData.mGreen) / 255.f);
-            lightDiffuseBlue += (static_cast<float>(magicEffect->mData.mBlue) / 255.f);
+                = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(enam.mEffectID);
+            lightDiffuseColor += magicEffect->getColor();
         }
         int numberOfEffects = effects.mList.size();
-        lightDiffuseColor = osg::Vec4(lightDiffuseRed / numberOfEffects, lightDiffuseGreen / numberOfEffects,
-            lightDiffuseBlue / numberOfEffects, 1.0f);
+        lightDiffuseColor /= numberOfEffects;
 
         return lightDiffuseColor;
     }
@@ -219,8 +215,8 @@ namespace MWWorld
             {
                 std::ostringstream nodeName;
                 nodeName << "Dummy" << std::setw(2) << std::setfill('0') << iter;
-                const ESM::Weapon* weapon = MWBase::Environment::get().getWorld()->getStore().get<ESM::Weapon>().find(
-                    state.mIdMagic.at(iter));
+                const ESM::Weapon* weapon
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Weapon>().find(state.mIdMagic.at(iter));
                 std::string nameToFind = nodeName.str();
                 SceneUtil::FindByNameVisitor findVisitor(nameToFind);
                 attachTo->accept(findVisitor);
@@ -312,7 +308,7 @@ namespace MWWorld
             return;
         }
 
-        MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), state.mIdMagic.at(0));
+        MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), state.mIdMagic.at(0));
         MWWorld::Ptr ptr = ref.getPtr();
 
         osg::Vec4 lightDiffuseColor = getMagicBoltLightDiffuseColor(state.mEffects);
@@ -334,7 +330,7 @@ namespace MWWorld
         if (state.mIdMagic.size() > 1)
         {
             model = Misc::ResourceHelpers::correctMeshPath(
-                MWBase::Environment::get().getWorld()->getStore().get<ESM::Weapon>().find(state.mIdMagic[1])->mModel,
+                MWBase::Environment::get().getESMStore()->get<ESM::Weapon>().find(state.mIdMagic[1])->mModel,
                 MWBase::Environment::get().getResourceSystem()->getVFS());
         }
         state.mProjectileId = mPhysics->addProjectile(caster, pos, model, true);
@@ -355,7 +351,7 @@ namespace MWWorld
         int type = projectile.get<ESM::Weapon>()->mBase->mData.mType;
         state.mThrown = MWMechanics::getWeaponType(type)->mWeaponClass == ESM::WeaponType::Thrown;
 
-        MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), projectile.getCellRef().getRefId());
+        MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), projectile.getCellRef().getRefId());
         MWWorld::Ptr ptr = ref.getPtr();
 
         const auto model = ptr.getClass().getModel(ptr);
@@ -428,7 +424,7 @@ namespace MWWorld
 
     void ProjectileManager::moveMagicBolts(float duration)
     {
-        static const bool normaliseRaceSpeed = Settings::Manager::getBool("normalise race speed", "Game");
+        const bool normaliseRaceSpeed = Settings::game().mNormaliseRaceSpeed;
         for (auto& magicBoltState : mMagicBolts)
         {
             if (magicBoltState.mToDelete)
@@ -448,7 +444,7 @@ namespace MWWorld
                 }
             }
 
-            const auto& store = MWBase::Environment::get().getWorld()->getStore();
+            const auto& store = *MWBase::Environment::get().getESMStore();
             osg::Quat orient = magicBoltState.mNode->getAttitude();
             static float fTargetSpellMaxSpeed
                 = store.get<ESM::GameSetting>().find("fTargetSpellMaxSpeed")->mValue.getFloat();
@@ -536,8 +532,7 @@ namespace MWWorld
                 caster = target;
 
             // Try to get a Ptr to the bow that was used. It might no longer exist.
-            MWWorld::ManualRef projectileRef(
-                MWBase::Environment::get().getWorld()->getStore(), projectileState.mIdArrow);
+            MWWorld::ManualRef projectileRef(*MWBase::Environment::get().getESMStore(), projectileState.mIdArrow);
             MWWorld::Ptr bow = projectileRef.getPtr();
             if (!caster.isEmpty() && projectileState.mIdArrow != projectileState.mBowId)
             {
@@ -546,14 +541,17 @@ namespace MWWorld
                 if (invIt != inv.end() && invIt->getCellRef().getRefId() == projectileState.mBowId)
                     bow = *invIt;
             }
+
+            const auto hitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
+
             if (projectile->getHitWater())
-                mRendering->emitWaterRipple(pos);
+                mRendering->emitWaterRipple(hitPosition);
 
             MWMechanics::projectileHit(
-                caster, target, bow, projectileRef.getPtr(), pos, projectileState.mAttackStrength);
+                caster, target, bow, projectileRef.getPtr(), hitPosition, projectileState.mAttackStrength);
             projectileState.mToDelete = true;
         }
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
         for (auto& magicBoltState : mMagicBolts)
         {
             if (magicBoltState.mToDelete)
@@ -574,7 +572,7 @@ namespace MWWorld
             assert(target != caster);
 
             MWMechanics::CastSpell cast(caster, target);
-            cast.mHitPosition = pos;
+            cast.mHitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
             cast.mId = magicBoltState.mSpellId;
             cast.mSourceName = magicBoltState.mSourceName;
             cast.mSlot = magicBoltState.mSlot;
@@ -699,7 +697,7 @@ namespace MWWorld
             std::string model;
             try
             {
-                MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), esm.mId);
+                MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), esm.mId);
                 MWWorld::Ptr ptr = ref.getPtr();
                 model = ptr.getClass().getModel(ptr);
                 int weaponType = ptr.get<ESM::Weapon>()->mBase->mData.mType;
@@ -752,7 +750,7 @@ namespace MWWorld
             std::string model;
             try
             {
-                MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), state.mIdMagic.at(0));
+                MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), state.mIdMagic.at(0));
                 MWWorld::Ptr ptr = ref.getPtr();
                 model = ptr.getClass().getModel(ptr);
             }

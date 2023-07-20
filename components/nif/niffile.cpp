@@ -16,6 +16,7 @@
 #include "effect.hpp"
 #include "exception.hpp"
 #include "extra.hpp"
+#include "node.hpp"
 #include "physics.hpp"
 #include "property.hpp"
 
@@ -87,6 +88,8 @@ namespace Nif
             { "NiBSPArrayController", &construct<NiBSPArrayController, RC_NiBSPArrayController> },
             { "NiParticleSystemController", &construct<NiParticleSystemController, RC_NiParticleSystemController> },
             { "NiFlipController", &construct<NiFlipController, RC_NiFlipController> },
+            { "NiTextureTransformController",
+                &construct<NiTextureTransformController, RC_NiTextureTransformController> },
             { "NiAmbientLight", &construct<NiLight, RC_NiLight> },
             { "NiDirectionalLight", &construct<NiLight, RC_NiLight> },
             { "NiPointLight", &construct<NiPointLight, RC_NiLight> },
@@ -137,6 +140,11 @@ namespace Nif
             { "BSBound", &construct<BSBound, RC_BSBound> },
             { "NiTransformData", &construct<NiKeyframeData, RC_NiKeyframeData> },
             { "BSFadeNode", &construct<NiNode, RC_NiNode> },
+            { "BSLeafAnimNode", &construct<NiNode, RC_NiNode> },
+            { "BSTreeNode", &construct<BSTreeNode, RC_NiNode> },
+            { "BSValueNode", &construct<BSValueNode, RC_NiNode> },
+            { "BSOrderedNode", &construct<BSOrderedNode, RC_NiNode> },
+            { "BSMultiBoundNode", &construct<BSMultiBoundNode, RC_NiNode> },
             { "bhkBlendController", &construct<bhkBlendController, RC_bhkBlendController> },
             { "NiFloatInterpolator", &construct<NiFloatInterpolator, RC_NiFloatInterpolator> },
             { "NiBoolInterpolator", &construct<NiBoolInterpolator, RC_NiBoolInterpolator> },
@@ -152,8 +160,11 @@ namespace Nif
             { "BSShaderPPLightingProperty", &construct<BSShaderPPLightingProperty, RC_BSShaderPPLightingProperty> },
             { "BSShaderNoLightingProperty", &construct<BSShaderNoLightingProperty, RC_BSShaderNoLightingProperty> },
             { "BSFurnitureMarker", &construct<BSFurnitureMarker, RC_BSFurnitureMarker> },
+            { "BSFurnitureMarkerNode", &construct<BSFurnitureMarker, RC_BSFurnitureMarker> },
             { "NiCollisionObject", &construct<NiCollisionObject, RC_NiCollisionObject> },
             { "bhkCollisionObject", &construct<bhkCollisionObject, RC_bhkCollisionObject> },
+            { "bhkSPCollisionObject", &construct<bhkCollisionObject, RC_bhkCollisionObject> },
+            { "bhkPCollisionObject", &construct<bhkCollisionObject, RC_bhkCollisionObject> },
             { "BSDismemberSkinInstance", &construct<BSDismemberSkinInstance, RC_BSDismemberSkinInstance> },
             { "NiControllerManager", &construct<NiControllerManager, RC_NiControllerManager> },
             { "bhkMoppBvTreeShape", &construct<bhkMoppBvTreeShape, RC_bhkMoppBvTreeShape> },
@@ -161,16 +172,43 @@ namespace Nif
             { "bhkPackedNiTriStripsShape", &construct<bhkPackedNiTriStripsShape, RC_bhkPackedNiTriStripsShape> },
             { "hkPackedNiTriStripsData", &construct<hkPackedNiTriStripsData, RC_hkPackedNiTriStripsData> },
             { "bhkConvexVerticesShape", &construct<bhkConvexVerticesShape, RC_bhkConvexVerticesShape> },
+            { "bhkConvexTransformShape", &construct<bhkConvexTransformShape, RC_bhkConvexTransformShape> },
+            { "bhkTransformShape", &construct<bhkConvexTransformShape, RC_bhkConvexTransformShape> },
+            { "bhkSimpleShapePhantom", &construct<bhkSimpleShapePhantom, RC_bhkSimpleShapePhantom> },
             { "bhkBoxShape", &construct<bhkBoxShape, RC_bhkBoxShape> },
             { "bhkCapsuleShape", &construct<bhkCapsuleShape, RC_bhkCapsuleShape> },
             { "bhkSphereShape", &construct<bhkSphereShape, RC_bhkSphereShape> },
             { "bhkListShape", &construct<bhkListShape, RC_bhkListShape> },
             { "bhkRigidBody", &construct<bhkRigidBody, RC_bhkRigidBody> },
             { "bhkRigidBodyT", &construct<bhkRigidBody, RC_bhkRigidBodyT> },
+            { "bhkRagdollConstraint", &construct<bhkRagdollConstraint, RC_bhkRagdollConstraint> },
+            { "bhkHingeConstraint", &construct<bhkHingeConstraint, RC_bhkHingeConstraint> },
             { "BSLightingShaderProperty", &construct<BSLightingShaderProperty, RC_BSLightingShaderProperty> },
+            { "BSEffectShaderProperty", &construct<BSEffectShaderProperty, RC_BSEffectShaderProperty> },
             { "NiSortAdjustNode", &construct<NiSortAdjustNode, RC_NiSortAdjustNode> },
             { "NiClusterAccumulator", &construct<NiClusterAccumulator, RC_NiClusterAccumulator> },
             { "NiAlphaAccumulator", &construct<NiAlphaAccumulator, RC_NiAlphaAccumulator> },
+            { "NiSequence", &construct<NiSequence, RC_NiSequence> },
+            { "NiControllerSequence", &construct<NiControllerSequence, RC_NiControllerSequence> },
+            { "NiDefaultAVObjectPalette", &construct<NiDefaultAVObjectPalette, RC_NiDefaultAVObjectPalette> },
+            { "NiBlendBoolInterpolator", &construct<NiBlendBoolInterpolator, RC_NiBlendBoolInterpolator> },
+            { "NiBlendFloatInterpolator", &construct<NiBlendFloatInterpolator, RC_NiBlendFloatInterpolator> },
+            { "NiBlendPoint3Interpolator", &construct<NiBlendPoint3Interpolator, RC_NiBlendPoint3Interpolator> },
+            { "NiBlendTransformInterpolator",
+                &construct<NiBlendTransformInterpolator, RC_NiBlendTransformInterpolator> },
+            { "bhkCompressedMeshShape", &construct<bhkCompressedMeshShape, RC_bhkCompressedMeshShape> },
+            { "bhkCompressedMeshShapeData", &construct<bhkCompressedMeshShapeData, RC_bhkCompressedMeshShapeData> },
+            { "BSMultiBound", &construct<BSMultiBound, RC_BSMultiBound> },
+            { "BSMultiBoundOBB", &construct<BSMultiBoundOBB, RC_BSMultiBoundOBB> },
+            { "BSMultiBoundSphere", &construct<BSMultiBoundSphere, RC_BSMultiBoundSphere> },
+            { "BSInvMarker", &construct<BSInvMarker, RC_BSInvMarker> },
+            { "BSTriShape", &construct<BSTriShape, RC_BSTriShape> },
+            { "BSEffectShaderPropertyFloatController",
+                &construct<BSEffectShaderPropertyFloatController, RC_BSEffectShaderPropertyFloatController> },
+            { "BSLightingShaderPropertyFloatController",
+                &construct<BSEffectShaderPropertyFloatController, RC_BSLightingShaderPropertyFloatController> },
+            { "BSEffectShaderPropertyColorController",
+                &construct<BSEffectShaderPropertyColorController, RC_BSEffectShaderPropertyColorController> },
         };
     }
 
@@ -203,7 +241,7 @@ namespace Nif
             "Gamebryo File Format",
         };
         const bool supportedHeader = std::any_of(verStrings.begin(), verStrings.end(),
-            [&](const std::string& verString) { return head.compare(0, verString.size(), verString) == 0; });
+            [&](const std::string& verString) { return head.starts_with(verString); });
         if (!supportedHeader)
             throw Nif::Exception("Invalid NIF header: " + head, filename);
 
@@ -216,13 +254,14 @@ namespace Nif
             NIFFile::VER_MW,
         };
         const bool supportedVersion = std::find(supportedVers.begin(), supportedVers.end(), ver) != supportedVers.end();
+        const bool writeDebugLog = sWriteNifDebugLog;
         if (!supportedVersion)
         {
-            if (sLoadUnsupportedFiles)
+            if (!sLoadUnsupportedFiles)
+                throw Nif::Exception("Unsupported NIF version: " + printVersion(ver), filename);
+            if (writeDebugLog)
                 Log(Debug::Warning) << " NIFFile Warning: Unsupported NIF version: " << printVersion(ver)
                                     << ". Proceed with caution! File: " << filename;
-            else
-                throw Nif::Exception("Unsupported NIF version: " + printVersion(ver), filename);
         }
 
         // NIF data endianness
@@ -306,7 +345,7 @@ namespace Nif
             }
 
             // Record separator. Some Havok records in Oblivion do not have it.
-            if (hasRecordSeparators && rec.compare(0, 3, "bhk"))
+            if (hasRecordSeparators && !rec.starts_with("bhk"))
                 if (nif.getInt())
                     Log(Debug::Warning) << "NIFFile Warning: Record number " << i << " out of " << recNum
                                         << " is preceded by a non-zero separator. File: " << filename;
@@ -318,7 +357,7 @@ namespace Nif
 
             r = entry->second();
 
-            if (!supportedVersion)
+            if (!supportedVersion && writeDebugLog)
                 Log(Debug::Verbose) << "NIF Debug: Reading record of type " << rec << ", index " << i << " ("
                                     << filename << ")";
 
@@ -360,10 +399,16 @@ namespace Nif
     }
 
     std::atomic_bool Reader::sLoadUnsupportedFiles = false;
+    std::atomic_bool Reader::sWriteNifDebugLog = false;
 
     void Reader::setLoadUnsupportedFiles(bool load)
     {
         sLoadUnsupportedFiles = load;
+    }
+
+    void Reader::setWriteNifDebugLog(bool value)
+    {
+        sWriteNifDebugLog = value;
     }
 
     std::string Reader::getString(std::uint32_t index) const

@@ -4,7 +4,7 @@
 #include <QHash>
 #include <QVariant>
 
-class QTextStream;
+#include <components/to_utf8/to_utf8.hpp>
 
 namespace Wizard
 {
@@ -14,8 +14,7 @@ namespace Wizard
     class IniSettings
     {
     public:
-        explicit IniSettings();
-        ~IniSettings();
+        explicit IniSettings() = default;
 
         inline QVariant value(const QString& key, const QVariant& defaultValue = QVariant()) const
         {
@@ -30,8 +29,8 @@ namespace Wizard
 
         QStringList findKeys(const QString& text);
 
-        bool readFile(QTextStream& stream);
-        bool writeFile(const QString& path, QTextStream& stream);
+        bool readFile(std::ifstream& stream, ToUTF8::FromType encoding);
+        bool writeFile(const QString& path, std::ifstream& stream, ToUTF8::FromType encoding);
 
         bool parseInx(const QString& path);
 

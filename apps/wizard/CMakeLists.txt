@@ -62,8 +62,8 @@ if(WIN32)
     set(QT_USE_QTMAIN TRUE)
 endif(WIN32)
 
-QT5_ADD_RESOURCES(RCC_SRCS ${CMAKE_SOURCE_DIR}/files/wizard/wizard.qrc)
-QT5_WRAP_UI(UI_HDRS ${WIZARD_UI})
+QT_ADD_RESOURCES(RCC_SRCS ${CMAKE_SOURCE_DIR}/files/wizard/wizard.qrc)
+QT_WRAP_UI(UI_HDRS ${WIZARD_UI})
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
@@ -83,7 +83,7 @@ target_link_libraries(openmw-wizard
     components_qt
 )
 
-target_link_libraries(openmw-wizard Qt5::Widgets Qt5::Core)
+target_link_libraries(openmw-wizard Qt::Widgets Qt::Core)
 
 if (OPENMW_USE_UNSHIELD)
     target_link_libraries(openmw-wizard ${LIBUNSHIELD_LIBRARIES})
@@ -94,13 +94,13 @@ if(DPKG_PROGRAM)
 endif()
 
 if (BUILD_WITH_CODE_COVERAGE)
-  add_definitions (--coverage)
-  target_link_libraries(openmw-wizard gcov)
+    target_compile_options(openmw-wizard PRIVATE --coverage)
+    target_link_libraries(openmw-wizard gcov)
 endif()
 
 # Workaround for binutil => 2.23 problem when linking, should be fixed eventually upstream
 if (CMAKE_SYSTEM_NAME MATCHES "Linux")
-target_link_libraries(openmw-wizard dl Xt)
+    target_link_libraries(openmw-wizard dl Xt)
 endif()
 
 if (WIN32)

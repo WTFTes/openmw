@@ -11,6 +11,7 @@
 
 namespace MWWorld
 {
+    class CellStore;
     class Ptr;
 }
 
@@ -23,12 +24,20 @@ namespace ESM
 {
     class ESMReader;
     class ESMWriter;
+    class RefId;
     struct LuaScripts;
 }
 
 namespace MWBase
 {
-
+    // \brief LuaManager is the central interface through which the engine invokes lua scripts.
+    //
+    // The native side invokes functions on this interface, which queues events to be handled by the
+    // scripts in the lua thread. Synchronous calls are not possible.
+    //
+    // The main implementation is in apps/openmw/mwlua/luamanagerimp.cpp.
+    // Lua logic in general lives under apps/openmw/mwlua and this interface is
+    // the main way for the rest of the engine to interact with the logic there.
     class LuaManager
     {
     public:
@@ -40,6 +49,8 @@ namespace MWBase
         virtual void objectRemovedFromScene(const MWWorld::Ptr& ptr) = 0;
         virtual void itemConsumed(const MWWorld::Ptr& consumable, const MWWorld::Ptr& actor) = 0;
         virtual void objectActivated(const MWWorld::Ptr& object, const MWWorld::Ptr& actor) = 0;
+        virtual void exteriorCreated(MWWorld::CellStore& cell) = 0;
+        virtual void questUpdated(const ESM::RefId& questId, int stage) = 0;
         // TODO: notify LuaManager about other events
         // virtual void objectOnHit(const MWWorld::Ptr &ptr, float damage, bool ishealth, const MWWorld::Ptr &object,
         //                          const MWWorld::Ptr &attacker, const osg::Vec3f &hitPosition, bool successful) = 0;

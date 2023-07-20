@@ -3,6 +3,7 @@
 #include <components/bullethelpers/aabb.hpp>
 #include <components/debug/debugging.hpp>
 #include <components/debug/debuglog.hpp>
+#include <components/detournavigator/debug.hpp>
 #include <components/detournavigator/gettilespositions.hpp>
 #include <components/detournavigator/objectid.hpp>
 #include <components/detournavigator/recastmesh.hpp>
@@ -18,6 +19,7 @@
 #include <components/esmloader/lessbyid.hpp>
 #include <components/esmloader/record.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/misc/strings/conversion.hpp>
 #include <components/misc/strings/lower.hpp>
 #include <components/navmeshtool/protocol.hpp>
 #include <components/resource/bulletshapemanager.hpp>
@@ -31,6 +33,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -219,10 +222,20 @@ namespace NavMeshTool
             const std::vector<std::byte> data = serialize(value);
             getRawStderr().write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
         }
+
+        std::string makeAddObjectErrorMessage(
+            ObjectId objectId, DetourNavigator::AreaType areaType, const CollisionShape& shape)
+        {
+            std::ostringstream stream;
+            stream << "Failed to add object to recast mesh objectId=" << objectId.value() << " areaType=" << areaType
+                   << " fileName=" << shape.getInstance()->mFileName
+                   << " fileHash=" << Misc::StringUtils::toHex(shape.getInstance()->mFileHash);
+            return stream.str();
+        }
     }
 
     WorldspaceNavMeshInput::WorldspaceNavMeshInput(
-        ESM::RefId worldspace, const DetourNavigator::RecastSettings& settings)
+        std::string worldspace, const DetourNavigator::RecastSettings& settings)
         : mWorldspace(std::move(worldspace))
         , mTileCachedRecastMeshManager(settings)
     {
@@ -236,7 +249,7 @@ namespace NavMeshTool
     {
         Log(Debug::Info) << "Processing " << esmData.mCells.size() << " cells...";
 
-        std::map<ESM::RefId, std::unique_ptr<WorldspaceNavMeshInput>> navMeshInputs;
+        std::map<std::string_view, std::unique_ptr<WorldspaceNavMeshInput>> navMeshInputs;
         WorldspaceData data;
 
         std::size_t objectsCounter = 0;
@@ -264,20 +277,22 @@ namespace NavMeshTool
 
             const osg::Vec2i cellPosition(cell.mData.mX, cell.mData.mY);
             const std::size_t cellObjectsBegin = data.mObjects.size();
+            const auto cellWorldspace = Misc::StringUtils::lowerCase(
+                (cell.isExterior() ? ESM::Cell::sDefaultWorldspaceId : cell.mId).serializeText());
             WorldspaceNavMeshInput& navMeshInput = [&]() -> WorldspaceNavMeshInput& {
-                auto it = navMeshInputs.find(cell.mCellId.mWorldspace);
+                auto it = navMeshInputs.find(cellWorldspace);
                 if (it == navMeshInputs.end())
                 {
                     it = navMeshInputs
-                             .emplace(cell.mCellId.mWorldspace,
-                                 std::make_unique<WorldspaceNavMeshInput>(cell.mCellId.mWorldspace, settings.mRecast))
+                             .emplace(cellWorldspace,
+                                 std::make_unique<WorldspaceNavMeshInput>(cellWorldspace, settings.mRecast))
                              .first;
-                    it->second->mTileCachedRecastMeshManager.setWorldspace(cell.mCellId.mWorldspace, nullptr);
+                    it->second->mTileCachedRecastMeshManager.setWorldspace(cellWorldspace, nullptr);
                 }
                 return *it->second;
             }();
 
-            const TileCachedRecastMeshManager::UpdateGuard guard(navMeshInput.mTileCachedRecastMeshManager);
+            const auto guard = navMeshInput.mTileCachedRecastMeshManager.makeUpdateGuard();
 
             if (exterior)
             {
@@ -291,15 +306,15 @@ namespace NavMeshTool
                     getAabb(cellPosition, minHeight, maxHeight), navMeshInput.mAabb, navMeshInput.mAabbInitialized);
 
                 navMeshInput.mTileCachedRecastMeshManager.addHeightfield(
-                    cellPosition, ESM::Land::REAL_SIZE, heightfieldShape, &guard);
+                    cellPosition, ESM::Land::REAL_SIZE, heightfieldShape, guard.get());
 
-                navMeshInput.mTileCachedRecastMeshManager.addWater(cellPosition, ESM::Land::REAL_SIZE, -1, &guard);
+                navMeshInput.mTileCachedRecastMeshManager.addWater(cellPosition, ESM::Land::REAL_SIZE, -1, guard.get());
             }
             else
             {
                 if ((cell.mData.mFlags & ESM::Cell::HasWater) != 0)
                     navMeshInput.mTileCachedRecastMeshManager.addWater(
-                        cellPosition, std::numeric_limits<int>::max(), cell.mWater, &guard);
+                        cellPosition, std::numeric_limits<int>::max(), cell.mWater, guard.get());
             }
 
             forEachObject(cell, esmData, vfs, bulletShapeManager, readers, [&](BulletObject object) {
@@ -316,14 +331,19 @@ namespace NavMeshTool
                 const CollisionShape shape(object.getShapeInstance(), *object.getCollisionObject().getCollisionShape(),
                     object.getObjectTransform());
 
-                navMeshInput.mTileCachedRecastMeshManager.addObject(
-                    objectId, shape, transform, DetourNavigator::AreaType_ground, &guard);
+                if (!navMeshInput.mTileCachedRecastMeshManager.addObject(
+                        objectId, shape, transform, DetourNavigator::AreaType_ground, guard.get()))
+                    throw std::logic_error(
+                        makeAddObjectErrorMessage(objectId, DetourNavigator::AreaType_ground, shape));
 
                 if (const btCollisionShape* avoid = object.getShapeInstance()->mAvoidCollisionShape.get())
                 {
+                    const ObjectId avoidObjectId(++objectsCounter);
                     const CollisionShape avoidShape(object.getShapeInstance(), *avoid, object.getObjectTransform());
-                    navMeshInput.mTileCachedRecastMeshManager.addObject(
-                        objectId, avoidShape, transform, DetourNavigator::AreaType_null, &guard);
+                    if (!navMeshInput.mTileCachedRecastMeshManager.addObject(
+                            avoidObjectId, avoidShape, transform, DetourNavigator::AreaType_null, guard.get()))
+                        throw std::logic_error(
+                            makeAddObjectErrorMessage(avoidObjectId, DetourNavigator::AreaType_null, avoidShape));
                 }
 
                 data.mObjects.emplace_back(std::move(object));

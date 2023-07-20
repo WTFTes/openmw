@@ -91,7 +91,7 @@ namespace MWClass
         std::unique_ptr<MWWorld::Action> activate(const MWWorld::Ptr& ptr, const MWWorld::Ptr& actor) const override;
         ///< Generate action for activation
 
-        const ESM::RefId& getScript(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getScript(const MWWorld::ConstPtr& ptr) const override;
         ///< Return name of the script attached to ptr
 
         float getMaxSpeed(const MWWorld::Ptr& ptr) const override;
@@ -120,7 +120,7 @@ namespace MWClass
         /// @param rendering Indicates if the scale to adjust is for the rendering mesh, or for the collision mesh
 
         void skillUsageSucceeded(
-            const MWWorld::Ptr& ptr, int skill, int usageType, float extraFactor = 1.f) const override;
+            const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor = 1.f) const override;
         ///< Inform actor \a ptr that a skill use has succeeded.
 
         bool isEssential(const MWWorld::ConstPtr& ptr) const override;
@@ -130,11 +130,11 @@ namespace MWClass
 
         bool isPersistent(const MWWorld::ConstPtr& ptr) const override;
 
-        const ESM::RefId& getSoundIdFromSndGen(const MWWorld::Ptr& ptr, std::string_view name) const override;
+        ESM::RefId getSoundIdFromSndGen(const MWWorld::Ptr& ptr, std::string_view name) const override;
 
         std::string getModel(const MWWorld::ConstPtr& ptr) const override;
 
-        float getSkill(const MWWorld::Ptr& ptr, int skill) const override;
+        float getSkill(const MWWorld::Ptr& ptr, ESM::RefId id) const override;
 
         /// Get a blood texture suitable for \a ptr (see Blood Texture 0-2 in Morrowind.ini)
         int getBloodTexture(const MWWorld::ConstPtr& ptr) const override;
@@ -161,7 +161,8 @@ namespace MWClass
 
         int getBaseFightRating(const MWWorld::ConstPtr& ptr) const override;
 
-        const ESM::RefId& getPrimaryFaction(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getPrimaryFaction(const MWWorld::ConstPtr& ptr) const override;
+
         int getPrimaryFactionRank(const MWWorld::ConstPtr& ptr) const override;
 
         void setBaseAISetting(const ESM::RefId& id, MWMechanics::AiSetting setting, int value) const override;

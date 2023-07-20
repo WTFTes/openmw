@@ -1,9 +1,9 @@
 #ifndef GAME_MWWORLD_WORLDIMP_H
 #define GAME_MWWORLD_WORLDIMP_H
 
+#include <osg/Timer>
 #include <osg/ref_ptr>
 
-#include <components/detournavigator/collisionshapetype.hpp>
 #include <components/esm3/readerscache.hpp>
 #include <components/misc/rng.hpp>
 #include <components/settings/settings.hpp>
@@ -45,7 +45,7 @@ namespace SceneUtil
 namespace ESM
 {
     struct Position;
-    struct RefId;
+    class RefId;
 }
 
 namespace Files
@@ -94,7 +94,7 @@ namespace MWWorld
         WorldModel mWorldModel;
         std::vector<int> mESMVersions; // the versions of esm files
 
-        ESM::RefId mCurrentWorldSpace;
+        std::string mCurrentWorldSpace;
 
         std::unique_ptr<MWWorld::Player> mPlayer;
         std::unique_ptr<MWPhysics::PhysicsSystem> mPhysics;
@@ -113,12 +113,9 @@ namespace MWWorld
 
         std::filesystem::path mUserDataPath;
 
-        osg::Vec3f mDefaultHalfExtents;
-        DetourNavigator::CollisionShapeType mDefaultActorCollisionShapeType;
-
         int mActivationDistanceOverride;
 
-        ESM::RefId mStartCell;
+        std::string mStartCell;
 
         float mSwimHeightScale;
 
@@ -146,6 +143,8 @@ namespace MWWorld
 
         void updateWeather(float duration, bool paused = false);
 
+        void initObjectInCell(const Ptr& ptr, CellStore& cell, bool adjustPos);
+        Ptr moveObjectToCell(const Ptr& ptr, CellStore* cell, ESM::Position pos, int count, bool adjustPos);
         Ptr copyObjectToCell(const ConstPtr& ptr, CellStore* cell, ESM::Position pos, int count, bool adjustPos);
 
         void updateSoundListener();
@@ -200,8 +199,7 @@ namespace MWWorld
             SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue,
             const Files::Collections& fileCollections, const std::vector<std::string>& contentFiles,
             const std::vector<std::string>& groundcoverFiles, ToUTF8::Utf8Encoder* encoder,
-            int activationDistanceOverride, const ESM::RefId& startCell, const std::string& startupScript,
-            const std::filesystem::path& resourcePath, const std::filesystem::path& userDataPath);
+            int activationDistanceOverride, const std::string& startCell, const std::filesystem::path& userDataPath);
 
         virtual ~World();
 
@@ -236,7 +234,7 @@ namespace MWWorld
         MWWorld::Ptr getPlayerPtr() override;
         MWWorld::ConstPtr getPlayerConstPtr() const override;
 
-        const MWWorld::ESMStore& getStore() const override;
+        MWWorld::ESMStore& getStore() override { return mStore; }
 
         const std::vector<int>& getESMVersions() const override;
 
@@ -246,22 +244,24 @@ namespace MWWorld
 
         bool isCellQuasiExterior() const override;
 
-        void getDoorMarkers(MWWorld::CellStore* cell, std::vector<DoorMarker>& out) override;
+        ESM::RefId getCurrentWorldspace() const;
+
+        void getDoorMarkers(MWWorld::CellStore& cell, std::vector<DoorMarker>& out) override;
         ///< get a list of teleport door markers for a given cell, to be displayed on the local map
 
-        void setGlobalInt(std::string_view name, int value) override;
+        void setGlobalInt(GlobalVariableName name, int value) override;
         ///< Set value independently from real type.
 
-        void setGlobalFloat(std::string_view name, float value) override;
+        void setGlobalFloat(GlobalVariableName name, float value) override;
         ///< Set value independently from real type.
 
-        int getGlobalInt(std::string_view name) const override;
+        int getGlobalInt(GlobalVariableName name) const override;
         ///< Get value independently from real type.
 
-        float getGlobalFloat(std::string_view name) const override;
+        float getGlobalFloat(GlobalVariableName name) const override;
         ///< Get value independently from real type.
 
-        char getGlobalVariableType(std::string_view name) const override;
+        char getGlobalVariableType(GlobalVariableName name) const override;
         ///< Return ' ', if there is no global variable with this name.
 
         std::string_view getCellName(const MWWorld::CellStore* cell = nullptr) const override;
@@ -269,6 +269,7 @@ namespace MWWorld
         ///
         /// \note If cell==0, the cell the player is currently in will be used instead to
         /// generate a name.
+        std::string_view getCellName(const MWWorld::Cell& cell) const override;
         std::string_view getCellName(const ESM::Cell* cell) const override;
 
         void removeRefScript(MWWorld::RefData* ref) override;
@@ -284,8 +285,6 @@ namespace MWWorld
 
         Ptr searchPtrViaActorId(int actorId) override;
         ///< Search is limited to the active cells.
-
-        Ptr searchPtrViaRefNum(const ESM::RefId& id, const ESM::RefNum& refNum) override;
 
         MWWorld::Ptr findContainer(const MWWorld::ConstPtr& ptr) override;
         ///< Return a pointer to a liveCellRef which contains \a ptr.
@@ -341,17 +340,12 @@ namespace MWWorld
 
         void setSimulationTimeScale(float scale) override;
 
-        void changeToInteriorCell(const ESM::RefId& cellName, const ESM::Position& position, bool adjustPlayerPos,
+        void changeToInteriorCell(const std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos,
             bool changeEvent = true) override;
         ///< Move to interior cell.
         ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
-        void changeToExteriorCell(
-            const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true) override;
-        ///< Move to exterior cell.
-        ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
-
-        void changeToCell(const ESM::CellId& cellId, const ESM::Position& position, bool adjustPlayerPos,
+        void changeToCell(const ESM::RefId& cellId, const ESM::Position& position, bool adjustPlayerPos,
             bool changeEvent = true) override;
         ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
@@ -379,7 +373,7 @@ namespace MWWorld
             bool keepActive = false) override;
         ///< @return an updated Ptr
 
-        MWWorld::Ptr moveObjectBy(const Ptr& ptr, const osg::Vec3f& vec) override;
+        MWWorld::Ptr moveObjectBy(const Ptr& ptr, const osg::Vec3f& vec, bool moveToActive) override;
         ///< @return an updated Ptr
 
         void scaleObject(const Ptr& ptr, float scale, bool force = false) override;
@@ -404,9 +398,6 @@ namespace MWWorld
 
         float getMaxActivationDistance() const override;
 
-        void indexToPosition(int cellX, int cellY, float& x, float& y, bool centre = false) const override;
-        ///< Convert cell numbers to position.
-
         void queueMovement(const Ptr& ptr, const osg::Vec3f& velocity) override;
         ///< Queues movement for \a ptr (in local space), to be applied in the next call to
         /// doPhysics.
@@ -430,73 +421,14 @@ namespace MWWorld
         ///< Toggle a render mode.
         ///< \return Resulting mode
 
-        const ESM::Potion* createRecord(const ESM::Potion& record) override;
-        ///< Create a new record (of type potion) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Spell* createRecord(const ESM::Spell& record) override;
-        ///< Create a new record (of type spell) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Class* createRecord(const ESM::Class& record) override;
-        ///< Create a new record (of type class) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Cell* createRecord(const ESM::Cell& record) override;
-        ///< Create a new record (of type cell) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::NPC* createRecord(const ESM::NPC& record) override;
-        ///< Create a new record (of type npc) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Armor* createRecord(const ESM::Armor& record) override;
-        ///< Create a new record (of type armor) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Weapon* createRecord(const ESM::Weapon& record) override;
-        ///< Create a new record (of type weapon) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Clothing* createRecord(const ESM::Clothing& record) override;
-        ///< Create a new record (of type clothing) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Enchantment* createRecord(const ESM::Enchantment& record) override;
-        ///< Create a new record (of type enchantment) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::Book* createRecord(const ESM::Book& record) override;
-        ///< Create a new record (of type book) in the ESM store.
-        /// \return pointer to created record
-
-        const ESM::CreatureLevList* createOverrideRecord(const ESM::CreatureLevList& record) override;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        const ESM::ItemLevList* createOverrideRecord(const ESM::ItemLevList& record) override;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        const ESM::Creature* createOverrideRecord(const ESM::Creature& record) override;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        const ESM::NPC* createOverrideRecord(const ESM::NPC& record) override;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        const ESM::Container* createOverrideRecord(const ESM::Container& record) override;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
         void update(float duration, bool paused);
         void updatePhysics(
             float duration, bool paused, osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats);
 
         void updateWindowManager();
 
-        MWWorld::Ptr placeObject(const MWWorld::ConstPtr& object, float cursorX, float cursorY, int amount) override;
+        MWWorld::Ptr placeObject(
+            const MWWorld::Ptr& object, float cursorX, float cursorY, int amount, bool copy = true) override;
         ///< copy and place an object into the gameworld at the specified cursor position
         /// @param object
         /// @param cursor X (relative 0-1)
@@ -504,7 +436,7 @@ namespace MWWorld
         /// @param number of objects to place
 
         MWWorld::Ptr dropObjectOnGround(
-            const MWWorld::Ptr& actor, const MWWorld::ConstPtr& object, int amount) override;
+            const MWWorld::Ptr& actor, const MWWorld::Ptr& object, int amount, bool copy = true) override;
         ///< copy and place an object into the gameworld at the given actor's position
         /// @param actor giving the dropped object position
         /// @param object
@@ -603,11 +535,11 @@ namespace MWWorld
 
         /// Find center of exterior cell above land surface
         /// \return false if exterior with given name not exists, true otherwise
-        bool findExteriorPosition(const ESM::RefId& name, ESM::Position& pos) override;
+        ESM::RefId findExteriorPosition(std::string_view nameId, ESM::Position& pos) override;
 
         /// Find position in interior cell near door entrance
         /// \return false if interior with given name not exists, true otherwise
-        bool findInteriorPosition(const ESM::RefId& name, ESM::Position& pos) override;
+        ESM::RefId findInteriorPosition(std::string_view name, ESM::Position& pos) override;
 
         /// Enables or disables use of teleport spell effects (recall, intervention, etc).
         void enableTeleporting(bool enable) override;
@@ -715,7 +647,7 @@ namespace MWWorld
         bool isPlayerTraveling() const override;
 
         /// Return terrain height at \a worldPos position.
-        float getTerrainHeightAt(const osg::Vec3f& worldPos) const override;
+        float getTerrainHeightAt(const osg::Vec3f& worldPos, ESM::RefId worldspace) const override;
 
         /// Return physical or rendering half extents of the given actor.
         osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor, bool rendering = false) const override;

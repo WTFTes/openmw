@@ -24,7 +24,6 @@ namespace MWGui
             CLASS_DIALOG,
             BIRTHSIGN_DIALOG
         };
-        typedef std::vector<int> SkillList;
 
         ReviewDialog();
 
@@ -41,16 +40,16 @@ namespace MWGui
 
         void setAttribute(ESM::Attribute::AttributeID attributeId, const MWMechanics::AttributeValue& value);
 
-        void configureSkills(const SkillList& major, const SkillList& minor);
-        void setSkillValue(ESM::Skill::SkillEnum skillId, const MWMechanics::SkillValue& value);
+        void configureSkills(const std::vector<ESM::RefId>& major, const std::vector<ESM::RefId>& minor);
+        void setSkillValue(ESM::RefId id, const MWMechanics::SkillValue& value);
 
         void onOpen() override;
 
         void onFrame(float duration) override;
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
-        typedef MyGUI::delegates::CMultiDelegate1<int> EventHandle_Int;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<int> EventHandle_Int;
 
         /** Event : Back button clicked.\n
         signature : void method()\n
@@ -76,8 +75,8 @@ namespace MWGui
         void onMouseWheel(MyGUI::Widget* _sender, int _rel);
 
     private:
-        void addSkills(const SkillList& skills, const std::string& titleId, const std::string& titleDefault,
-            MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2);
+        void addSkills(const std::vector<ESM::RefId>& skills, const std::string& titleId,
+            const std::string& titleDefault, MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2);
         void addSeparator(MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2);
         void addGroup(std::string_view label, MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2);
         MyGUI::TextBox* addValueItem(std::string_view text, const std::string& value, const std::string& state,
@@ -91,11 +90,11 @@ namespace MWGui
 
         Widgets::MWDynamicStatPtr mHealth, mMagicka, mFatigue;
 
-        std::map<int, Widgets::MWAttributePtr> mAttributeWidgets;
+        std::map<ESM::Attribute::AttributeID, Widgets::MWAttributePtr> mAttributeWidgets;
 
-        SkillList mMajorSkills, mMinorSkills, mMiscSkills;
-        std::map<int, MWMechanics::SkillValue> mSkillValues;
-        std::map<int, MyGUI::TextBox*> mSkillWidgetMap;
+        std::vector<ESM::RefId> mMajorSkills, mMinorSkills, mMiscSkills;
+        std::map<ESM::RefId, MWMechanics::SkillValue> mSkillValues;
+        std::map<ESM::RefId, MyGUI::TextBox*> mSkillWidgetMap;
         ESM::RefId mRaceId, mBirthSignId;
         std::string mName;
         ESM::Class mKlass;

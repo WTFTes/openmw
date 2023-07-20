@@ -8,7 +8,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/spellutil.hpp"
@@ -45,8 +44,7 @@ namespace MWGui
 
     bool SpellModel::matchingEffectExists(std::string filter, const ESM::EffectList& effects)
     {
-        auto wm = MWBase::Environment::get().getWindowManager();
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
         for (const auto& effect : effects.mList)
         {
@@ -55,22 +53,10 @@ namespace MWGui
             if (effectId != -1)
             {
                 const ESM::MagicEffect* magicEffect = store.get<ESM::MagicEffect>().find(effectId);
-                const std::string& effectIDStr = ESM::MagicEffect::effectIdToString(effectId);
-                std::string fullEffectName{ wm->getGameSettingString(effectIDStr, {}) };
+                const ESM::Attribute* attribute = store.get<ESM::Attribute>().search(effect.mAttribute);
+                const ESM::Skill* skill = store.get<ESM::Skill>().search(ESM::Skill::indexToRefId(effect.mSkill));
 
-                if (magicEffect->mData.mFlags & ESM::MagicEffect::TargetSkill && effect.mSkill != -1)
-                {
-                    fullEffectName += ' ';
-                    fullEffectName += wm->getGameSettingString(ESM::Skill::sSkillNameIds[effect.mSkill], {});
-                }
-
-                if (magicEffect->mData.mFlags & ESM::MagicEffect::TargetAttribute && effect.mAttribute != -1)
-                {
-                    fullEffectName += ' ';
-                    fullEffectName
-                        += wm->getGameSettingString(ESM::Attribute::sGmstAttributeIds[effect.mAttribute], {});
-                }
-
+                std::string fullEffectName = MWMechanics::getMagicEffectString(*magicEffect, attribute, skill);
                 std::string convert = Utf8Stream::lowerCaseUtf8(fullEffectName);
                 if (convert.find(filter) != std::string::npos)
                 {
@@ -89,7 +75,7 @@ namespace MWGui
         MWMechanics::CreatureStats& stats = mActor.getClass().getCreatureStats(mActor);
         const MWMechanics::Spells& spells = stats.getSpells();
 
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
 
         std::string filter = Utf8Stream::lowerCaseUtf8(mFilter);
 
@@ -166,13 +152,12 @@ namespace MWGui
                     && item.getClass().canBeEquipped(item, mActor).first == 0)
                     continue;
 
-                int castCost
-                    = MWMechanics::getEffectiveEnchantmentCastCost(static_cast<float>(enchant->mData.mCost), mActor);
+                int castCost = MWMechanics::getEffectiveEnchantmentCastCost(*enchant, mActor);
 
                 std::string cost = std::to_string(castCost);
                 int currentCharge = int(item.getCellRef().getEnchantmentCharge());
                 if (currentCharge == -1)
-                    currentCharge = enchant->mData.mCharge;
+                    currentCharge = MWMechanics::getEnchantmentCharge(*enchant);
                 std::string charge = std::to_string(currentCharge);
                 newSpell.mCostColumn = cost + "/" + charge;
 

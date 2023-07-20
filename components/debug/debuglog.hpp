@@ -32,21 +32,18 @@ public:
     }
 
 
-    // Perfect forwarding wrappers to give the chain of objects to cout
     template <typename T>
-    Log& operator<<(T&& rhs)
+    Log& operator<<(const T& rhs)
     {
         if (mShouldLog)
-            (mStream.get() ? *mStream.get() : std::cout) << std::forward<T>(rhs);
+            (mStream.get() ? *mStream.get() : std::cout) << rhs;
 
         return *this;
     }
 
-    Log& operator<<(std::filesystem::path&& rhs);
-
     Log& operator<<(const std::filesystem::path& rhs);
 
-    Log& operator<<(std::u8string&& rhs);
+    Log& operator<<(const std::u8string& rhs);
 
     Log& operator<<(std::u8string_view rhs);
 

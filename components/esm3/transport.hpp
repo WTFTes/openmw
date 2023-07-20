@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "components/esm/defs.hpp"
-#include "components/esm/refid.hpp"
 
 namespace ESM
 {
@@ -20,7 +19,7 @@ namespace ESM
         struct Dest
         {
             Position mPos;
-            ESM::RefId mCellName;
+            std::string mCellName;
         };
 
         std::vector<Dest> mList;

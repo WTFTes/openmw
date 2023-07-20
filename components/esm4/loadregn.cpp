@@ -26,22 +26,14 @@
 */
 #include "loadregn.hpp"
 
-#ifdef NDEBUG // FIXME: debuggigng only
-#undef NDEBUG
-#endif
-
-#include <cassert>
 #include <stdexcept>
-
-//#include <iostream> // FIXME: debug only
-//#include "formid.hpp"
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::Region::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -85,7 +77,8 @@ void ESM4::Region::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_RDMP:
             {
-                assert(mData.type == RDAT_Map && "REGN unexpected data type");
+                if (mData.type != RDAT_Map)
+                    throw std::runtime_error("REGN unexpected data type");
                 reader.getLocalizedString(mMapName);
                 break;
             }
@@ -105,13 +98,12 @@ void ESM4::Region::load(ESM4::Reader& reader)
             case ESM4::SUB_RDMO: // not seen in FO3/FONV?
             {
                 // std::cout << "REGN " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
+                // << subHdr.dataSize << std::endl;
                 reader.skipSubRecordData();
                 break;
             }
             case ESM4::SUB_RDSD: // Possibly the same as RDSA
             {
-                // assert(mData.type == RDAT_Map && "REGN unexpected data type");
                 if (mData.type != RDAT_Sound)
                     throw std::runtime_error(
                         "ESM4::REGN::load - unexpected data type " + ESM::printName(subHdr.typeId));
@@ -131,7 +123,6 @@ void ESM4::Region::load(ESM4::Reader& reader)
             case ESM4::SUB_RDSB: // FONV
             case ESM4::SUB_RDSI: // FONV
             case ESM4::SUB_NVMI: // TES5
-            {
                 // RDAT skipping... following is a map
                 // RDMP skipping... map name
                 //
@@ -146,11 +137,8 @@ void ESM4::Region::load(ESM4::Reader& reader)
                 // RDAT skipping... following is grass
                 // RDGS skipping... unknown, maybe grass
 
-                // std::cout << "REGN " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
-                reader.skipSubRecordData(); // FIXME: process the subrecord rather than skip
+                reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::REGN::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

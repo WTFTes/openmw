@@ -5,7 +5,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/npcstats.hpp"
 
@@ -35,14 +34,16 @@ namespace MWGui
         if (mWatched.isEmpty())
             return;
 
+        const auto& store = MWBase::Environment::get().getESMStore();
         MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
         const MWMechanics::NpcStats& stats = mWatched.getClass().getNpcStats(mWatched);
-        for (int i = 0; i < ESM::Attribute::Length; ++i)
+        for (const ESM::Attribute& attribute : store->get<ESM::Attribute>())
         {
-            if (stats.getAttribute(i) != mWatchedAttributes[i] || mWatchedStatsEmpty)
+            const auto& value = stats.getAttribute(attribute.mId);
+            if (value != mWatchedAttributes[attribute.mId] || mWatchedStatsEmpty)
             {
-                mWatchedAttributes[i] = stats.getAttribute(i);
-                setValue("AttribVal" + std::to_string(i + 1), stats.getAttribute(i));
+                mWatchedAttributes[attribute.mId] = value;
+                setValue(attribute.mId, value);
             }
         }
 
@@ -67,9 +68,8 @@ namespace MWGui
         if (timeToDrown != mWatchedTimeToStartDrowning)
         {
             static const float fHoldBreathTime = MWBase::Environment::get()
-                                                     .getWorld()
-                                                     ->getStore()
-                                                     .get<ESM::GameSetting>()
+                                                     .getESMStore()
+                                                     ->get<ESM::GameSetting>()
                                                      .find("fHoldBreathTime")
                                                      ->mValue.getFloat();
 
@@ -84,13 +84,13 @@ namespace MWGui
             }
         }
 
-        // Loop over ESM::Skill::SkillEnum
-        for (int i = 0; i < ESM::Skill::Length; ++i)
+        for (const ESM::Skill& skill : store->get<ESM::Skill>())
         {
-            if (stats.getSkill(i) != mWatchedSkills[i] || mWatchedStatsEmpty)
+            const auto& value = stats.getSkill(skill.mId);
+            if (value != mWatchedSkills[skill.mId] || mWatchedStatsEmpty)
             {
-                mWatchedSkills[i] = stats.getSkill(i);
-                setValue((ESM::Skill::SkillEnum)i, stats.getSkill(i));
+                mWatchedSkills[skill.mId] = value;
+                setValue(skill.mId, value);
             }
         }
 
@@ -113,25 +113,24 @@ namespace MWGui
             if (watchedRecord->mRace != mWatchedRace || mWatchedStatsEmpty)
             {
                 mWatchedRace = watchedRecord->mRace;
-                const ESM::Race* race
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(watchedRecord->mRace);
+                const ESM::Race* race = store->get<ESM::Race>().find(watchedRecord->mRace);
                 setValue("race", race->mName);
             }
 
             if (watchedRecord->mClass != mWatchedClass || mWatchedStatsEmpty)
             {
                 mWatchedClass = watchedRecord->mClass;
-                const ESM::Class* cls
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().find(watchedRecord->mClass);
+                const ESM::Class* cls = store->get<ESM::Class>().find(watchedRecord->mClass);
                 setValue("class", cls->mName);
 
-                MWBase::WindowManager::SkillList majorSkills(5);
-                MWBase::WindowManager::SkillList minorSkills(5);
+                size_t size = cls->mData.mSkills.size();
+                std::vector<ESM::RefId> majorSkills(size);
+                std::vector<ESM::RefId> minorSkills(size);
 
-                for (int i = 0; i < 5; ++i)
+                for (size_t i = 0; i < size; ++i)
                 {
-                    minorSkills[i] = cls->mData.mSkills[i][0];
-                    majorSkills[i] = cls->mData.mSkills[i][1];
+                    minorSkills[i] = ESM::Skill::indexToRefId(cls->mData.mSkills[i][0]);
+                    majorSkills[i] = ESM::Skill::indexToRefId(cls->mData.mSkills[i][1]);
                 }
 
                 configureSkills(majorSkills, minorSkills);
@@ -151,18 +150,16 @@ namespace MWGui
         mListeners.erase(listener);
     }
 
-    void StatsWatcher::setValue(std::string_view id, const MWMechanics::AttributeValue& value)
+    void StatsWatcher::setValue(ESM::Attribute::AttributeID id, const MWMechanics::AttributeValue& value)
     {
         for (StatsListener* listener : mListeners)
             listener->setValue(id, value);
     }
 
-    void StatsWatcher::setValue(ESM::Skill::SkillEnum parSkill, const MWMechanics::SkillValue& value)
+    void StatsWatcher::setValue(ESM::RefId id, const MWMechanics::SkillValue& value)
     {
-        /// \todo Don't use the skill enum as a parameter type (we will have to drop it anyway, once we
-        /// allow custom skills.
         for (StatsListener* listener : mListeners)
-            listener->setValue(parSkill, value);
+            listener->setValue(id, value);
     }
 
     void StatsWatcher::setValue(std::string_view id, const MWMechanics::DynamicStat<float>& value)
@@ -183,7 +180,7 @@ namespace MWGui
             listener->setValue(id, value);
     }
 
-    void StatsWatcher::configureSkills(const std::vector<int>& major, const std::vector<int>& minor)
+    void StatsWatcher::configureSkills(const std::vector<ESM::RefId>& major, const std::vector<ESM::RefId>& minor)
     {
         for (StatsListener* listener : mListeners)
             listener->configureSkills(major, minor);

@@ -31,6 +31,9 @@
 
 #include "reference.hpp" // FormId, Placement, EnableParent
 
+#include <components/esm/defs.hpp>
+#include <components/esm/refid.hpp>
+
 namespace ESM4
 {
     class Reader;
@@ -56,8 +59,8 @@ namespace ESM4
     struct TeleportDest
     {
         FormId destDoor;
-        Placement destPos;
-        std::uint32_t flags; // 0x01 no alarm (only in TES5)
+        ESM::Position destPos;
+        std::uint32_t flags = 0; // 0x01 no alarm (only in TES5)
     };
 
     struct RadioStationData
@@ -71,17 +74,19 @@ namespace ESM4
 
     struct Reference
     {
-        FormId mParent; // cell FormId (currently persistent refs only), from the loading sequence
-                        // NOTE: for exterior cells it will be the dummy cell FormId
+        FormId mId; // from the header
 
-        FormId mFormId; // from the header
+        FormId mParentFormId; // cell FormId (currently persistent refs only), from the loading sequence
+                              // NOTE: for exterior cells it will be the dummy cell FormId
+        ESM::RefId mParent;
+
         std::uint32_t mFlags; // from the header, see enum type RecordFlag for details
 
         std::string mEditorId;
         std::string mFullName;
-        FormId mBaseObj;
+        ESM::RefId mBaseObj;
 
-        Placement mPlacement;
+        ESM::Position mPos;
         float mScale = 1.0f;
         FormId mOwner;
         FormId mGlobal;
@@ -102,7 +107,7 @@ namespace ESM4
         TeleportDest mDoor;
         bool mIsLocked;
         std::int8_t mLockLevel;
-        FormId mKey;
+        ESM::RefId mKey;
 
         FormId mTargetRef;
 
@@ -110,6 +115,8 @@ namespace ESM4
         // void save(ESM4::Writer& writer) const;
 
         void blank();
+
+        static constexpr ESM::RecNameInts sRecordId = ESM::REC_REFR4;
     };
 }
 

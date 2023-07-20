@@ -1,5 +1,10 @@
 project (Components)
 
+if(APPLE)
+    set(BUNDLE_RESOURCES_DIR "${APP_BUNDLE_DIR}/Contents/Resources")
+    set(OPENMW_RESOURCES_ROOT ${BUNDLE_RESOURCES_DIR})
+endif(APPLE)
+
 # Version file
 set (VERSION_IN_FILE "${OpenMW_SOURCE_DIR}/files/version.in")
 set (VERSION_FILE_PATH_BASE "${OpenMW_BINARY_DIR}")
@@ -29,7 +34,8 @@ endif (GIT_CHECKOUT)
 # source files
 
 add_component_dir (lua
-    luastate scriptscontainer utilpackage serialization configuration l10n storage
+    luastate scriptscontainer asyncpackage utilpackage serialization configuration l10n storage
+    shapes/box
     )
 
 add_component_dir (l10n
@@ -37,11 +43,43 @@ add_component_dir (l10n
     )
 
 add_component_dir (settings
-    settings parser
+    categories
+    categories/camera
+    categories/cells
+    categories/fog
+    categories/game
+    categories/general
+    categories/groundcover
+    categories/gui
+    categories/hud
+    categories/input
+    categories/lua
+    categories/map
+    categories/models
+    categories/navigator
+    categories/physics
+    categories/postprocessing
+    categories/saves
+    categories/shaders
+    categories/shadows
+    categories/sound
+    categories/stereo
+    categories/stereoview
+    categories/terrain
+    categories/video
+    categories/water
+    categories/windows
+    parser
+    sanitizer
+    sanitizerimpl
+    settings
+    settingvalue
+    shadermanager
+    values
     )
 
 add_component_dir (bsa
-    bsa_file compressedbsafile
+    bsa_file compressedbsafile ba2gnrlfile ba2dx10file ba2file memorystream
     )
 
 add_component_dir (vfs
@@ -61,7 +99,7 @@ add_component_dir (sceneutil
     clone attach visitor util statesetupdater controller skeleton riggeometry morphgeometry lightcontroller
     lightmanager lightutil positionattitudetransform workqueue pathgridutil waterutil writescene serialize optimizer
     actorutil detourdebugdraw navmesh agentpath shadow mwshadowtechnique recastmesh shadowsbin osgacontroller rtt
-    screencapture depth color riggeometryosgaextension extradata unrefqueue
+    screencapture depth color riggeometryosgaextension extradata unrefqueue lightcommon
     )
 
 add_component_dir (nif
@@ -80,7 +118,15 @@ add_component_dir (to_utf8
     to_utf8
     )
 
-add_component_dir(esm attr common defs esmcommon records util luascripts format refid)
+add_component_dir(esm attr common defs esmcommon records util luascripts format refid esmbridge esmterrain
+    formid
+    formidrefid
+    stringrefid
+    generatedrefid
+    indexrefid
+    serializerefid
+    esm3exteriorcellrefid
+    )
 
 add_component_dir(fx pass technique lexer widgets stateupdater)
 
@@ -96,6 +142,7 @@ add_component_dir (esm3
     inventorystate containerstate npcstate creaturestate dialoguestate statstate npcstats creaturestats
     weatherstate quickkeys fogstate spellstate activespells creaturelevliststate doorstate projectilestate debugprofile
     aisequence magiceffects custommarkerstate stolenitems transport animationstate controlsstate mappings readerscache
+    infoorder
     )
 
 add_component_dir (esm3terrain
@@ -103,12 +150,14 @@ add_component_dir (esm3terrain
     )
 
 add_component_dir (esm4
-    acti
     actor
+    cellgrid
     common
     dialogue
     effect
     formid
+    grid
+    grouptype
     inventory
     lighting
     loadachr
@@ -138,6 +187,7 @@ add_component_dir (esm4
     loadflst
     loadfurn
     loadglob
+    loadgmst
     loadgras
     loadgrup
     loadhair
@@ -190,9 +240,13 @@ add_component_dir (esm4
     loadtxst
     loadweap
     loadwrld
+    magiceffectid
     reader
+    readerutils
     reference
     script
+    typetraits
+    vertex
 )
 
 add_component_dir (misc
@@ -271,6 +325,7 @@ add_component_dir (lua_ui
     properties widget element util layers content alignment resources
     adapter text textedit window image container flex
     )
+copy_resource_file("lua_ui/content.lua" "${OPENMW_RESOURCES_ROOT}" "resources/lua_libs/content.lua")
 
 
 if(WIN32)
@@ -278,6 +333,7 @@ if(WIN32)
         windows_crashcatcher
         windows_crashmonitor
         windows_crashshm
+        windowscrashdumppathhelpers
     )
 elseif(NOT ANDROID)
     add_component_dir (crashcatcher
@@ -286,36 +342,67 @@ elseif(NOT ANDROID)
 endif()
 
 add_component_dir(detournavigator
-    debug
-    makenavmesh
-    findsmoothpath
-    recastmeshbuilder
-    navmeshmanager
-    navigatorimpl
+    agentbounds
+    areatype
     asyncnavmeshupdater
-    recastmesh
-    tilecachedrecastmeshmanager
-    recastmeshobject
-    navmeshtilescache
-    settings
-    navigator
+    bounds
+    changetype
+    collisionshapetype
+    commulativeaabb
+    dbrefgeometryobject
+    debug
+    exceptions
     findrandompointaroundcircle
-    raycast
+    findsmoothpath
+    flags
+    generatenavmeshtile
+    gettilespositions
+    guardednavmeshcacheitem
+    heightfieldshape
+    makenavmesh
+    navigator
+    navigatorimpl
+    navigatorstub
+    navigatorutils
+    navmeshcacheitem
+    navmeshdata
+    navmeshdb
+    navmeshdbutils
+    navmeshmanager
+    navmeshtilescache
     navmeshtileview
+    objectid
+    objecttransform
+    offmeshconnection
     offmeshconnectionsmanager
     preparednavmeshdata
-    navmeshcacheitem
-    navigatorutils
-    generatenavmeshtile
-    navmeshdb
-    serialization
-    navmeshdbutils
+    preparednavmeshdatatuple
+    raycast
     recast
-    gettilespositions
-    collisionshapetype
-    stats
-    commulativeaabb
+    recastallocutils
     recastcontext
+    recastglobalallocator
+    recastmesh
+    recastmeshbuilder
+    recastmeshobject
+    recastmeshprovider
+    recastmeshtiles
+    recastparams
+    recasttempallocator
+    ref
+    serialization
+    settings
+    settingsutils
+    sharednavmeshcacheitem
+    stats
+    status
+    tilebounds
+    tilecachedrecastmeshmanager
+    tileposition
+    tilespositionsrange
+    updateguard
+    version
+    waitconditiontype
     )
 
 add_component_dir(loadinglistener
@@ -369,7 +456,6 @@ if (USE_QT)
     add_component_qt_dir (config
         gamesettings
         launchersettings
-        settingsbase
         )
 
     add_component_qt_dir (process
@@ -377,14 +463,15 @@ if (USE_QT)
         )
 
     add_component_qt_dir (misc
-        helpviewer
+        helpviewer utf8qtextstream hash
         )
 
     add_component_qt_dir (files
         qtconversion
+        qtconfigpath
         )
 
-    QT5_WRAP_UI(ESM_UI_HDR ${ESM_UI})
+    QT_WRAP_UI(ESM_UI_HDR ${ESM_UI})
 endif()
 
 if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -436,6 +523,7 @@ target_link_libraries(components
     smhasher
     ${ICU_LIBRARIES}
     yaml-cpp
+    ZLIB::ZLIB
     )
 
 if(Boost_VERSION_STRING VERSION_GREATER_EQUAL 1.77.0)
@@ -452,8 +540,13 @@ endif()
 
 if (USE_QT)
     add_library(components_qt STATIC ${COMPONENT_QT_FILES} ${ESM_UI_HDR})
-    target_link_libraries(components_qt components Qt5::Widgets Qt5::Core)
+    target_link_libraries(components_qt components Qt::Widgets Qt::Core)
     target_compile_definitions(components_qt PRIVATE OPENMW_DOC_BASEURL="${OPENMW_DOC_BASEURL}")
+
+    if (BUILD_WITH_CODE_COVERAGE)
+        target_compile_options(components_qt PRIVATE --coverage)
+        target_link_libraries(components_qt gcov)
+    endif()
 endif()
 
 if (GIT_CHECKOUT)
@@ -475,11 +568,11 @@ endif()
 
 # Fix for not visible pthreads functions for linker with glibc 2.15
 if (UNIX AND NOT APPLE)
-target_link_libraries(components ${CMAKE_THREAD_LIBS_INIT})
+    target_link_libraries(components ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
 if (BUILD_WITH_CODE_COVERAGE)
-    add_definitions(--coverage)
+    target_compile_options(components PRIVATE --coverage)
     target_link_libraries(components gcov)
 endif()
 
@@ -532,8 +625,6 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16 AND MSVC)
         <osg/Camera>
 
         <MyGUI_Widget.h>
-
-        <boost/filesystem.hpp>
 
         <algorithm>
         <filesystem>

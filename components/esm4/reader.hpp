@@ -28,11 +28,15 @@
 #include <istream>
 #include <map>
 #include <memory>
+#include <unordered_map>
 
+#include "cellgrid.hpp"
 #include "common.hpp"
 #include "loadtes4.hpp"
 
+#include <components/esm/formidrefid.hpp>
 #include <components/files/istreamptr.hpp>
+#include <components/vfs/manager.hpp>
 
 namespace ToUTF8
 {
@@ -41,6 +45,53 @@ namespace ToUTF8
 
 namespace ESM4
 {
+#pragma pack(push, 1)
+    // NOTE: the label field of a group is not reliable (http://www.uesp.net/wiki/Tes4Mod:Mod_File_Format)
+    union GroupLabel
+    {
+        std::uint32_t value; // formId, blockNo or raw int representation of type
+        char recordType[4]; // record type in ascii
+        std::int16_t grid[2]; // grid y, x (note the reverse order)
+    };
+
+    struct GroupTypeHeader
+    {
+        std::uint32_t typeId;
+        std::uint32_t groupSize; // includes the 24 bytes (20 for TES4) of header (i.e. this struct)
+        GroupLabel label; // format based on type
+        std::int32_t type;
+        std::uint16_t stamp; // & 0xff for day, & 0xff00 for months since Dec 2002 (i.e. 1 = Jan 2003)
+        std::uint16_t unknown;
+        std::uint16_t version; // not in TES4
+        std::uint16_t unknown2; // not in TES4
+    };
+
+    struct RecordTypeHeader
+    {
+        std::uint32_t typeId;
+        std::uint32_t dataSize; // does *not* include 24 bytes (20 for TES4) of header
+        std::uint32_t flags;
+        FormId32 id;
+        std::uint32_t revision;
+        std::uint16_t version; // not in TES4
+        std::uint16_t unknown; // not in TES4
+
+        FormId getFormId() const { return FormId::fromUint32(id); }
+    };
+
+    union RecordHeader
+    {
+        GroupTypeHeader group;
+        RecordTypeHeader record;
+    };
+
+    struct SubRecordHeader
+    {
+        std::uint32_t typeId;
+        std::uint16_t dataSize;
+    };
+#pragma pack(pop)
+
     //                                                   bytes read from group, updated by
     //                                                   getRecordHeader() in advance
     //                                                     |
@@ -61,7 +112,7 @@ namespace ESM4
         //  case the file was re-opened.  default = TES5 size,
         //  can be reduced for TES4 by setRecHeaderSize()
 
-        std::size_t filePos; // assume that the record header will be re-read once
+        std::streampos filePos; // assume that the record header will be re-read once
         //  the context is restored
 
         // for keeping track of things
@@ -81,8 +132,16 @@ namespace ESM4
         ReaderContext();
     };
 
+    enum class LocalizedStringType
+    {
+        Strings,
+        ILStrings,
+        DLStrings,
+    };
+
     class Reader
     {
+        VFS::Manager const* mVFS;
         Header mHeader; // ESM4 header
 
         ReaderContext mCtx;
@@ -98,24 +157,17 @@ namespace ESM4
         Files::IStreamPtr mILStrings;
         Files::IStreamPtr mDLStrings;
 
-        enum LocalizedStringType
-        {
-            Type_Strings = 0,
-            Type_ILStrings = 1,
-            Type_DLStrings = 2
-        };
-
-        struct LStringOffset
-        {
-            LocalizedStringType type;
-            std::uint32_t offset;
-        };
-
-        std::map<FormId, LStringOffset> mLStringIndex;
+        std::unordered_map<FormId, std::string> mLStringIndex;
 
         std::vector<Reader*>* mGlobalReaderList = nullptr;
 
-        void buildLStringIndex(const std::filesystem::path& stringFile, LocalizedStringType stringType);
+        bool mIgnoreMissingLocalizedStrings = false;
+
+        void buildLStringIndex(LocalizedStringType stringType, const std::u8string& prefix);
+
+        void buildLStringIndex(LocalizedStringType stringType, std::istream& stream);
+
+        std::string readLocalizedString(LocalizedStringType type, std::istream& stream);
 
         inline bool hasLocalizedStrings() const { return (mHeader.mFlags & Rec_Localized) != 0; }
 
@@ -134,11 +186,12 @@ namespace ESM4
 
         Reader() = default;
 
-        bool getStringImpl(std::string& str, std::size_t size, std::istream& stream,
-            const ToUTF8::StatelessUtf8Encoder* encoder, bool hasNull = false);
+        bool getStringImpl(std::string& str, std::size_t size, std::istream& stream, bool hasNull = false);
 
     public:
-        Reader(Files::IStreamPtr&& esmStream, const std::filesystem::path& filename);
+        Reader(Files::IStreamPtr&& esmStream, const std::filesystem::path& filename, VFS::Manager const* vfs,
+            const ToUTF8::StatelessUtf8Encoder* encoder, bool ignoreMissingLocalizedStrings = false);
+
         ~Reader();
 
         void open(const std::filesystem::path& filename);
@@ -146,8 +199,6 @@ namespace ESM4
         void close();
 
         inline bool isEsm4() const { return true; }
-
-        inline void setEncoder(const ToUTF8::StatelessUtf8Encoder* encoder) { mEncoder = encoder; }
 
         const std::vector<ESM::MasterData>& getGameFiles() const { return mHeader.mMaster; }
 
@@ -174,6 +225,9 @@ namespace ESM4
         {
             mStream->read((char*)&t, sizeof(T));
         }
+
+        // Use getFormId instead
+        void get(FormId& value) = delete;
 
         template <typename T>
         bool getExact(T& t)
@@ -207,8 +261,8 @@ namespace ESM4
 
         // The object setting up this reader needs to supply the file's load order index
         // so that the formId's in this file can be adjusted with the file (i.e. mod) index.
-        void setModIndex(std::uint32_t index) { mCtx.modIndex = (index << 24) & 0xff000000; }
-        void updateModIndices(const std::vector<std::string>& files);
+        void setModIndex(std::uint32_t index) { mCtx.modIndex = index; }
+        void updateModIndices(const std::map<std::string, int>& fileToModIndex);
 
         // Maybe should throw an exception if called when not valid?
         const CellGrid& currCellGrid() const;
@@ -283,21 +337,19 @@ namespace ESM4
         }
 
         // ModIndex adjusted formId according to master file dependencies
-        void adjustFormId(FormId& id);
+        void adjustFormId(FormId& id) const;
+
+        // Temporary. Doesn't support mod index > 255
+        void adjustFormId(FormId32& id) const;
 
         bool getFormId(FormId& id);
+        ESM::FormIdRefId getRefIdFromHeader() const;
 
         void adjustGRUPFormId();
 
         // Note: uses the string size from the subrecord header rather than checking null termination
-        bool getZString(std::string& str)
-        {
-            return getStringImpl(str, mCtx.subRecordHeader.dataSize, *mStream, mEncoder, true);
-        }
-        bool getString(std::string& str)
-        {
-            return getStringImpl(str, mCtx.subRecordHeader.dataSize, *mStream, mEncoder);
-        }
+        bool getZString(std::string& str) { return getStringImpl(str, mCtx.subRecordHeader.dataSize, *mStream, true); }
+        bool getString(std::string& str) { return getStringImpl(str, mCtx.subRecordHeader.dataSize, *mStream); }
 
         bool getZeroTerminatedStringArray(std::vector<std::string>& values);
 
@@ -314,6 +366,9 @@ namespace ESM4
 
         std::vector<Reader*>* getGlobalReaderList() { return mGlobalReaderList; }
     };
+
+    // For pretty printing GroupHeader labels
+    std::string printLabel(const GroupLabel& label, const std::uint32_t type);
 }
 
 #endif // ESM4_READER_H

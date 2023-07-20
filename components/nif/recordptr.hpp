@@ -137,9 +137,18 @@ namespace Nif
     struct bhkWorldObject;
     struct bhkShape;
     struct bhkSerializable;
+    struct bhkEntity;
     struct hkPackedNiTriStripsData;
     struct NiAccumulator;
     struct NiInterpolator;
+    struct NiStringPalette;
+    struct NiControllerManager;
+    struct NiBlendInterpolator;
+    struct NiDefaultAVObjectPalette;
+    struct NiControllerSequence;
+    struct bhkCompressedMeshShapeData;
+    struct BSMultiBound;
+    struct BSMultiBoundData;
 
     using NodePtr = RecordPtrT<Node>;
     using ExtraPtr = RecordPtrT<Extra>;
@@ -167,9 +176,17 @@ namespace Nif
     using NiCollisionObjectPtr = RecordPtrT<NiCollisionObject>;
     using bhkWorldObjectPtr = RecordPtrT<bhkWorldObject>;
     using bhkShapePtr = RecordPtrT<bhkShape>;
+    using bhkEntityPtr = RecordPtrT<bhkEntity>;
     using hkPackedNiTriStripsDataPtr = RecordPtrT<hkPackedNiTriStripsData>;
     using NiAccumulatorPtr = RecordPtrT<NiAccumulator>;
     using NiInterpolatorPtr = RecordPtrT<NiInterpolator>;
+    using NiStringPalettePtr = RecordPtrT<NiStringPalette>;
+    using NiControllerManagerPtr = RecordPtrT<NiControllerManager>;
+    using NiBlendInterpolatorPtr = RecordPtrT<NiBlendInterpolator>;
+    using NiDefaultAVObjectPalettePtr = RecordPtrT<NiDefaultAVObjectPalette>;
+    using bhkCompressedMeshShapeDataPtr = RecordPtrT<bhkCompressedMeshShapeData>;
+    using BSMultiBoundPtr = RecordPtrT<BSMultiBound>;
+    using BSMultiBoundDataPtr = RecordPtrT<BSMultiBoundData>;
 
     using NodeList = RecordListT<Node>;
     using PropertyList = RecordListT<Property>;
@@ -179,6 +196,8 @@ namespace Nif
     using NiTriStripsDataList = RecordListT<NiTriStripsData>;
     using bhkShapeList = RecordListT<bhkShape>;
     using bhkSerializableList = RecordListT<bhkSerializable>;
+    using bhkEntityList = RecordListT<bhkEntity>;
+    using NiControllerSequenceList = RecordListT<NiControllerSequence>;
 
 } // Namespace
 #endif

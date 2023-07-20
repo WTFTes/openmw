@@ -51,7 +51,7 @@ namespace ESM
 
     void Door::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mId.getRefIdString());
+        esm.writeHNCRefId("NAME", mId);
 
         if (isDeleted)
         {
@@ -61,9 +61,9 @@ namespace ESM
 
         esm.writeHNCString("MODL", mModel);
         esm.writeHNOCString("FNAM", mName);
-        esm.writeHNOCString("SCRI", mScript.getRefIdString());
-        esm.writeHNOCString("SNAM", mOpenSound.getRefIdString());
-        esm.writeHNOCString("ANAM", mCloseSound.getRefIdString());
+        esm.writeHNOCRefId("SCRI", mScript);
+        esm.writeHNOCRefId("SNAM", mOpenSound);
+        esm.writeHNOCRefId("ANAM", mCloseSound);
     }
 
     void Door::blank()
@@ -71,8 +71,8 @@ namespace ESM
         mRecordFlags = 0;
         mName.clear();
         mModel.clear();
-        mScript = ESM::RefId::sEmpty;
-        mOpenSound = ESM::RefId::sEmpty;
-        mCloseSound = ESM::RefId::sEmpty;
+        mScript = ESM::RefId();
+        mOpenSound = ESM::RefId();
+        mCloseSound = ESM::RefId();
     }
 }

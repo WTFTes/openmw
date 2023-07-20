@@ -3,6 +3,7 @@
 
 #include "creaturestats.hpp"
 #include <components/esm/refid.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <map>
 #include <set>
 #include <string>
@@ -21,7 +22,7 @@ namespace MWMechanics
     class NpcStats : public CreatureStats
     {
         int mDisposition;
-        SkillValue mSkill[ESM::Skill::Length]; // SkillValue.mProgress used by the player only
+        std::map<ESM::RefId, SkillValue> mSkills; // SkillValue.mProgress used by the player only
 
         int mReputation;
         int mCrimeId;
@@ -35,7 +36,8 @@ namespace MWMechanics
         std::set<ESM::RefId> mExpelled;
         std::map<ESM::RefId, int> mFactionReputation;
         int mLevelProgress; // 0-10
-        std::vector<int> mSkillIncreases; // number of skill increases for each attribute (resets after leveling up)
+        std::map<ESM::Attribute::AttributeID, int>
+            mSkillIncreases; // number of skill increases for each attribute (resets after leveling up)
         std::vector<int> mSpecIncreases; // number of skill increases for each specialization (accumulates throughout
                                          // the entire game)
         std::set<ESM::RefId> mUsedIds;
@@ -58,19 +60,17 @@ namespace MWMechanics
         int getCrimeId() const;
         void setCrimeId(int id);
 
-        const SkillValue& getSkill(int index) const;
-        SkillValue& getSkill(int index);
-        void setSkill(int index, const SkillValue& value);
+        const SkillValue& getSkill(ESM::RefId id) const;
+        SkillValue& getSkill(ESM::RefId id);
+        void setSkill(ESM::RefId id, const SkillValue& value);
 
         int getFactionRank(const ESM::RefId& faction) const;
         const std::map<ESM::RefId, int>& getFactionRanks() const;
 
-        /// Increase the rank in this faction by 1, if such a rank exists.
-        void raiseRank(const ESM::RefId& faction);
-        /// Lower the rank in this faction by 1, if such a rank exists.
-        void lowerRank(const ESM::RefId& faction);
         /// Join this faction, setting the initial rank to 0.
         void joinFaction(const ESM::RefId& faction);
+        /// Sets the rank in this faction to a specified value, if such a rank exists.
+        void setFactionRank(const ESM::RefId& faction, int value);
 
         const std::set<ESM::RefId>& getExpelled() const { return mExpelled; }
         bool getExpelled(const ESM::RefId& factionID) const;
@@ -79,16 +79,16 @@ namespace MWMechanics
 
         bool isInFaction(const ESM::RefId& faction) const;
 
-        float getSkillProgressRequirement(int skillIndex, const ESM::Class& class_) const;
+        float getSkillProgressRequirement(ESM::RefId id, const ESM::Class& class_) const;
 
-        void useSkill(int skillIndex, const ESM::Class& class_, int usageType = -1, float extraFactor = 1.f);
+        void useSkill(ESM::RefId id, const ESM::Class& class_, int usageType = -1, float extraFactor = 1.f);
         ///< Increase skill by usage.
 
-        void increaseSkill(int skillIndex, const ESM::Class& class_, bool preserveProgress, bool readBook = false);
+        void increaseSkill(ESM::RefId id, const ESM::Class& class_, bool preserveProgress, bool readBook = false);
 
         int getLevelProgress() const;
 
-        int getLevelupAttributeMultiplier(int attribute) const;
+        int getLevelupAttributeMultiplier(ESM::Attribute::AttributeID attribute) const;
 
         int getSkillIncreasesForSpecialization(int spec) const;
 
@@ -133,6 +133,8 @@ namespace MWMechanics
 
         void readState(const ESM::CreatureStats& state);
         void readState(const ESM::NpcStats& state);
+
+        const std::map<ESM::RefId, SkillValue>& getSkills() const { return mSkills; }
     };
 }
 

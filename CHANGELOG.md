@@ -1,23 +1,39 @@
 0.49.0
 ------
 
+    Bug #2623: Snowy Granius doesn't prioritize conjuration spells
+    Bug #3842: Body part skeletons override the main skeleton
     Bug #4127: Weapon animation looks choppy
     Bug #4204: Dead slaughterfish doesn't float to water surface after loading saved game
+    Bug #4382: Sound output device does not change when it should
+    Bug #4610: Casting a Bound Weapon spell cancels the casting animation by equipping the weapon prematurely
+    Bug #4754: Stack of ammunition cannot be equipped partially
     Bug #4816: GetWeaponDrawn returns 1 before weapon is attached
     Bug #5057: Weapon swing sound plays at same pitch whether it hits or misses
     Bug #5129: Stuttering animation on Centurion Archer
+    Bug #5371: Keyframe animation tracks are used for any file that begins with an X
     Bug #5714: Touch spells cast using ExplodeSpell don't always explode
     Bug #5849: Paralysis breaks landing
+    Bug #5870: Disposing of actors who were selected in the console doesn't deselect them like vanilla
     Bug #5883: Immobile creatures don't cause water ripples
     Bug #5977: Fatigueless NPCs' corpse underwater changes animation on game load
+    Bug #6025: Subrecords cannot overlap records
+    Bug #6027: Collisionshape becomes spiderweb-like when the mesh is too complex
+    Bug #6222: global map cell size can crash openmw if set to too high a value
     Bug #6313: Followers with high Fight can turn hostile
     Bug #6427: Enemy health bar disappears before damaging effect ends
+    Bug #6550: Cloned body parts don't inherit texture effects
     Bug #6645: Enemy block sounds align with animation instead of blocked hits
+    Bug #6657: Distant terrain tiles become black when using FWIW mod
     Bug #6661: Saved games that have no preview screenshot cause issues or crashes
+    Bug #6716: mwscript comparison operator handling is too restrictive
     Bug #6807: Ultimate Galleon is not working properly
+    Bug #6893: Lua: Inconsistent behavior with actors affected by Disable and SetDelete commands
+    Bug #6894: Added item combines with equipped stack instead of creating a new unequipped stack
     Bug #6939: OpenMW-CS: ID columns are too short
     Bug #6949: Sun Damage effect doesn't work in quasi exteriors
     Bug #6964: Nerasa Dralor Won't Follow
+    Bug #6973: Fade in happens after the scene load and is shown
     Bug #6974: Only harmful effects are reflected
     Bug #6977: Sun damage implementation does not match research
     Bug #6986: Sound magic effect does not make noise
@@ -28,8 +44,32 @@
     Bug #7034: Misc items defined in one content file are not treated as keys if another content file uses them as such
     Bug #7042: Weapon follow animations that immediately follow the hit animations cause multiple hits
     Bug #7044: Changing a class' services does not affect autocalculated NPCs
+    Bug #7054: Quests aren't sorted by name
+    Bug #7064: NPCs don't report crime if the player is casting offensive spells on them while sneaking
+    Bug #7077: OpenMW fails to load certain particle effects in .osgt format
     Bug #7084: Resurrecting an actor doesn't take into account base record changes
+    Bug #7088: Deleting last save game of last character doesn't clear character name/details
+    Bug #7092: BSA archives from higher priority directories don't take priority
+    Bug #7122: Teleportation to underwater should cancel active water walking effect
+    Bug #7131: MyGUI log spam when post processing HUD is open
+    Bug #7134: Saves with an invalid last generated RefNum can be loaded
+    Bug #7163: Myar Aranath: Wheat breaks the GUI
+    Bug #7172: Current music playlist continues playing indefinitely if next playlist is empty
+    Bug #7229: Error marker loading failure is not handled
+    Bug #7243: Supporting loading external files from VFS from esm files
+    Bug #7298: Water ripples from projectiles sometimes are not spawned
+    Bug #7307: Alchemy "Magic Effect" search string does not match on tool tip for effects related to attributes
+    Bug #7322: Shadows don't cover groundcover depending on the view angle and perspective with compute scene bounds = primitives
+    Bug #7413: Generated wilderness cells don't spawn fish
+    Bug #7415: Unbreakable lock discrepancies
+    Bug #7428: AutoCalc flag is not used to calculate enchantment costs
+    Bug #7459: Icons get stacked on the cursor when picking up multiple items simultaneously
+    Feature #3537: Shader-based water ripples
+    Feature #5492: Let rain and snow collide with statics
     Feature #6447: Add LOD support to Object Paging
+    Feature #6491: Add support for Qt6
+    Feature #6726: Lua API for creating new objects
+    Feature #6922: Improve launcher appearance
     Feature #6933: Support high-resolution cursor textures
     Feature #6945: Support S3TC-compressed and BGR/BGRA NiPixelData
     Feature #6979: Add support of loading and displaying LOD assets purely based on their filename extension
@@ -37,6 +77,17 @@
     Feature #6995: Localize the "show effect duration" option
     Feature #7058: Implement TestModels (T3D) console command
     Feature #7087: Block resolution change in the Windowed Fullscreen mode
+    Feature #7125: Remembering console commands between sessions
+    Feature #7129: Add support for non-adaptive VSync
+    Feature #7130: Ability to set MyGUI logging verbosity
+    Feature #7148: Optimize string literal lookup in mwscript
+    Feature #7194: Ori to show texture paths
+    Feature #7214: Searching in the in-game console
+    Feature #7477: NegativeLight Magic Effect flag
+    Task #7113: Move from std::atoi to std::from_char
+    Task #7117: Replace boost::scoped_array with std::vector
+    Task #7151: Do not use std::strerror to get errno error message
+    Task #7394: Drop support for --fs-strict
 
 0.48.0
 ------
@@ -197,6 +248,7 @@
     Bug #6937: Divided by Nix Hounds quest is broken
     Bug #7008: Race condition on initializing a vector of reserved node names
     Bug #7121: Crash on TimeStamp construction with invalid hour value
+    Bug #7251: Force shaders setting still renders some drawables with FFP
     Feature #890: OpenMW-CS: Column filtering
     Feature #1465: "Reset" argument for AI functions
     Feature #2491: Ability to make OpenMW "portable"
@@ -249,9 +301,13 @@
     Feature #6700: Support windowed fullscreen
     Feature #6706: Save the size of the Options window
     Feature #6721: OpenMW-CS: Add option to open records in new window
+    Feature #6823: Animation layering for osgAnimation formats
     Feature #6867: Add a way to localize hardcoded strings in GUI
     Feature #6888: Add switch for armor degradation fix
     Feature #6925: Allow to use a mouse wheel to rotate a head in the race selection menu
+    Feature #6941: Allow users to easily change font size and ttf resolution
+    Feature #7434: Exponential fog
+    Feature #7435: Sky blending
     Task #5534: Remove support for OSG 3.4
     Task #6161: Refactor Sky to use shaders and be GLES/GL3 friendly
     Task #6162: Refactor GUI to use shaders and to be GLES and GL3+ friendly
@@ -440,6 +496,7 @@
     Feature #6024: OpenMW-CS: Selecting terrain in "Terrain land editing" should support "Add to selection" and "Remove from selection" modes
     Feature #6033: Include pathgrid to navigation mesh
     Feature #6034: Find path based on area cost depending on NPC stats
+    Feature #7161: OpenMW-CS: Make adding and filtering TopicInfos easier
     Task #5480: Drop Qt4 support
     Task #5520: Improve cell name autocompleter implementation
 

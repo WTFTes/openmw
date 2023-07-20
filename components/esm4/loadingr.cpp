@@ -34,8 +34,7 @@
 
 void ESM4::Ingredient::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
-    reader.adjustFormId(mFormId);
+    mId = reader.getRefIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -108,7 +107,6 @@ void ESM4::Ingredient::load(ESM4::Reader& reader)
             case ESM4::SUB_ZNAM:
             case ESM4::SUB_ETYP: // FO3
             {
-                // std::cout << "INGR " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
             }

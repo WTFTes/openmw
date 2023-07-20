@@ -5,9 +5,7 @@
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ScrollView.h>
 
-#include "../mwbase/environment.hpp"
-#include "../mwbase/windowmanager.hpp"
-
+#include <components/settings/values.hpp>
 #include <components/widgets/box.hpp>
 #include <components/widgets/sharedstatebutton.hpp>
 
@@ -87,7 +85,7 @@ namespace MWGui
 
         int curType = -1;
 
-        const int spellHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int spellHeight = Settings::gui().mFontSize + 2;
 
         mLines.clear();
 
@@ -100,7 +98,7 @@ namespace MWGui
             if (curType != spell.mType)
             {
                 if (spell.mType == Spell::Type_Power)
-                    addGroup("#{sPowers}", "");
+                    addGroup("#{sPowers}", {});
                 else if (spell.mType == Spell::Type_Spell)
                     addGroup("#{sSpells}", mShowCostColumn ? "#{sCostChance}" : "");
                 else
@@ -162,7 +160,7 @@ namespace MWGui
 
                 // match model against line
                 // if don't match, then major change has happened, so do a full update
-                if (mModel->getItemCount() <= static_cast<unsigned>(spellIndex))
+                if (mModel->getItemCount() <= static_cast<size_t>(spellIndex))
                 {
                     fullUpdateRequired = true;
                     break;
@@ -246,7 +244,7 @@ namespace MWGui
         groupWidget->setTextAlign(MyGUI::Align::Left);
         groupWidget->setNeedMouseFocus(false);
 
-        if (label2 != "")
+        if (!label2.empty())
         {
             MyGUI::TextBox* groupWidget2 = mScrollView->createWidget<Gui::TextBox>("SandBrightText",
                 MyGUI::IntCoord(0, 0, mScrollView->getWidth(), 24), MyGUI::Align::Left | MyGUI::Align::Top);
@@ -286,7 +284,7 @@ namespace MWGui
         else
         {
             widget->setUserString("ToolTipType", "Spell");
-            widget->setUserString("Spell", spell.mId.getRefIdString());
+            widget->setUserString("Spell", spell.mId.serialize());
         }
 
         widget->setUserString(sSpellModelIndex, MyGUI::utility::toString(index));

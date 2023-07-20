@@ -9,6 +9,7 @@
 #include <components/esm3/loadspel.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -147,8 +148,7 @@ namespace MWGui
     {
         mBirthList->removeAllItems();
 
-        const MWWorld::Store<ESM::BirthSign>& signs
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::BirthSign>();
+        const MWWorld::Store<ESM::BirthSign>& signs = MWBase::Environment::get().getESMStore()->get<ESM::BirthSign>();
 
         // sort by name
         std::vector<std::pair<ESM::RefId, const ESM::BirthSign*>> birthSigns;
@@ -189,10 +189,10 @@ namespace MWGui
             return;
 
         Widgets::MWSpellPtr spellWidget;
-        const int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         MyGUI::IntCoord coord(0, 0, mSpellArea->getWidth(), lineHeight);
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
         const ESM::BirthSign* birth = store.get<ESM::BirthSign>().find(mCurrentBirthId);
 
@@ -226,15 +226,15 @@ namespace MWGui
         struct
         {
             const std::vector<ESM::RefId>& spells;
-            const char* label;
+            std::string_view label;
         } categories[3] = { { abilities, "sBirthsignmenu1" }, { powers, "sPowers" }, { spells, "sBirthsignmenu2" } };
 
-        for (int category = 0; category < 3; ++category)
+        for (size_t category = 0; category < 3; ++category)
         {
             if (!categories[category].spells.empty())
             {
-                MyGUI::TextBox* label = mSpellArea->createWidget<MyGUI::TextBox>(
-                    "SandBrightText", coord, MyGUI::Align::Default, std::string("Label"));
+                MyGUI::TextBox* label
+                    = mSpellArea->createWidget<MyGUI::TextBox>("SandBrightText", coord, MyGUI::Align::Default, "Label");
                 label->setCaption(toUString(MWBase::Environment::get().getWindowManager()->getGameSettingString(
                     categories[category].label, {})));
                 mSpellItems.push_back(label);
@@ -244,8 +244,8 @@ namespace MWGui
                 for (it = categories[category].spells.begin(); it != end; ++it)
                 {
                     const ESM::RefId& spellId = *it;
-                    spellWidget = mSpellArea->createWidget<Widgets::MWSpell>("MW_StatName", coord,
-                        MyGUI::Align::Default, std::string("Spell") + MyGUI::utility::toString(i));
+                    spellWidget = mSpellArea->createWidget<Widgets::MWSpell>(
+                        "MW_StatName", coord, MyGUI::Align::Default, "Spell" + MyGUI::utility::toString(i));
                     spellWidget->setSpellId(spellId);
 
                     mSpellItems.push_back(spellWidget);

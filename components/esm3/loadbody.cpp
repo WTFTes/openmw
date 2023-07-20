@@ -49,7 +49,7 @@ namespace ESM
 
     void BodyPart::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mId.getRefIdString());
+        esm.writeHNCRefId("NAME", mId);
 
         if (isDeleted)
         {
@@ -58,7 +58,7 @@ namespace ESM
         }
 
         esm.writeHNCString("MODL", mModel);
-        esm.writeHNOCString("FNAM", mRace.getRefIdString());
+        esm.writeHNOCRefId("FNAM", mRace);
         esm.writeHNT("BYDT", mData, 4);
     }
 
@@ -71,6 +71,11 @@ namespace ESM
         mData.mType = 0;
 
         mModel.clear();
-        mRace = ESM::RefId::sEmpty;
+        mRace = ESM::RefId();
+    }
+
+    bool isFirstPersonBodyPart(const BodyPart& value)
+    {
+        return value.mId.endsWith("1st");
     }
 }

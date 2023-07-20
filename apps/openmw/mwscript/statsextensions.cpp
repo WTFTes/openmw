@@ -33,9 +33,9 @@
 
 namespace
 {
-    const ESM::RefId& getDialogueActorFaction(const MWWorld::ConstPtr& actor)
+    ESM::RefId getDialogueActorFaction(const MWWorld::ConstPtr& actor)
     {
-        const ESM::RefId& factionId = actor.getClass().getPrimaryFaction(actor);
+        ESM::RefId factionId = actor.getClass().getPrimaryFaction(actor);
         if (factionId.empty())
             throw std::runtime_error("failed to determine dialogue actors faction (because actor is factionless)");
 
@@ -67,7 +67,7 @@ namespace
     template <class T>
     void updateBaseRecord(MWWorld::Ptr& ptr)
     {
-        const auto& store = MWBase::Environment::get().getWorld()->getStore();
+        const auto& store = *MWBase::Environment::get().getESMStore();
         const T* base = store.get<T>().find(ptr.getCellRef().getRefId());
         ptr.get<T>()->mBase = base;
     }
@@ -109,10 +109,10 @@ namespace MWScript
         template <class R>
         class OpGetAttribute : public Interpreter::Opcode0
         {
-            int mIndex;
+            ESM::Attribute::AttributeID mIndex;
 
         public:
-            OpGetAttribute(int index)
+            OpGetAttribute(ESM::Attribute::AttributeID index)
                 : mIndex(index)
             {
             }
@@ -130,10 +130,10 @@ namespace MWScript
         template <class R>
         class OpSetAttribute : public Interpreter::Opcode0
         {
-            int mIndex;
+            ESM::Attribute::AttributeID mIndex;
 
         public:
-            OpSetAttribute(int index)
+            OpSetAttribute(ESM::Attribute::AttributeID index)
                 : mIndex(index)
             {
             }
@@ -154,10 +154,10 @@ namespace MWScript
         template <class R>
         class OpModAttribute : public Interpreter::Opcode0
         {
-            int mIndex;
+            ESM::Attribute::AttributeID mIndex;
 
         public:
-            OpModAttribute(int index)
+            OpModAttribute(ESM::Attribute::AttributeID index)
                 : mIndex(index)
             {
             }
@@ -345,11 +345,11 @@ namespace MWScript
         template <class R>
         class OpGetSkill : public Interpreter::Opcode0
         {
-            int mIndex;
+            ESM::RefId mId;
 
         public:
-            OpGetSkill(int index)
-                : mIndex(index)
+            OpGetSkill(ESM::RefId id)
+                : mId(id)
             {
             }
 
@@ -357,7 +357,7 @@ namespace MWScript
             {
                 MWWorld::Ptr ptr = R()(runtime);
 
-                Interpreter::Type_Float value = ptr.getClass().getSkill(ptr, mIndex);
+                Interpreter::Type_Float value = ptr.getClass().getSkill(ptr, mId);
 
                 runtime.push(value);
             }
@@ -366,11 +366,11 @@ namespace MWScript
         template <class R>
         class OpSetSkill : public Interpreter::Opcode0
         {
-            int mIndex;
+            ESM::RefId mId;
 
         public:
-            OpSetSkill(int index)
-                : mIndex(index)
+            OpSetSkill(ESM::RefId id)
+                : mId(id)
             {
             }
 
@@ -383,18 +383,18 @@ namespace MWScript
 
                 MWMechanics::NpcStats& stats = ptr.getClass().getNpcStats(ptr);
 
-                stats.getSkill(mIndex).setBase(value, true);
+                stats.getSkill(mId).setBase(value, true);
             }
         };
 
         template <class R>
         class OpModSkill : public Interpreter::Opcode0
         {
-            int mIndex;
+            ESM::RefId mId;
 
         public:
-            OpModSkill(int index)
-                : mIndex(index)
+            OpModSkill(ESM::RefId id)
+                : mId(id)
             {
             }
 
@@ -405,7 +405,7 @@ namespace MWScript
                 Interpreter::Type_Float value = runtime[0].mFloat;
                 runtime.pop();
 
-                MWMechanics::SkillValue& skill = ptr.getClass().getNpcStats(ptr).getSkill(mIndex);
+                MWMechanics::SkillValue& skill = ptr.getClass().getNpcStats(ptr).getSkill(mId);
                 modStat(skill, value);
             }
         };
@@ -463,7 +463,7 @@ namespace MWScript
                 ESM::RefId id = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
 
-                const ESM::Spell* spell = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().find(id);
+                const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().find(id);
 
                 MWMechanics::CreatureStats& creatureStats = ptr.getClass().getCreatureStats(ptr);
                 creatureStats.getSpells().add(spell);
@@ -572,7 +572,7 @@ namespace MWScript
                     runtime.pop();
                 }
                 // Make sure this faction exists
-                MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(factionID);
+                MWBase::Environment::get().getESMStore()->get<ESM::Faction>().find(factionID);
 
                 if (!factionID.empty())
                 {
@@ -602,7 +602,7 @@ namespace MWScript
                     runtime.pop();
                 }
                 // Make sure this faction exists
-                MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(factionID);
+                MWBase::Environment::get().getESMStore()->get<ESM::Faction>().find(factionID);
 
                 if (!factionID.empty())
                 {
@@ -613,7 +613,8 @@ namespace MWScript
                     }
                     else
                     {
-                        player.getClass().getNpcStats(player).raiseRank(factionID);
+                        int currentRank = player.getClass().getNpcStats(player).getFactionRank(factionID);
+                        player.getClass().getNpcStats(player).setFactionRank(factionID, currentRank + 1);
                     }
                 }
             }
@@ -639,12 +640,13 @@ namespace MWScript
                     runtime.pop();
                 }
                 // Make sure this faction exists
-                MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(factionID);
+                MWBase::Environment::get().getESMStore()->get<ESM::Faction>().find(factionID);
 
                 if (!factionID.empty())
                 {
                     MWWorld::Ptr player = MWMechanics::getPlayer();
-                    player.getClass().getNpcStats(player).lowerRank(factionID);
+                    int currentRank = player.getClass().getNpcStats(player).getFactionRank(factionID);
+                    player.getClass().getNpcStats(player).setFactionRank(factionID, currentRank - 1);
                 }
             }
         };
@@ -668,7 +670,7 @@ namespace MWScript
                     factionID = ptr.getClass().getPrimaryFaction(ptr);
                 }
                 // Make sure this faction exists
-                MWBase::Environment::get().getWorld()->getStore().get<ESM::Faction>().find(factionID);
+                MWBase::Environment::get().getESMStore()->get<ESM::Faction>().find(factionID);
 
                 if (!factionID.empty())
                 {
@@ -987,14 +989,12 @@ namespace MWScript
                 // Otherwise take rank from base NPC record, increase it and put it to NPC data.
                 int currentRank = ptr.getClass().getNpcStats(ptr).getFactionRank(factionID);
                 if (currentRank >= 0)
-                    ptr.getClass().getNpcStats(ptr).raiseRank(factionID);
+                    ptr.getClass().getNpcStats(ptr).setFactionRank(factionID, currentRank + 1);
                 else
                 {
                     int rank = ptr.getClass().getPrimaryFactionRank(ptr);
-                    rank++;
                     ptr.getClass().getNpcStats(ptr).joinFaction(factionID);
-                    for (int i = 0; i < rank; i++)
-                        ptr.getClass().getNpcStats(ptr).raiseRank(factionID);
+                    ptr.getClass().getNpcStats(ptr).setFactionRank(factionID, rank + 1);
                 }
             }
         };
@@ -1023,14 +1023,12 @@ namespace MWScript
                 if (currentRank == 0)
                     return;
                 else if (currentRank > 0)
-                    ptr.getClass().getNpcStats(ptr).lowerRank(factionID);
+                    ptr.getClass().getNpcStats(ptr).setFactionRank(factionID, currentRank - 1);
                 else
                 {
                     int rank = ptr.getClass().getPrimaryFactionRank(ptr);
-                    rank--;
                     ptr.getClass().getNpcStats(ptr).joinFaction(factionID);
-                    for (int i = 0; i < rank; i++)
-                        ptr.getClass().getNpcStats(ptr).raiseRank(factionID);
+                    ptr.getClass().getNpcStats(ptr).setFactionRank(factionID, std::max(0, rank - 1));
                 }
             }
         };
@@ -1193,17 +1191,17 @@ namespace MWScript
                 MWWorld::Ptr ptr = R()(runtime);
 
                 const MWMechanics::MagicEffects& effects = ptr.getClass().getCreatureStats(ptr).getMagicEffects();
-                float currentValue = effects.get(mPositiveEffect).getMagnitude();
+                float currentValue = effects.getOrDefault(mPositiveEffect).getMagnitude();
                 if (mNegativeEffect != -1)
-                    currentValue -= effects.get(mNegativeEffect).getMagnitude();
+                    currentValue -= effects.getOrDefault(mNegativeEffect).getMagnitude();
 
                 // GetResist* should take in account elemental shields
                 if (mPositiveEffect == ESM::MagicEffect::ResistFire)
-                    currentValue += effects.get(ESM::MagicEffect::FireShield).getMagnitude();
+                    currentValue += effects.getOrDefault(ESM::MagicEffect::FireShield).getMagnitude();
                 if (mPositiveEffect == ESM::MagicEffect::ResistShock)
-                    currentValue += effects.get(ESM::MagicEffect::LightningShield).getMagnitude();
+                    currentValue += effects.getOrDefault(ESM::MagicEffect::LightningShield).getMagnitude();
                 if (mPositiveEffect == ESM::MagicEffect::ResistFrost)
-                    currentValue += effects.get(ESM::MagicEffect::FrostShield).getMagnitude();
+                    currentValue += effects.getOrDefault(ESM::MagicEffect::FrostShield).getMagnitude();
 
                 int ret = static_cast<int>(currentValue);
                 runtime.push(ret);
@@ -1227,17 +1225,17 @@ namespace MWScript
             {
                 MWWorld::Ptr ptr = R()(runtime);
                 MWMechanics::MagicEffects& effects = ptr.getClass().getCreatureStats(ptr).getMagicEffects();
-                float currentValue = effects.get(mPositiveEffect).getMagnitude();
+                float currentValue = effects.getOrDefault(mPositiveEffect).getMagnitude();
                 if (mNegativeEffect != -1)
-                    currentValue -= effects.get(mNegativeEffect).getMagnitude();
+                    currentValue -= effects.getOrDefault(mNegativeEffect).getMagnitude();
 
                 // SetResist* should take in account elemental shields
                 if (mPositiveEffect == ESM::MagicEffect::ResistFire)
-                    currentValue += effects.get(ESM::MagicEffect::FireShield).getMagnitude();
+                    currentValue += effects.getOrDefault(ESM::MagicEffect::FireShield).getMagnitude();
                 if (mPositiveEffect == ESM::MagicEffect::ResistShock)
-                    currentValue += effects.get(ESM::MagicEffect::LightningShield).getMagnitude();
+                    currentValue += effects.getOrDefault(ESM::MagicEffect::LightningShield).getMagnitude();
                 if (mPositiveEffect == ESM::MagicEffect::ResistFrost)
-                    currentValue += effects.get(ESM::MagicEffect::FrostShield).getMagnitude();
+                    currentValue += effects.getOrDefault(ESM::MagicEffect::FrostShield).getMagnitude();
 
                 int arg = runtime[0].mInteger;
                 runtime.pop();
@@ -1276,7 +1274,8 @@ namespace MWScript
             {
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 MWMechanics::EffectParam nightEye
-                    = player.getClass().getCreatureStats(player).getMagicEffects().get(ESM::MagicEffect::NightEye);
+                    = player.getClass().getCreatureStats(player).getMagicEffects().getOrDefault(
+                        ESM::MagicEffect::NightEye);
                 runtime.push(std::clamp(nightEye.getMagnitude() / 100.f, 0.f, 1.f));
             }
         };
@@ -1290,8 +1289,8 @@ namespace MWScript
                 runtime.pop();
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 auto& effects = player.getClass().getCreatureStats(player).getMagicEffects();
-                float delta
-                    = std::clamp(arg * 100.f, 0.f, 100.f) - effects.get(ESM::MagicEffect::NightEye).getMagnitude();
+                float delta = std::clamp(arg * 100.f, 0.f, 100.f)
+                    - effects.getOrDefault(ESM::MagicEffect::NightEye).getMagnitude();
                 effects.modifyBase(ESM::MagicEffect::NightEye, static_cast<int>(delta));
             }
         };
@@ -1305,7 +1304,7 @@ namespace MWScript
                 runtime.pop();
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 auto& effects = player.getClass().getCreatureStats(player).getMagicEffects();
-                const MWMechanics::EffectParam nightEye = effects.get(ESM::MagicEffect::NightEye);
+                const MWMechanics::EffectParam nightEye = effects.getOrDefault(ESM::MagicEffect::NightEye);
                 float newBase = std::clamp(nightEye.getMagnitude() + arg * 100.f, 0.f, 100.f);
                 newBase -= nightEye.getModifier();
                 float delta = std::clamp(newBase, 0.f, 100.f) - nightEye.getMagnitude();
@@ -1323,17 +1322,18 @@ namespace MWScript
         {
             for (int i = 0; i < Compiler::Stats::numberOfAttributes; ++i)
             {
-                interpreter.installSegment5<OpGetAttribute<ImplicitRef>>(Compiler::Stats::opcodeGetAttribute + i, i);
+                auto id = static_cast<ESM::Attribute::AttributeID>(i);
+                interpreter.installSegment5<OpGetAttribute<ImplicitRef>>(Compiler::Stats::opcodeGetAttribute + i, id);
                 interpreter.installSegment5<OpGetAttribute<ExplicitRef>>(
-                    Compiler::Stats::opcodeGetAttributeExplicit + i, i);
+                    Compiler::Stats::opcodeGetAttributeExplicit + i, id);
 
-                interpreter.installSegment5<OpSetAttribute<ImplicitRef>>(Compiler::Stats::opcodeSetAttribute + i, i);
+                interpreter.installSegment5<OpSetAttribute<ImplicitRef>>(Compiler::Stats::opcodeSetAttribute + i, id);
                 interpreter.installSegment5<OpSetAttribute<ExplicitRef>>(
-                    Compiler::Stats::opcodeSetAttributeExplicit + i, i);
+                    Compiler::Stats::opcodeSetAttributeExplicit + i, id);
 
-                interpreter.installSegment5<OpModAttribute<ImplicitRef>>(Compiler::Stats::opcodeModAttribute + i, i);
+                interpreter.installSegment5<OpModAttribute<ImplicitRef>>(Compiler::Stats::opcodeModAttribute + i, id);
                 interpreter.installSegment5<OpModAttribute<ExplicitRef>>(
-                    Compiler::Stats::opcodeModAttributeExplicit + i, i);
+                    Compiler::Stats::opcodeModAttributeExplicit + i, id);
             }
 
             for (int i = 0; i < Compiler::Stats::numberOfDynamics; ++i)
@@ -1363,14 +1363,15 @@ namespace MWScript
 
             for (int i = 0; i < Compiler::Stats::numberOfSkills; ++i)
             {
-                interpreter.installSegment5<OpGetSkill<ImplicitRef>>(Compiler::Stats::opcodeGetSkill + i, i);
-                interpreter.installSegment5<OpGetSkill<ExplicitRef>>(Compiler::Stats::opcodeGetSkillExplicit + i, i);
+                ESM::RefId id = ESM::Skill::indexToRefId(i);
+                interpreter.installSegment5<OpGetSkill<ImplicitRef>>(Compiler::Stats::opcodeGetSkill + i, id);
+                interpreter.installSegment5<OpGetSkill<ExplicitRef>>(Compiler::Stats::opcodeGetSkillExplicit + i, id);
 
-                interpreter.installSegment5<OpSetSkill<ImplicitRef>>(Compiler::Stats::opcodeSetSkill + i, i);
-                interpreter.installSegment5<OpSetSkill<ExplicitRef>>(Compiler::Stats::opcodeSetSkillExplicit + i, i);
+                interpreter.installSegment5<OpSetSkill<ImplicitRef>>(Compiler::Stats::opcodeSetSkill + i, id);
+                interpreter.installSegment5<OpSetSkill<ExplicitRef>>(Compiler::Stats::opcodeSetSkillExplicit + i, id);
 
-                interpreter.installSegment5<OpModSkill<ImplicitRef>>(Compiler::Stats::opcodeModSkill + i, i);
-                interpreter.installSegment5<OpModSkill<ExplicitRef>>(Compiler::Stats::opcodeModSkillExplicit + i, i);
+                interpreter.installSegment5<OpModSkill<ImplicitRef>>(Compiler::Stats::opcodeModSkill + i, id);
+                interpreter.installSegment5<OpModSkill<ExplicitRef>>(Compiler::Stats::opcodeModSkillExplicit + i, id);
             }
 
             interpreter.installSegment5<OpGetPCCrimeLevel>(Compiler::Stats::opcodeGetPCCrimeLevel);

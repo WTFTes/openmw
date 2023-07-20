@@ -46,6 +46,10 @@ namespace MWMechanics
         , mLevel(0)
         , mAttackingOrSpell(false)
     {
+        for (const ESM::Attribute& attribute : MWBase::Environment::get().getESMStore()->get<ESM::Attribute>())
+        {
+            mAttributes.emplace(attribute.mId, AttributeValue{});
+        }
     }
 
     const AiSequence& CreatureStats::getAiSequence() const
@@ -66,7 +70,7 @@ namespace MWMechanics
         float normalised = std::floor(max) == 0 ? 1 : std::max(0.0f, current / max);
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         static const float fFatigueBase = gmst.find("fFatigueBase")->mValue.getFloat();
         static const float fFatigueMult = gmst.find("fFatigueMult")->mValue.getFloat();
@@ -74,13 +78,9 @@ namespace MWMechanics
         return fFatigueBase - fFatigueMult * (1 - normalised);
     }
 
-    const AttributeValue& CreatureStats::getAttribute(int index) const
+    const AttributeValue& CreatureStats::getAttribute(ESM::Attribute::AttributeID id) const
     {
-        if (index < 0 || index > 7)
-        {
-            throw std::runtime_error("attribute index is out of range");
-        }
-        return mAttributes[index];
+        return mAttributes.at(id);
     }
 
     const DynamicStat<float>& CreatureStats::getHealth() const
@@ -147,30 +147,25 @@ namespace MWMechanics
         return mMagicEffects;
     }
 
-    void CreatureStats::setAttribute(int index, float base)
+    void CreatureStats::setAttribute(ESM::Attribute::AttributeID id, float base)
     {
-        AttributeValue current = getAttribute(index);
+        AttributeValue current = getAttribute(id);
         current.setBase(base);
-        setAttribute(index, current);
+        setAttribute(id, current);
     }
 
-    void CreatureStats::setAttribute(int index, const AttributeValue& value)
+    void CreatureStats::setAttribute(ESM::Attribute::AttributeID id, const AttributeValue& value)
     {
-        if (index < 0 || index > 7)
-        {
-            throw std::runtime_error("attribute index is out of range");
-        }
-
-        const AttributeValue& currentValue = mAttributes[index];
+        const AttributeValue& currentValue = mAttributes.at(id);
 
         if (value != currentValue)
         {
-            mAttributes[index] = value;
+            mAttributes[id] = value;
 
-            if (index == ESM::Attribute::Intelligence)
+            if (id == ESM::Attribute::Intelligence)
                 recalculateMagicka();
-            else if (index == ESM::Attribute::Strength || index == ESM::Attribute::Willpower
-                || index == ESM::Attribute::Agility || index == ESM::Attribute::Endurance)
+            else if (id == ESM::Attribute::Strength || id == ESM::Attribute::Willpower || id == ESM::Attribute::Agility
+                || id == ESM::Attribute::Endurance)
             {
                 float strength = getAttribute(ESM::Attribute::Strength).getModified();
                 float willpower = getAttribute(ESM::Attribute::Willpower).getModified();
@@ -225,8 +220,8 @@ namespace MWMechanics
 
     void CreatureStats::modifyMagicEffects(const MagicEffects& effects)
     {
-        bool recalc = effects.get(ESM::MagicEffect::FortifyMaximumMagicka).getModifier()
-            != mMagicEffects.get(ESM::MagicEffect::FortifyMaximumMagicka).getModifier();
+        bool recalc = effects.getOrDefault(ESM::MagicEffect::FortifyMaximumMagicka).getModifier()
+            != mMagicEffects.getOrDefault(ESM::MagicEffect::FortifyMaximumMagicka).getModifier();
         mMagicEffects.setModifiers(effects);
         if (recalc)
             recalculateMagicka();
@@ -246,7 +241,7 @@ namespace MWMechanics
 
     bool CreatureStats::isParalyzed() const
     {
-        return mMagicEffects.get(ESM::MagicEffect::Paralyze).getMagnitude() > 0;
+        return mMagicEffects.getOrDefault(ESM::MagicEffect::Paralyze).getMagnitude() > 0;
     }
 
     bool CreatureStats::isDead() const
@@ -359,7 +354,7 @@ namespace MWMechanics
         float evasion = (getAttribute(ESM::Attribute::Agility).getModified() / 5.0f)
             + (getAttribute(ESM::Attribute::Luck).getModified() / 10.0f);
         evasion *= getFatigueTerm();
-        evasion += std::min(100.f, mMagicEffects.get(ESM::MagicEffect::Sanctuary).getMagnitude());
+        evasion += std::min(100.f, mMagicEffects.getOrDefault(ESM::MagicEffect::Sanctuary).getMagnitude());
 
         return evasion;
     }
@@ -371,7 +366,7 @@ namespace MWMechanics
 
     void CreatureStats::clearLastHitObject()
     {
-        mLastHitObject = ESM::RefId::sEmpty;
+        mLastHitObject = ESM::RefId();
     }
 
     const ESM::RefId& CreatureStats::getLastHitObject() const
@@ -386,7 +381,7 @@ namespace MWMechanics
 
     void CreatureStats::clearLastHitAttemptObject()
     {
-        mLastHitAttemptObject = ESM::RefId::sEmpty;
+        mLastHitAttemptObject = ESM::RefId();
     }
 
     const ESM::RefId& CreatureStats::getLastHitAttemptObject() const
@@ -436,8 +431,8 @@ namespace MWMechanics
         else
             base = world->getStore().get<ESM::GameSetting>().find("fNPCbaseMagickaMult")->mValue.getFloat();
 
-        double magickaFactor
-            = base + mMagicEffects.get(EffectKey(ESM::MagicEffect::FortifyMaximumMagicka)).getMagnitude() * 0.1;
+        double magickaFactor = base
+            + mMagicEffects.getOrDefault(EffectKey(ESM::MagicEffect::FortifyMaximumMagicka)).getMagnitude() * 0.1;
 
         DynamicStat<float> magicka = getMagicka();
         float currentToBaseRatio = magicka.getBase() > 0 ? magicka.getCurrent() / magicka.getBase() : 0;
@@ -535,10 +530,10 @@ namespace MWMechanics
 
     void CreatureStats::writeState(ESM::CreatureStats& state) const
     {
-        for (int i = 0; i < ESM::Attribute::Length; ++i)
-            mAttributes[i].writeState(state.mAttributes[i]);
+        for (size_t i = 0; i < state.mAttributes.size(); ++i)
+            getAttribute(static_cast<ESM::Attribute::AttributeID>(i)).writeState(state.mAttributes[i]);
 
-        for (int i = 0; i < 3; ++i)
+        for (size_t i = 0; i < state.mDynamic.size(); ++i)
             mDynamic[i].writeState(state.mDynamic[i]);
 
         state.mTradeTime = mLastRestock.toEsm();
@@ -582,7 +577,7 @@ namespace MWMechanics
         state.mSummonGraveyard = mSummonGraveyard;
 
         state.mHasAiSettings = true;
-        for (int i = 0; i < 4; ++i)
+        for (size_t i = 0; i < state.mAiSettings.size(); ++i)
             mAiSettings[i].writeState(state.mAiSettings[i]);
 
         state.mMissingACDT = false;
@@ -592,10 +587,10 @@ namespace MWMechanics
     {
         if (!state.mMissingACDT)
         {
-            for (int i = 0; i < ESM::Attribute::Length; ++i)
-                mAttributes[i].readState(state.mAttributes[i]);
+            for (size_t i = 0; i < state.mAttributes.size(); ++i)
+                mAttributes[static_cast<ESM::Attribute::AttributeID>(i)].readState(state.mAttributes[i]);
 
-            for (int i = 0; i < 3; ++i)
+            for (size_t i = 0; i < state.mDynamic.size(); ++i)
                 mDynamic[i].readState(state.mDynamic[i]);
 
             mGoldPool = state.mGoldPool;
@@ -636,7 +631,7 @@ namespace MWMechanics
         mSummonGraveyard = state.mSummonGraveyard;
 
         if (state.mHasAiSettings)
-            for (int i = 0; i < 4; ++i)
+            for (size_t i = 0; i < state.mAiSettings.size(); ++i)
                 mAiSettings[i].readState(state.mAiSettings[i]);
         if (state.mRecalcDynamicStats)
             recalculateMagicka();

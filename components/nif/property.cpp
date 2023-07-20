@@ -204,6 +204,25 @@ namespace Nif
         mTextureSet.post(nif);
     }
 
+    void BSEffectShaderProperty::read(NIFStream* nif)
+    {
+        BSShaderProperty::read(nif);
+        flags1 = nif->getUInt();
+        flags2 = nif->getUInt();
+        mUVOffset = nif->getVector2();
+        mUVScale = nif->getVector2();
+        mSourceTexture = nif->getSizedString();
+        unsigned int miscParams = nif->getUInt();
+        mClamp = miscParams & 0xFF;
+        mLightingInfluence = (miscParams >> 8) & 0xFF;
+        mEnvMapMinLOD = (miscParams >> 16) & 0xFF;
+        mFalloffParams = nif->getVector4();
+        mBaseColor = nif->getVector4();
+        mBaseColorScale = nif->getFloat();
+        mFalloffDepth = nif->getFloat();
+        mGreyscaleTexture = nif->getSizedString();
+    }
+
     void NiFogProperty::read(NIFStream* nif)
     {
         Property::read(nif);
@@ -227,10 +246,20 @@ namespace Nif
             emissiveMult = nif->getFloat();
     }
 
-    void S_VertexColorProperty::read(NIFStream* nif)
+    void NiVertexColorProperty::read(NIFStream* nif)
     {
-        vertmode = nif->getInt();
-        lightmode = nif->getInt();
+        Property::read(nif);
+        mFlags = nif->getUShort();
+        if (nif->getVersion() <= NIFFile::NIFVersion::VER_OB)
+        {
+            mVertexMode = static_cast<VertexMode>(nif->getUInt());
+            mLightingMode = static_cast<LightMode>(nif->getUInt());
+        }
+        else
+        {
+            mVertexMode = static_cast<VertexMode>((mFlags >> 4) & 0x3);
+            mLightingMode = static_cast<LightMode>((mFlags >> 3) & 0x1);
+        }
     }
 
     void S_AlphaProperty::read(NIFStream* nif)

@@ -17,12 +17,12 @@
 #include "../mwworld/actionteleport.hpp"
 #include "../mwworld/actiontrap.hpp"
 #include "../mwworld/cellstore.hpp"
-#include "../mwworld/cellutils.hpp"
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/customdata.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/failedaction.hpp"
 #include "../mwworld/ptr.hpp"
+#include "../mwworld/worldmodel.hpp"
 
 #include "../mwgui/tooltips.hpp"
 #include "../mwgui/ustring.hpp"
@@ -57,7 +57,7 @@ namespace MWClass
     {
         if (!model.empty())
         {
-            renderingInterface.getObjects().insertModel(ptr, model, true);
+            renderingInterface.getObjects().insertModel(ptr, model);
             ptr.getRefData().getBaseNode()->setNodeMask(MWRender::Mask_Static);
         }
     }
@@ -132,9 +132,8 @@ namespace MWClass
             MWRender::Animation* animation = MWBase::Environment::get().getWorld()->getAnimation(ptr);
             if (animation)
             {
-                const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
-                int index = ESM::MagicEffect::effectStringToId("sEffectTelekinesis");
-                const ESM::MagicEffect* effect = store.get<ESM::MagicEffect>().find(index);
+                const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+                const ESM::MagicEffect* effect = store.get<ESM::MagicEffect>().find(ESM::MagicEffect::Telekinesis);
 
                 animation->addSpellCastGlow(
                     effect, 1); // 1 second glow to match the time taken for a door opening or closing
@@ -143,7 +142,7 @@ namespace MWClass
 
         MWWorld::ContainerStore& invStore = actor.getClass().getContainerStore(actor);
 
-        bool isLocked = ptr.getCellRef().getLockLevel() > 0;
+        bool isLocked = ptr.getCellRef().isLocked();
         bool isTrapped = !ptr.getCellRef().getTrap().empty();
         bool hasKey = false;
         std::string_view keyName;
@@ -166,7 +165,7 @@ namespace MWClass
             // using a key disarms the trap
             if (isTrapped)
             {
-                ptr.getCellRef().setTrap(ESM::RefId::sEmpty);
+                ptr.getCellRef().setTrap(ESM::RefId());
                 MWBase::Environment::get().getSoundManager()->playSound3D(
                     ptr, ESM::RefId::stringRefId("Disarm Trap"), 1.0f, 1.0f);
                 isTrapped = false;
@@ -249,14 +248,13 @@ namespace MWClass
 
     bool Door::allowTelekinesis(const MWWorld::ConstPtr& ptr) const
     {
-        if (ptr.getCellRef().getTeleport() && ptr.getCellRef().getLockLevel() <= 0
-            && ptr.getCellRef().getTrap().empty())
+        if (ptr.getCellRef().getTeleport() && !ptr.getCellRef().isLocked() && ptr.getCellRef().getTrap().empty())
             return false;
         else
             return true;
     }
 
-    const ESM::RefId& Door::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Door::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Door>* ref = ptr.get<ESM::Door>();
 
@@ -280,10 +278,13 @@ namespace MWClass
         }
 
         int lockLevel = ptr.getCellRef().getLockLevel();
-        if (lockLevel > 0 && lockLevel != ESM::UnbreakableLock)
-            text += "\n#{sLockLevel}: " + MWGui::ToolTips::toString(ptr.getCellRef().getLockLevel());
-        else if (ptr.getCellRef().getLockLevel() < 0)
-            text += "\n#{sUnlocked}";
+        if (lockLevel)
+        {
+            if (ptr.getCellRef().isLocked())
+                text += "\n#{sLockLevel}: " + MWGui::ToolTips::toString(lockLevel);
+            else
+                text += "\n#{sUnlocked}";
+        }
         if (!ptr.getCellRef().getTrap().empty())
             text += "\n#{sTrapped}";
 
@@ -299,16 +300,8 @@ namespace MWClass
 
     std::string Door::getDestination(const MWWorld::LiveCellRef<ESM::Door>& door)
     {
-        std::string_view dest = door.mRef.getDestCell().getRefIdString();
-        if (dest.empty())
-        {
-            // door leads to exterior, use cell name (if any), otherwise translated region name
-            auto world = MWBase::Environment::get().getWorld();
-            const osg::Vec2i index
-                = MWWorld::positionToCellIndex(door.mRef.getDoorDest().pos[0], door.mRef.getDoorDest().pos[1]);
-            const ESM::Cell* cell = world->getStore().get<ESM::Cell>().search(index.x(), index.y());
-            dest = world->getCellName(cell);
-        }
+        std::string_view dest = MWBase::Environment::get().getWorld()->getCellName(
+            &MWBase::Environment::get().getWorldModel()->getCell(door.mRef.getDestCell()));
 
         return "#{sCell=" + std::string{ dest } + "}";
     }

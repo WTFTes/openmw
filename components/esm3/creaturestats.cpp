@@ -9,12 +9,12 @@ namespace ESM
 
     void CreatureStats::load(ESMReader& esm)
     {
-        bool intFallback = esm.getFormat() < 11;
-        for (int i = 0; i < 8; ++i)
-            mAttributes[i].load(esm, intFallback);
+        const bool intFallback = esm.getFormatVersion() <= MaxIntFallbackFormatVersion;
+        for (auto& attribute : mAttributes)
+            attribute.load(esm, intFallback);
 
-        for (int i = 0; i < 3; ++i)
-            mDynamic[i].load(esm);
+        for (auto& dynamic : mDynamic)
+            dynamic.load(esm);
 
         mGoldPool = 0;
         esm.getHNOT(mGoldPool, "GOLD");
@@ -37,11 +37,11 @@ namespace ESM
         mHitRecovery = false;
         mBlock = false;
         mRecalcDynamicStats = false;
-        if (esm.getFormat() < 8)
+        if (esm.getFormatVersion() <= MaxWerewolfDeprecatedDataFormatVersion)
         {
             esm.getHNOT(mDead, "DEAD");
             esm.getHNOT(mDeathAnimationFinished, "DFNT");
-            if (esm.getFormat() < 3 && mDead)
+            if (esm.getFormatVersion() <= MaxOldDeathAnimationFormatVersion && mDead)
                 mDeathAnimationFinished = true;
             esm.getHNOT(mDied, "DIED");
             esm.getHNOT(mMurdered, "MURD");
@@ -87,11 +87,11 @@ namespace ESM
         mFallHeight = 0;
         esm.getHNOT(mFallHeight, "FALL");
 
-        mLastHitObject = ESM::RefId::stringRefId(esm.getHNOString("LHIT"));
+        mLastHitObject = esm.getHNORefId("LHIT");
 
-        mLastHitAttemptObject = ESM::RefId::stringRefId(esm.getHNOString("LHAT"));
+        mLastHitAttemptObject = esm.getHNORefId("LHAT");
 
-        if (esm.getFormat() < 8)
+        if (esm.getFormatVersion() <= MaxWerewolfDeprecatedDataFormatVersion)
             esm.getHNOT(mRecalcDynamicStats, "CALC");
 
         mDrawState = 0;
@@ -115,13 +115,13 @@ namespace ESM
         mAiSequence.load(esm);
         mMagicEffects.load(esm);
 
-        if (esm.getFormat() < 17)
+        if (esm.getFormatVersion() <= MaxClearModifiersFormatVersion)
         {
             while (esm.isNextSub("SUMM"))
             {
                 int magicEffect;
                 esm.getHT(magicEffect);
-                ESM::RefId source = ESM::RefId::stringRefId(esm.getHNOString("SOUR"));
+                ESM::RefId source = esm.getHNORefId("SOUR");
                 int effectIndex = -1;
                 esm.getHNOT(effectIndex, "EIND");
                 int actorId;
@@ -154,8 +154,8 @@ namespace ESM
 
         if (mHasAiSettings)
         {
-            for (int i = 0; i < 4; ++i)
-                mAiSettings[i].load(esm);
+            for (auto& setting : mAiSettings)
+                setting.load(esm);
         }
 
         while (esm.isNextSub("CORP"))
@@ -168,7 +168,7 @@ namespace ESM
 
             mCorprusSpells[id] = stats;
         }
-        if (esm.getFormat() <= 18)
+        if (esm.getFormatVersion() <= MaxOldSkillsAndAttributesFormatVersion)
             mMissingACDT = mGoldPool == std::numeric_limits<int>::min();
         else
         {
@@ -179,11 +179,11 @@ namespace ESM
 
     void CreatureStats::save(ESMWriter& esm) const
     {
-        for (int i = 0; i < 8; ++i)
-            mAttributes[i].save(esm);
+        for (const auto& attribute : mAttributes)
+            attribute.save(esm);
 
-        for (int i = 0; i < 3; ++i)
-            mDynamic[i].save(esm);
+        for (const auto& dynamic : mDynamic)
+            dynamic.save(esm);
 
         if (mGoldPool)
             esm.writeHNT("GOLD", mGoldPool);
@@ -229,10 +229,10 @@ namespace ESM
             esm.writeHNT("FALL", mFallHeight);
 
         if (!mLastHitObject.empty())
-            esm.writeHNString("LHIT", mLastHitObject.getRefIdString());
+            esm.writeHNRefId("LHIT", mLastHitObject);
 
         if (!mLastHitAttemptObject.empty())
-            esm.writeHNString("LHAT", mLastHitAttemptObject.getRefIdString());
+            esm.writeHNRefId("LHAT", mLastHitAttemptObject);
 
         if (mDrawState)
             esm.writeHNT("DRAW", mDrawState);
@@ -268,8 +268,8 @@ namespace ESM
         esm.writeHNT("AISE", mHasAiSettings);
         if (mHasAiSettings)
         {
-            for (int i = 0; i < 4; ++i)
-                mAiSettings[i].save(esm);
+            for (const auto& setting : mAiSettings)
+                setting.save(esm);
         }
         if (mMissingACDT)
             esm.writeHNT("NOAC", mMissingACDT);

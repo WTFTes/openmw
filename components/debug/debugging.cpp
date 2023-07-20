@@ -2,17 +2,34 @@
 
 #include <chrono>
 #include <fstream>
+#include <iostream>
+#include <map>
 #include <memory>
 
 #include <boost/iostreams/stream.hpp>
 
 #include <components/crashcatcher/crashcatcher.hpp>
-#include <components/files/configurationmanager.hpp>
 #include <components/files/conversion.hpp>
+#include <components/misc/strings/conversion.hpp>
+#include <components/misc/strings/lower.hpp>
+
 #ifdef _WIN32
 #include <components/crashcatcher/windows_crashcatcher.hpp>
 #include <components/files/conversion.hpp>
 #include <components/windows.hpp>
+
+#include <Knownfolders.h>
+
+#pragma push_macro("FAR")
+#pragma push_macro("NEAR")
+#undef FAR
+#define FAR
+#undef NEAR
+#define NEAR
+#include <Shlobj.h>
+#pragma pop_macro("NEAR")
+#pragma pop_macro("FAR")
+
 #endif
 
 #include <SDL_messagebox.h>
@@ -280,7 +297,7 @@ Misc::Locked<std::ostream&> getLockedRawStderr()
 }
 
 // Redirect cout and cerr to the log file
-void setupLogging(const std::filesystem::path& logDir, const std::string& appName, std::ios_base::openmode mode)
+void setupLogging(const std::filesystem::path& logDir, std::string_view appName, std::ios_base::openmode mode)
 {
 #if defined(_WIN32) && defined(_DEBUG)
     // Redirect cout and cerr to VS debug output when running in debug mode
@@ -297,10 +314,16 @@ void setupLogging(const std::filesystem::path& logDir, const std::string& appNam
     std::cout.rdbuf(&coutsb);
     std::cerr.rdbuf(&cerrsb);
 #endif
+
+#ifdef _WIN32
+    if (Crash::CrashCatcher::instance())
+    {
+        Crash::CrashCatcher::instance()->updateDumpPath(logDir);
+    }
+#endif
 }
 
-int wrapApplication(int (*innerApplication)(int argc, char* argv[]), int argc, char* argv[], const std::string& appName,
-    bool autoSetupLogging)
+int wrapApplication(int (*innerApplication)(int argc, char* argv[]), int argc, char* argv[], std::string_view appName)
 {
 #if defined _WIN32
     (void)Debug::attachParentConsole();
@@ -312,29 +335,25 @@ int wrapApplication(int (*innerApplication)(int argc, char* argv[]), int argc, c
     int ret = 0;
     try
     {
-        Files::ConfigurationManager cfgMgr;
-
-        if (autoSetupLogging)
-        {
-            std::ios_base::openmode mode = std::ios::out;
-
-            // If we are collecting a stack trace, append to existing log file
-            if (argc == 2 && strcmp(argv[1], crash_switch) == 0)
-                mode |= std::ios::app;
-
-            setupLogging(cfgMgr.getLogPath(), appName, mode);
-        }
-
-        if (const auto env = std::getenv("OPENMW_DISABLE_CRASH_CATCHER"); env == nullptr || std::atol(env) == 0)
+        if (const auto env = std::getenv("OPENMW_DISABLE_CRASH_CATCHER");
+            env == nullptr || Misc::StringUtils::toNumeric<int>(env, 0) == 0)
         {
 #if defined(_WIN32)
-            const std::string crashLogName = Misc::StringUtils::lowerCase(appName) + "-crash.dmp";
-            Crash::CrashCatcher crashy(argc, argv, Files::pathToUnicodeString(cfgMgr.getLogPath() / crashLogName));
+            const std::string crashDumpName = Misc::StringUtils::lowerCase(appName) + "-crash.dmp";
+            const std::string freezeDumpName = Misc::StringUtils::lowerCase(appName) + "-freeze.dmp";
+            std::filesystem::path dumpDirectory = std::filesystem::temp_directory_path();
+            PWSTR userProfile = nullptr;
+            if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &userProfile)))
+            {
+                dumpDirectory = userProfile;
+            }
+            CoTaskMemFree(userProfile);
+            Crash::CrashCatcher crashy(argc, argv, dumpDirectory, crashDumpName, freezeDumpName);
 #else
             const std::string crashLogName = Misc::StringUtils::lowerCase(appName) + "-crash.log";
-            // install the crash handler as soon as possible. note that the log path
-            // does not depend on config being read.
-            crashCatcherInstall(argc, argv, Files::pathToUnicodeString(cfgMgr.getLogPath() / crashLogName));
+            // install the crash handler as soon as possible.
+            crashCatcherInstall(
+                argc, argv, Files::pathToUnicodeString(std::filesystem::temp_directory_path() / crashLogName));
 #endif
             ret = innerApplication(argc, argv);
         }
@@ -346,7 +365,7 @@ int wrapApplication(int (*innerApplication)(int argc, char* argv[]), int argc, c
 #if (defined(__APPLE__) || defined(__linux) || defined(__unix) || defined(__posix))
         if (!isatty(fileno(stdin)))
 #endif
-            SDL_ShowSimpleMessageBox(0, (appName + ": Fatal error").c_str(), e.what(), nullptr);
+            SDL_ShowSimpleMessageBox(0, (std::string(appName) + ": Fatal error").c_str(), e.what(), nullptr);
 
         Log(Debug::Error) << "Error: " << e.what();
 

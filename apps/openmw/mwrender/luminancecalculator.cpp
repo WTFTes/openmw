@@ -1,5 +1,6 @@
 #include "luminancecalculator.hpp"
 
+#include <components/misc/mathutil.hpp>
 #include <components/settings/settings.hpp>
 #include <components/shader/shadermanager.hpp>
 
@@ -12,24 +13,13 @@ namespace MWRender
         const float hdrExposureTime
             = std::max(Settings::Manager::getFloat("auto exposure speed", "Post Processing"), 0.0001f);
 
-        constexpr float minLog = -9.0;
-        constexpr float maxLog = 4.0;
-        constexpr float logLumRange = (maxLog - minLog);
-        constexpr float invLogLumRange = 1.0 / logLumRange;
-        constexpr float epsilon = 0.004;
-
         Shader::ShaderManager::DefineMap defines = {
-            { "minLog", std::to_string(minLog) },
-            { "maxLog", std::to_string(maxLog) },
-            { "logLumRange", std::to_string(logLumRange) },
-            { "invLogLumRange", std::to_string(invLogLumRange) },
             { "hdrExposureTime", std::to_string(hdrExposureTime) },
-            { "epsilon", std::to_string(epsilon) },
         };
 
-        auto vertex = shaderManager.getShader("fullscreen_tri_vertex.glsl", {}, osg::Shader::VERTEX);
-        auto luminanceFragment = shaderManager.getShader("hdr_luminance_fragment.glsl", defines, osg::Shader::FRAGMENT);
-        auto resolveFragment = shaderManager.getShader("hdr_resolve_fragment.glsl", defines, osg::Shader::FRAGMENT);
+        auto vertex = shaderManager.getShader("fullscreen_tri.vert", {});
+        auto luminanceFragment = shaderManager.getShader("luminance/luminance.frag", defines);
+        auto resolveFragment = shaderManager.getShader("luminance/resolve.frag", defines);
 
         mResolveProgram = shaderManager.getProgram(vertex, resolveFragment);
         mLuminanceProgram = shaderManager.getProgram(vertex, luminanceFragment);
@@ -45,6 +35,8 @@ namespace MWRender
             buffer.mipmappedSceneLuminanceTex->setInternalFormat(GL_R16F);
             buffer.mipmappedSceneLuminanceTex->setSourceFormat(GL_RED);
             buffer.mipmappedSceneLuminanceTex->setSourceType(GL_FLOAT);
+            buffer.mipmappedSceneLuminanceTex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+            buffer.mipmappedSceneLuminanceTex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
             buffer.mipmappedSceneLuminanceTex->setFilter(
                 osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR_MIPMAP_NEAREST);
             buffer.mipmappedSceneLuminanceTex->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
@@ -55,11 +47,15 @@ namespace MWRender
             buffer.luminanceTex->setInternalFormat(GL_R16F);
             buffer.luminanceTex->setSourceFormat(GL_RED);
             buffer.luminanceTex->setSourceType(GL_FLOAT);
+            buffer.luminanceTex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+            buffer.luminanceTex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
             buffer.luminanceTex->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::NEAREST);
             buffer.luminanceTex->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::NEAREST);
             buffer.luminanceTex->setTextureSize(1, 1);
 
             buffer.luminanceProxyTex = new osg::Texture2D(*buffer.luminanceTex);
+            buffer.luminanceProxyTex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+            buffer.luminanceProxyTex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
 
             buffer.resolveFbo = new osg::FrameBufferObject;
             buffer.resolveFbo->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER0,
@@ -80,6 +76,7 @@ namespace MWRender
             buffer.sceneLumSS = new osg::StateSet;
             buffer.sceneLumSS->setAttributeAndModes(mLuminanceProgram);
             buffer.sceneLumSS->addUniform(new osg::Uniform("sceneTex", 0));
+            buffer.sceneLumSS->addUniform(new osg::Uniform("scaling", mScale));
 
             buffer.resolveSS = new osg::StateSet;
             buffer.resolveSS->setAttributeAndModes(mResolveProgram);
@@ -108,6 +105,7 @@ namespace MWRender
         auto& buffer = mBuffers[frameId];
         buffer.sceneLumFbo->apply(state, osg::FrameBufferObject::DRAW_FRAMEBUFFER);
         buffer.sceneLumSS->setTextureAttributeAndModes(0, canvas.getSceneTexture(frameId));
+        buffer.sceneLumSS->getUniform("scaling")->set(mScale);
 
         state.apply(buffer.sceneLumSS);
         canvas.drawGeometry(renderInfo);
@@ -139,5 +137,17 @@ namespace MWRender
     osg::ref_ptr<osg::Texture2D> LuminanceCalculator::getLuminanceTexture(size_t frameId) const
     {
         return mBuffers[frameId].luminanceTex;
+    }
+
+    void LuminanceCalculator::dirty(int w, int h)
+    {
+        constexpr int minSize = 64;
+
+        mWidth = std::max(minSize, Misc::nextPowerOfTwo(w) / 2);
+        mHeight = std::max(minSize, Misc::nextPowerOfTwo(h) / 2);
+
+        mScale = osg::Vec2f(w / static_cast<float>(mWidth), h / static_cast<float>(mHeight));
+
+        mCompiled = false;
     }
 }

@@ -12,7 +12,7 @@ namespace ESM
         esm.getSubHeader();
         ContItem ci;
         esm.getT(ci.mCount);
-        ci.mItem = ESM::RefId::stringRefId(esm.getString(32));
+        ci.mItem = esm.getMaybeFixedRefIdSize(32);
         mList.push_back(ci);
     }
 
@@ -22,7 +22,7 @@ namespace ESM
         {
             esm.startSubRecord("NPCO");
             esm.writeT(it->mCount);
-            esm.writeFixedSizeString(it->mItem.getRefIdString(), 32);
+            esm.writeMaybeFixedSizeRefId(it->mItem, 32);
             esm.endRecord("NPCO");
         }
     }
@@ -90,7 +90,7 @@ namespace ESM
 
     void Container::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mId.getRefIdString());
+        esm.writeHNCRefId("NAME", mId);
 
         if (isDeleted)
         {
@@ -103,7 +103,7 @@ namespace ESM
         esm.writeHNT("CNDT", mWeight, 4);
         esm.writeHNT("FLAG", mFlags, 4);
 
-        esm.writeHNOCString("SCRI", mScript.getRefIdString());
+        esm.writeHNOCRefId("SCRI", mScript);
 
         mInventory.save(esm);
     }
@@ -113,7 +113,7 @@ namespace ESM
         mRecordFlags = 0;
         mName.clear();
         mModel.clear();
-        mScript = ESM::RefId::sEmpty;
+        mScript = ESM::RefId();
         mWeight = 0;
         mFlags = 0x8; // set default flag value
         mInventory.mList.clear();

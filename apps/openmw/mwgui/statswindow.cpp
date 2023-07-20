@@ -1,5 +1,6 @@
 #include "statswindow.hpp"
 
+#include <MyGUI_Button.h>
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_InputManager.h>
@@ -15,7 +16,7 @@
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadrace.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -37,41 +38,42 @@ namespace MWGui
         : WindowPinnableBase("openmw_stats_window.layout")
         , NoDrop(drag, mMainWidget)
         , mSkillView(nullptr)
-        , mMajorSkills()
-        , mMinorSkills()
-        , mMiscSkills()
-        , mSkillValues()
-        , mSkillWidgetMap()
-        , mFactionWidgetMap()
-        , mFactions()
-        , mBirthSignId()
         , mReputation(0)
         , mBounty(0)
-        , mSkillWidgets()
         , mChanged(true)
         , mMinFullWidth(mMainWidget->getSize().width)
     {
 
-        const char* names[][2] = { { "Attrib1", "sAttributeStrength" }, { "Attrib2", "sAttributeIntelligence" },
-            { "Attrib3", "sAttributeWillpower" }, { "Attrib4", "sAttributeAgility" }, { "Attrib5", "sAttributeSpeed" },
-            { "Attrib6", "sAttributeEndurance" }, { "Attrib7", "sAttributePersonality" },
-            { "Attrib8", "sAttributeLuck" }, { 0, 0 } };
-
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
-        for (int i = 0; names[i][0]; ++i)
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+        MyGUI::Widget* attributeView = getWidget("AttributeView");
+        MyGUI::IntCoord coord{ 0, 0, 204, 18 };
+        const MyGUI::Align alignment = MyGUI::Align::Left | MyGUI::Align::Top | MyGUI::Align::HStretch;
+        for (const ESM::Attribute& attribute : store.get<ESM::Attribute>())
         {
-            setText(names[i][0], store.get<ESM::GameSetting>().find(names[i][1])->mValue.getString());
+            auto* box = attributeView->createWidget<MyGUI::Button>({}, coord, alignment);
+            box->setUserString("ToolTipType", "Layout");
+            box->setUserString("ToolTipLayout", "AttributeToolTip");
+            box->setUserString("Caption_AttributeName", attribute.mName);
+            box->setUserString("Caption_AttributeDescription", attribute.mDescription);
+            box->setUserString("ImageTexture_AttributeImage", attribute.mIcon);
+            coord.top += coord.height;
+            auto* name = box->createWidget<MyGUI::TextBox>("SandText", { 0, 0, 160, 18 }, alignment);
+            name->setNeedMouseFocus(false);
+            name->setCaption(attribute.mName);
+            auto* value = box->createWidget<MyGUI::TextBox>(
+                "SandTextRight", { 160, 0, 44, 18 }, MyGUI::Align::Right | MyGUI::Align::Top);
+            value->setNeedMouseFocus(false);
+            mAttributeWidgets.emplace(attribute.mId, value);
         }
 
         getWidget(mSkillView, "SkillView");
         getWidget(mLeftPane, "LeftPane");
         getWidget(mRightPane, "RightPane");
 
-        for (int i = 0; i < ESM::Skill::Length; ++i)
+        for (const ESM::Skill& skill : store.get<ESM::Skill>())
         {
-            mSkillValues.insert(std::make_pair(i, MWMechanics::SkillValue()));
-            mSkillWidgetMap.insert(
-                std::make_pair(i, std::make_pair((MyGUI::TextBox*)nullptr, (MyGUI::TextBox*)nullptr)));
+            mSkillValues.emplace(skill.mId, MWMechanics::SkillValue());
+            mSkillWidgetMap.emplace(skill.mId, std::make_pair<MyGUI::TextBox*, MyGUI::TextBox*>(nullptr, nullptr));
         }
 
         MyGUI::Window* t = mMainWidget->castType<MyGUI::Window>();
@@ -153,37 +155,20 @@ namespace MWGui
         mMainWidget->castType<MyGUI::Window>()->setCaption(playerName);
     }
 
-    void StatsWindow::setValue(std::string_view id, const MWMechanics::AttributeValue& value)
+    void StatsWindow::setValue(ESM::Attribute::AttributeID id, const MWMechanics::AttributeValue& value)
     {
-        static const char* ids[] = {
-            "AttribVal1",
-            "AttribVal2",
-            "AttribVal3",
-            "AttribVal4",
-            "AttribVal5",
-            "AttribVal6",
-            "AttribVal7",
-            "AttribVal8",
-            nullptr,
-        };
-
-        for (int i = 0; ids[i]; ++i)
-            if (ids[i] == id)
-            {
-                setText(id, std::to_string(static_cast<int>(value.getModified())));
-
-                MyGUI::TextBox* box;
-                getWidget(box, id);
-
-                if (value.getModified() > value.getBase())
-                    box->_setWidgetState("increased");
-                else if (value.getModified() < value.getBase())
-                    box->_setWidgetState("decreased");
-                else
-                    box->_setWidgetState("normal");
-
-                break;
-            }
+        auto it = mAttributeWidgets.find(id);
+        if (it != mAttributeWidgets.end())
+        {
+            MyGUI::TextBox* box = it->second;
+            box->setCaption(std::to_string(static_cast<int>(value.getModified())));
+            if (value.getModified() > value.getBase())
+                box->_setWidgetState("increased");
+            else if (value.getModified() < value.getBase())
+                box->_setWidgetState("decreased");
+            else
+                box->_setWidgetState("normal");
+        }
     }
 
     void StatsWindow::setValue(std::string_view id, const MWMechanics::DynamicStat<float>& value)
@@ -237,10 +222,10 @@ namespace MWGui
         }
     }
 
-    void setSkillProgress(MyGUI::Widget* w, float progress, int skillId)
+    void setSkillProgress(MyGUI::Widget* w, float progress, ESM::RefId skillId)
     {
         MWWorld::Ptr player = MWMechanics::getPlayer();
-        const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
 
         float progressRequirement = player.getClass().getNpcStats(player).getSkillProgressRequirement(
             skillId, *esmStore.get<ESM::Class>().find(player.get<ESM::NPC>()->mBase->mClass));
@@ -255,10 +240,10 @@ namespace MWGui
         w->setUserString("RangePosition_SkillProgress", MyGUI::utility::toString(progressPercent));
     }
 
-    void StatsWindow::setValue(const ESM::Skill::SkillEnum parSkill, const MWMechanics::SkillValue& value)
+    void StatsWindow::setValue(ESM::RefId id, const MWMechanics::SkillValue& value)
     {
-        mSkillValues[parSkill] = value;
-        std::pair<MyGUI::TextBox*, MyGUI::TextBox*> widgets = mSkillWidgetMap[(int)parSkill];
+        mSkillValues[id] = value;
+        std::pair<MyGUI::TextBox*, MyGUI::TextBox*> widgets = mSkillWidgetMap[id];
         MyGUI::TextBox* valueWidget = widgets.second;
         MyGUI::TextBox* nameWidget = widgets.first;
         if (valueWidget && nameWidget)
@@ -296,8 +281,8 @@ namespace MWGui
                 valueWidget->setUserString("Visible_SkillProgressVBox", "true");
                 valueWidget->setUserString("UserData^Hidden_SkillProgressVBox", "false");
 
-                setSkillProgress(nameWidget, value.getProgress(), parSkill);
-                setSkillProgress(valueWidget, value.getProgress(), parSkill);
+                setSkillProgress(nameWidget, value.getProgress(), id);
+                setSkillProgress(valueWidget, value.getProgress(), id);
             }
             else
             {
@@ -314,20 +299,21 @@ namespace MWGui
         }
     }
 
-    void StatsWindow::configureSkills(const std::vector<int>& major, const std::vector<int>& minor)
+    void StatsWindow::configureSkills(const std::vector<ESM::RefId>& major, const std::vector<ESM::RefId>& minor)
     {
         mMajorSkills = major;
         mMinorSkills = minor;
 
         // Update misc skills with the remaining skills not in major or minor
-        std::set<int> skillSet;
+        std::set<ESM::RefId> skillSet;
         std::copy(major.begin(), major.end(), std::inserter(skillSet, skillSet.begin()));
         std::copy(minor.begin(), minor.end(), std::inserter(skillSet, skillSet.begin()));
         mMiscSkills.clear();
-        for (const int skill : ESM::Skill::sSkillIds)
+        const auto& store = MWBase::Environment::get().getWorld()->getStore().get<ESM::Skill>();
+        for (const auto& skill : store)
         {
-            if (skillSet.find(skill) == skillSet.end())
-                mMiscSkills.push_back(skill);
+            if (!skillSet.contains(skill.mId))
+                mMiscSkills.push_back(skill.mId);
         }
 
         updateSkillArea();
@@ -339,30 +325,29 @@ namespace MWGui
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
         const MWMechanics::NpcStats& PCstats = player.getClass().getNpcStats(player);
+        const auto& store = MWBase::Environment::get().getESMStore();
 
-        std::string detailText;
         std::stringstream detail;
-        for (int attribute = 0; attribute < ESM::Attribute::Length; ++attribute)
+        bool first = true;
+        for (const auto& attribute : store->get<ESM::Attribute>())
         {
-            float mult = PCstats.getLevelupAttributeMultiplier(attribute);
-            mult = std::min(mult, 100 - PCstats.getAttribute(attribute).getBase());
+            float mult = PCstats.getLevelupAttributeMultiplier(attribute.mId);
+            mult = std::min(mult, 100 - PCstats.getAttribute(attribute.mId).getBase());
             if (mult > 1)
-                detail << (detail.str().empty() ? "" : "\n") << "#{"
-                       << MyGUI::TextIterator::toTagsString(ESM::Attribute::sGmstAttributeIds[attribute]) << "} x"
-                       << MyGUI::utility::toString(mult);
+            {
+                if (!first)
+                    detail << '\n';
+                detail << attribute.mName << " x" << MyGUI::utility::toString(mult);
+                first = false;
+            }
         }
-        detailText = MyGUI::LanguageManager::getInstance().replaceTags(detail.str());
+        std::string detailText = detail.str();
 
         // level progress
         MyGUI::Widget* levelWidget;
         for (int i = 0; i < 2; ++i)
         {
-            int max = MWBase::Environment::get()
-                          .getWorld()
-                          ->getStore()
-                          .get<ESM::GameSetting>()
-                          .find("iLevelUpTotal")
-                          ->mValue.getInteger();
+            int max = store->get<ESM::GameSetting>().find("iLevelUpTotal")->mValue.getInteger();
             getWidget(levelWidget, i == 0 ? "Level_str" : "LevelText");
 
             levelWidget->setUserString(
@@ -434,7 +419,7 @@ namespace MWGui
         groupWidget->eventMouseWheel += MyGUI::newDelegate(this, &StatsWindow::onMouseWheel);
         mSkillWidgets.push_back(groupWidget);
 
-        int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         coord1.top += lineHeight;
         coord2.top += lineHeight;
     }
@@ -464,7 +449,7 @@ namespace MWGui
         mSkillWidgets.push_back(skillNameWidget);
         mSkillWidgets.push_back(skillValueWidget);
 
-        int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         coord1.top += lineHeight;
         coord2.top += lineHeight;
 
@@ -485,15 +470,15 @@ namespace MWGui
 
         mSkillWidgets.push_back(skillNameWidget);
 
-        int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         coord1.top += lineHeight;
         coord2.top += lineHeight;
 
         return skillNameWidget;
     }
 
-    void StatsWindow::addSkills(const SkillList& skills, const std::string& titleId, const std::string& titleDefault,
-        MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2)
+    void StatsWindow::addSkills(const std::vector<ESM::RefId>& skills, const std::string& titleId,
+        const std::string& titleDefault, MyGUI::IntCoord& coord1, MyGUI::IntCoord& coord2)
     {
         // Add a line separator if there are items above
         if (!mSkillWidgets.empty())
@@ -504,40 +489,34 @@ namespace MWGui
         addGroup(
             MWBase::Environment::get().getWindowManager()->getGameSettingString(titleId, titleDefault), coord1, coord2);
 
-        for (const int skillId : skills)
+        const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
+        for (const ESM::RefId& skillId : skills)
         {
-            if (skillId < 0 || skillId >= ESM::Skill::Length) // Skip unknown skill indexes
+            const ESM::Skill* skill = esmStore.get<ESM::Skill>().search(skillId);
+            if (!skill) // Skip unknown skills
                 continue;
-            const std::string& skillNameId = ESM::Skill::sSkillNameIds[skillId];
-
-            const MWWorld::ESMStore& esmStore = MWBase::Environment::get().getWorld()->getStore();
-
-            const ESM::Skill* skill = esmStore.get<ESM::Skill>().find(skillId);
-
-            std::string icon = "icons\\k\\" + ESM::Skill::sIconNames[skillId];
 
             const ESM::Attribute* attr = esmStore.get<ESM::Attribute>().find(skill->mData.mAttribute);
 
-            std::pair<MyGUI::TextBox*, MyGUI::TextBox*> widgets = addValueItem(
-                MWBase::Environment::get().getWindowManager()->getGameSettingString(skillNameId, skillNameId), {},
-                "normal", coord1, coord2);
-            mSkillWidgetMap[skillId] = widgets;
+            std::pair<MyGUI::TextBox*, MyGUI::TextBox*> widgets
+                = addValueItem(skill->mName, {}, "normal", coord1, coord2);
+            mSkillWidgetMap[skill->mId] = widgets;
 
             for (int i = 0; i < 2; ++i)
             {
                 mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("ToolTipType", "Layout");
                 mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("ToolTipLayout", "SkillToolTip");
                 mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString(
-                    "Caption_SkillName", "#{" + skillNameId + "}");
+                    "Caption_SkillName", MyGUI::TextIterator::toTagsString(skill->mName));
                 mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString(
                     "Caption_SkillDescription", skill->mDescription);
-                mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString(
-                    "Caption_SkillAttribute", "#{sGoverningAttribute}: #{" + attr->mName + "}");
-                mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("ImageTexture_SkillImage", icon);
+                mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("Caption_SkillAttribute",
+                    "#{sGoverningAttribute}: " + MyGUI::TextIterator::toTagsString(attr->mName));
+                mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("ImageTexture_SkillImage", skill->mIcon);
                 mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("Range_SkillProgress", "100");
             }
 
-            setValue(static_cast<ESM::Skill::SkillEnum>(skillId), mSkillValues.find(skillId)->second);
+            setValue(skill->mId, mSkillValues.find(skill->mId)->second);
         }
     }
 
@@ -631,27 +610,28 @@ namespace MWGui
                         // player doesn't have max rank yet
                         text += std::string("\n\n#{fontcolourhtml=header}#{sNextRank} ") + faction->mRanks[rank + 1];
 
-                        ESM::RankData rankData = faction->mData.mRankData[rank + 1];
+                        const ESM::RankData& rankData = faction->mData.mRankData[rank + 1];
                         const ESM::Attribute* attr1 = store.get<ESM::Attribute>().find(faction->mData.mAttribute[0]);
                         const ESM::Attribute* attr2 = store.get<ESM::Attribute>().find(faction->mData.mAttribute[1]);
 
-                        text += "\n#{fontcolourhtml=normal}#{" + attr1->mName
-                            + "}: " + MyGUI::utility::toString(rankData.mAttribute1) + ", #{" + attr2->mName
-                            + "}: " + MyGUI::utility::toString(rankData.mAttribute2);
+                        text += "\n#{fontcolourhtml=normal}" + MyGUI::TextIterator::toTagsString(attr1->mName) + ": "
+                            + MyGUI::utility::toString(rankData.mAttribute1) + ", "
+                            + MyGUI::TextIterator::toTagsString(attr2->mName) + ": "
+                            + MyGUI::utility::toString(rankData.mAttribute2);
 
                         text += "\n\n#{fontcolourhtml=header}#{sFavoriteSkills}";
                         text += "\n#{fontcolourhtml=normal}";
                         bool firstSkill = true;
-                        for (int i = 0; i < 7; ++i)
+                        for (int id : faction->mData.mSkills)
                         {
-                            if (faction->mData.mSkills[i] != -1)
+                            const ESM::Skill* skill = store.get<ESM::Skill>().search(ESM::Skill::indexToRefId(id));
+                            if (skill)
                             {
                                 if (!firstSkill)
                                     text += ", ";
 
                                 firstSkill = false;
-
-                                text += "#{" + ESM::Skill::sSkillNameIds[faction->mData.mSkills[i]] + "}";
+                                text += MyGUI::TextIterator::toTagsString(skill->mName);
                             }
                         }
 
@@ -717,7 +697,7 @@ namespace MWGui
 
     void StatsWindow::onPinToggled()
     {
-        Settings::Manager::setBool("stats pin", "Windows", mPinned);
+        Settings::windows().mStatsPin.set(mPinned);
 
         MWBase::Environment::get().getWindowManager()->setHMSVisibility(!mPinned);
     }

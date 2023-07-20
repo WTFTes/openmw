@@ -85,7 +85,7 @@ namespace MWGui
     void SaveGameDialog::confirmDeleteSave()
     {
         ConfirmationDialog* dialog = MWBase::Environment::get().getWindowManager()->getConfirmationDialog();
-        dialog->askForConfirmation("#{sMessage3}");
+        dialog->askForConfirmation("#{OMWEngine:DeleteGameConfirmation}");
         dialog->eventOkClicked.clear();
         dialog->eventOkClicked += MyGUI::newDelegate(this, &SaveGameDialog::onDeleteSlotConfirmed);
         dialog->eventCancelClicked.clear();
@@ -111,7 +111,7 @@ namespace MWGui
                 onCharacterSelected(mCharacterSelection, nextCharacter);
             }
             else
-                fillSaveList();
+                mCharacterSelection->setIndexSelected(MyGUI::ITEM_NONE);
         }
     }
 
@@ -146,7 +146,7 @@ namespace MWGui
     {
         WindowModal::onOpen();
 
-        mSaveNameEdit->setCaption("");
+        mSaveNameEdit->setCaption({});
         if (mSaving)
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mSaveNameEdit);
         else
@@ -154,7 +154,7 @@ namespace MWGui
 
         center();
 
-        mCharacterSelection->setCaption("");
+        mCharacterSelection->setCaption({});
         mCharacterSelection->removeAllItems();
         mCurrentCharacter = nullptr;
         mCurrentSlot = nullptr;
@@ -167,7 +167,7 @@ namespace MWGui
 
         mCurrentCharacter = mgr->getCurrentCharacter();
 
-        std::string directory = Misc::StringUtils::lowerCase(Settings::Manager::getString("character", "Saves"));
+        const std::string& directory = Settings::Manager::getString("character", "Saves");
 
         size_t selectedIndex = MyGUI::ITEM_NONE;
 
@@ -189,8 +189,7 @@ namespace MWGui
                 {
                     // Find the localised name for this class from the store
                     const ESM::Class* class_
-                        = MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().search(
-                            signature.mPlayerClassId);
+                        = MWBase::Environment::get().getESMStore()->get<ESM::Class>().search(signature.mPlayerClassId);
                     if (class_)
                         className = class_->mName;
                     else
@@ -204,9 +203,8 @@ namespace MWGui
 
                 if (mCurrentCharacter == &*it
                     || (!mCurrentCharacter && !mSaving
-                        && directory
-                            == Misc::StringUtils::lowerCase(
-                                Files::pathToUnicodeString(it->begin()->mPath.parent_path().filename()))))
+                        && Misc::StringUtils::ciEqual(
+                            directory, Files::pathToUnicodeString(it->begin()->mPath.parent_path().filename()))))
                 {
                     mCurrentCharacter = &*it;
                     selectedIndex = mCharacterSelection->getItemCount() - 1;
@@ -216,7 +214,7 @@ namespace MWGui
 
         mCharacterSelection->setIndexSelected(selectedIndex);
         if (selectedIndex == MyGUI::ITEM_NONE)
-            mCharacterSelection->setCaptionWithReplacing("#{SavegameMenu:SelectCharacter}");
+            mCharacterSelection->setCaptionWithReplacing("#{OMWEngine:SelectCharacter}");
 
         fillSaveList();
     }
@@ -268,7 +266,7 @@ namespace MWGui
             if (mCurrentSlot != nullptr && !reallySure)
             {
                 ConfirmationDialog* dialog = MWBase::Environment::get().getWindowManager()->getConfirmationDialog();
-                dialog->askForConfirmation("#{sMessage4}");
+                dialog->askForConfirmation("#{OMWEngine:OverwriteGameConfirmation}");
                 dialog->eventOkClicked.clear();
                 dialog->eventOkClicked += MyGUI::newDelegate(this, &SaveGameDialog::onConfirmationGiven);
                 dialog->eventCancelClicked.clear();
@@ -277,7 +275,7 @@ namespace MWGui
             }
             if (mSaveNameEdit->getCaption().empty())
             {
-                MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage65}");
+                MWBase::Environment::get().getWindowManager()->messageBox("#{OMWEngine:EmptySaveNameError}");
                 return;
             }
         }
@@ -289,7 +287,7 @@ namespace MWGui
             if (state == MWBase::StateManager::State_Running && !reallySure)
             {
                 ConfirmationDialog* dialog = MWBase::Environment::get().getWindowManager()->getConfirmationDialog();
-                dialog->askForConfirmation("#{sMessage1}");
+                dialog->askForConfirmation("#{OMWEngine:LoadGameConfirmation}");
                 dialog->eventOkClicked.clear();
                 dialog->eventOkClicked += MyGUI::newDelegate(this, &SaveGameDialog::onConfirmationGiven);
                 dialog->eventCancelClicked.clear();
@@ -390,8 +388,8 @@ namespace MWGui
         if (pos == MyGUI::ITEM_NONE || !mCurrentCharacter)
         {
             mCurrentSlot = nullptr;
-            mInfoText->setCaption("");
-            mScreenshot->setImageTexture("");
+            mInfoText->setCaption({});
+            mScreenshot->setImageTexture({});
             return;
         }
 
@@ -414,7 +412,7 @@ namespace MWGui
         text << Misc::fileTimeToString(mCurrentSlot->mTimeStamp, "%Y.%m.%d %T") << "\n";
 
         text << "#{sLevel} " << mCurrentSlot->mProfile.mPlayerLevel << "\n";
-        text << "#{sCell=" << mCurrentSlot->mProfile.mPlayerCell << "}\n";
+        text << "#{sCell=" << mCurrentSlot->mProfile.mPlayerCellName << "}\n";
 
         int hour = int(mCurrentSlot->mProfile.mInGameTime.mGameHour);
         bool pm = hour >= 12;
@@ -425,12 +423,12 @@ namespace MWGui
 
         text << mCurrentSlot->mProfile.mInGameTime.mDay << " "
              << MWBase::Environment::get().getWorld()->getMonthName(mCurrentSlot->mProfile.mInGameTime.mMonth) << " "
-             << hour << " " << (pm ? "#{sSaveMenuHelp05}" : "#{sSaveMenuHelp04}");
+             << hour << " " << (pm ? "#{Calendar:pm}" : "#{Calendar:am}");
 
         if (Settings::Manager::getBool("timeplayed", "Saves"))
         {
             text << "\n"
-                 << "#{SavegameMenu:TimePlayed}: " << formatTimeplayed(mCurrentSlot->mProfile.mTimePlayed);
+                 << "#{OMWEngine:TimePlayed}: " << formatTimeplayed(mCurrentSlot->mProfile.mTimePlayed);
         }
 
         mInfoText->setCaptionWithReplacing(text.str());

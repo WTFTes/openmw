@@ -47,6 +47,7 @@ namespace MWRender
     class Reflection;
     class RippleSimulation;
     class RainIntensityUpdater;
+    class Ripples;
 
     /// Water rendering
     class Water
@@ -64,8 +65,7 @@ namespace MWRender
 
         osg::ref_ptr<Refraction> mRefraction;
         osg::ref_ptr<Reflection> mReflection;
-
-        const std::filesystem::path mResourcePath;
+        osg::ref_ptr<Ripples> mRipples;
 
         bool mEnabled;
         bool mToggled;
@@ -81,15 +81,13 @@ namespace MWRender
 
         void createSimpleWaterStateSet(osg::Node* node, float alpha);
 
-        /// @param reflection the reflection camera (required)
-        /// @param refraction the refraction camera (optional)
-        void createShaderWaterStateSet(osg::Node* node, Reflection* reflection, Refraction* refraction);
+        void createShaderWaterStateSet(osg::Node* node);
 
         void updateWaterMaterial();
 
     public:
         Water(osg::Group* parent, osg::Group* sceneRoot, Resource::ResourceSystem* resourceSystem,
-            osgUtil::IncrementalCompileOperation* ico, const std::filesystem::path& resourcePath);
+            osgUtil::IncrementalCompileOperation* ico);
         ~Water();
 
         void setCullCallback(osg::Callback* callback);
@@ -116,7 +114,7 @@ namespace MWRender
         void setHeight(const float height);
         void setRainIntensity(const float rainIntensity);
 
-        void update(float dt);
+        void update(float dt, bool paused);
 
         osg::Node* getReflectionNode();
         osg::Node* getRefractionNode();

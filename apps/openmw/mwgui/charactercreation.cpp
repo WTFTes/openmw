@@ -94,38 +94,19 @@ namespace MWGui
         mGenerateClassSpecializations[2] = 0;
 
         // Setup player stats
-        for (int i = 0; i < ESM::Attribute::Length; ++i)
-            mPlayerAttributes.emplace(ESM::Attribute::sAttributeIds[i], MWMechanics::AttributeValue());
+        const auto& store = MWBase::Environment::get().getWorld()->getStore();
+        for (const ESM::Attribute& attribute : store.get<ESM::Attribute>())
+            mPlayerAttributes.emplace(attribute.mId, MWMechanics::AttributeValue());
 
-        for (int i = 0; i < ESM::Skill::Length; ++i)
-            mPlayerSkillValues.emplace(ESM::Skill::sSkillIds[i], MWMechanics::SkillValue());
+        for (const auto& skill : store.get<ESM::Skill>())
+            mPlayerSkillValues.emplace(skill.mId, MWMechanics::SkillValue());
     }
 
-    void CharacterCreation::setValue(std::string_view id, const MWMechanics::AttributeValue& value)
+    void CharacterCreation::setValue(ESM::Attribute::AttributeID id, const MWMechanics::AttributeValue& value)
     {
-        static const char* ids[] = {
-            "AttribVal1",
-            "AttribVal2",
-            "AttribVal3",
-            "AttribVal4",
-            "AttribVal5",
-            "AttribVal6",
-            "AttribVal7",
-            "AttribVal8",
-            nullptr,
-        };
-
-        for (int i = 0; ids[i]; ++i)
-        {
-            if (ids[i] == id)
-            {
-                mPlayerAttributes[static_cast<ESM::Attribute::AttributeID>(i)] = value;
-                if (mReviewDialog)
-                    mReviewDialog->setAttribute(static_cast<ESM::Attribute::AttributeID>(i), value);
-
-                break;
-            }
-        }
+        mPlayerAttributes[id] = value;
+        if (mReviewDialog)
+            mReviewDialog->setAttribute(id, value);
     }
 
     void CharacterCreation::setValue(std::string_view id, const MWMechanics::DynamicStat<float>& value)
@@ -147,14 +128,14 @@ namespace MWGui
         }
     }
 
-    void CharacterCreation::setValue(const ESM::Skill::SkillEnum parSkill, const MWMechanics::SkillValue& value)
+    void CharacterCreation::setValue(ESM::RefId id, const MWMechanics::SkillValue& value)
     {
-        mPlayerSkillValues[parSkill] = value;
+        mPlayerSkillValues[id] = value;
         if (mReviewDialog)
-            mReviewDialog->setSkillValue(parSkill, value);
+            mReviewDialog->setSkillValue(id, value);
     }
 
-    void CharacterCreation::configureSkills(const SkillList& major, const SkillList& minor)
+    void CharacterCreation::configureSkills(const std::vector<ESM::RefId>& major, const std::vector<ESM::RefId>& minor)
     {
         if (mReviewDialog)
             mReviewDialog->configureSkills(major, minor);
@@ -248,7 +229,7 @@ namespace MWGui
                     break;
                 case GM_ClassGenerate:
                     mGenerateClassStep = 0;
-                    mGenerateClass = ESM::RefId::sEmpty;
+                    mGenerateClass = ESM::RefId();
                     mGenerateClassSpecializations[0] = 0;
                     mGenerateClassSpecializations[1] = 0;
                     mGenerateClassSpecializations[2] = 0;
@@ -284,10 +265,9 @@ namespace MWGui
                         mReviewDialog->setAttribute(
                             static_cast<ESM::Attribute::AttributeID>(attributePair.first), attributePair.second);
                     }
-                    for (auto& skillPair : mPlayerSkillValues)
+                    for (const auto& [skill, value] : mPlayerSkillValues)
                     {
-                        mReviewDialog->setSkillValue(
-                            static_cast<ESM::Skill::SkillEnum>(skillPair.first), skillPair.second);
+                        mReviewDialog->setSkillValue(skill, value);
                     }
                     mReviewDialog->configureSkills(mPlayerMajorSkills, mPlayerMinorSkills);
 
@@ -353,7 +333,7 @@ namespace MWGui
             if (!classId.empty())
                 MWBase::Environment::get().getMechanicsManager()->setPlayerClass(classId);
 
-            const ESM::Class* klass = MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().find(classId);
+            const ESM::Class* klass = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(classId);
             if (klass)
             {
                 mPlayerClass = *klass;
@@ -482,18 +462,17 @@ namespace MWGui
             klass.mRecordFlags = 0;
 
             std::vector<int> attributes = mCreateClassDialog->getFavoriteAttributes();
-            assert(attributes.size() == 2);
-            klass.mData.mAttribute[0] = attributes[0];
-            klass.mData.mAttribute[1] = attributes[1];
+            assert(attributes.size() == klass.mData.mAttribute.size());
+            std::copy(attributes.begin(), attributes.end(), klass.mData.mAttribute.begin());
 
-            std::vector<ESM::Skill::SkillEnum> majorSkills = mCreateClassDialog->getMajorSkills();
-            std::vector<ESM::Skill::SkillEnum> minorSkills = mCreateClassDialog->getMinorSkills();
-            assert(majorSkills.size() >= sizeof(klass.mData.mSkills) / sizeof(klass.mData.mSkills[0]));
-            assert(minorSkills.size() >= sizeof(klass.mData.mSkills) / sizeof(klass.mData.mSkills[0]));
-            for (size_t i = 0; i < sizeof(klass.mData.mSkills) / sizeof(klass.mData.mSkills[0]); ++i)
+            std::vector<ESM::RefId> majorSkills = mCreateClassDialog->getMajorSkills();
+            std::vector<ESM::RefId> minorSkills = mCreateClassDialog->getMinorSkills();
+            assert(majorSkills.size() >= klass.mData.mSkills.size());
+            assert(minorSkills.size() >= klass.mData.mSkills.size());
+            for (size_t i = 0; i < klass.mData.mSkills.size(); ++i)
             {
-                klass.mData.mSkills[i][1] = majorSkills[i];
-                klass.mData.mSkills[i][0] = minorSkills[i];
+                klass.mData.mSkills[i][1] = majorSkills[i].getIf<ESM::IndexRefId>()->getValue();
+                klass.mData.mSkills[i][0] = minorSkills[i].getIf<ESM::IndexRefId>()->getValue();
             }
 
             MWBase::Environment::get().getMechanicsManager()->setPlayerClass(klass);
@@ -686,8 +665,7 @@ namespace MWGui
 
         MWBase::Environment::get().getMechanicsManager()->setPlayerClass(mGenerateClass);
 
-        const ESM::Class* klass
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().find(mGenerateClass);
+        const ESM::Class* klass = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(mGenerateClass);
 
         mPlayerClass = *klass;
     }

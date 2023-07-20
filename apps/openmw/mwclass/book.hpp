@@ -21,10 +21,12 @@ namespace MWClass
         std::string_view getName(const MWWorld::ConstPtr& ptr) const override;
         ///< \return name or ID; can return an empty string.
 
+        bool isItem(const MWWorld::ConstPtr&) const override { return true; }
+
         std::unique_ptr<MWWorld::Action> activate(const MWWorld::Ptr& ptr, const MWWorld::Ptr& actor) const override;
         ///< Generate action for activation
 
-        const ESM::RefId& getScript(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getScript(const MWWorld::ConstPtr& ptr) const override;
         ///< Return name of the script attached to ptr
 
         MWGui::ToolTipInfo getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const override;
@@ -42,7 +44,7 @@ namespace MWClass
         const std::string& getInventoryIcon(const MWWorld::ConstPtr& ptr) const override;
         ///< Return name of inventory icon.
 
-        const ESM::RefId& getEnchantment(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getEnchantment(const MWWorld::ConstPtr& ptr) const override;
         ///< @return the enchantment ID if the object is enchanted, otherwise an empty string
 
         const ESM::RefId& applyEnchantment(const MWWorld::ConstPtr& ptr, const ESM::RefId& enchId, int enchCharge,

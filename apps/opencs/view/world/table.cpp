@@ -151,7 +151,7 @@ void CSVWorld::Table::contextMenuEvent(QContextMenuEvent* event)
         {
             CSMWorld::UniversalId id = mModel->view(row).first;
 
-            int index = mDocument.getData().getCells().searchId(id.getId());
+            const int index = mDocument.getData().getCells().searchId(ESM::RefId::stringRefId(id.getId()));
             // index==-1: the ID references a worldspace instead of a cell (ignore for now and go
             // ahead)
 
@@ -269,6 +269,8 @@ CSVWorld::Table::Table(const CSMWorld::UniversalId& id, bool createAndDelete, bo
     {
         mProxyModel = new CSMWorld::InfoTableProxyModel(id.getType(), this);
         connect(this, &CSVWorld::DragRecordTable::moveRecordsFromSameTable, this, &CSVWorld::Table::moveRecords);
+        connect(this, &CSVWorld::DragRecordTable::createNewInfoRecord, this,
+            &CSVWorld::Table::createRecordsDirectlyRequest);
     }
     else if (isLtexTable)
     {
@@ -609,7 +611,7 @@ void CSVWorld::Table::moveRecords(QDropEvent* event)
 
     std::vector<int> newOrder(highestDifference + 1);
 
-    for (long unsigned int i = 0; i < newOrder.size(); ++i)
+    for (int i = 0; i <= highestDifference; ++i)
     {
         newOrder[i] = i;
     }
@@ -869,7 +871,7 @@ void CSVWorld::Table::mouseMoveEvent(QMouseEvent* event)
 {
     if (event->buttons() & Qt::LeftButton)
     {
-        startDragFromTable(*this);
+        startDragFromTable(*this, indexAt(event->pos()));
     }
 }
 

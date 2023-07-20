@@ -14,28 +14,24 @@ namespace ESM
         mData.author.clear();
         mData.desc.clear();
         mData.records = 0;
-        mFormat = CurrentFormat;
+        mFormatVersion = CurrentContentFormatVersion;
         mMaster.clear();
     }
 
     void Header::load(ESMReader& esm)
     {
         if (esm.isNextSub("FORM"))
-        {
-            esm.getHT(mFormat);
-            if (mFormat < 0)
-                esm.fail("invalid format code");
-        }
+            esm.getHT(mFormatVersion);
         else
-            mFormat = 0;
+            mFormatVersion = DefaultFormatVersion;
 
         if (esm.isNextSub("HEDR"))
         {
             esm.getSubHeader();
             esm.getT(mData.version);
             esm.getT(mData.type);
-            mData.author.assign(esm.getString(32));
-            mData.desc.assign(esm.getString(256));
+            mData.author = esm.getMaybeFixedStringSize(32);
+            mData.desc = esm.getMaybeFixedStringSize(256);
             esm.getT(mData.records);
         }
 
@@ -69,14 +65,14 @@ namespace ESM
 
     void Header::save(ESMWriter& esm)
     {
-        if (mFormat > 0)
-            esm.writeHNT("FORM", mFormat);
+        if (mFormatVersion > DefaultFormatVersion)
+            esm.writeHNT("FORM", mFormatVersion);
 
         esm.startSubRecord("HEDR");
         esm.writeT(mData.version);
         esm.writeT(mData.type);
-        esm.writeFixedSizeString(mData.author, 32);
-        esm.writeFixedSizeString(mData.desc, 256);
+        esm.writeMaybeFixedSizeString(mData.author, 32);
+        esm.writeMaybeFixedSizeString(mData.desc, 256);
         esm.writeT(mData.records);
         esm.endRecord("HEDR");
 

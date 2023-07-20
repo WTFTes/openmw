@@ -14,7 +14,6 @@
 #include "../mwbase/world.hpp"
 
 #include "../mwworld/cellstore.hpp"
-#include "../mwworld/cellutils.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/manualref.hpp"
 #include "../mwworld/player.hpp"
@@ -22,6 +21,7 @@
 #include "../mwworld/worldmodel.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
+#include "../mwmechanics/creaturestats.hpp"
 
 #include "interpretercontext.hpp"
 #include "ref.hpp"
@@ -35,7 +35,7 @@ namespace MWScript
             std::vector<MWWorld::Ptr> actors;
             MWBase::Environment::get().getWorld()->getActorsStandingOn(ptr, actors);
             for (auto& actor : actors)
-                MWBase::Environment::get().getWorld()->moveObjectBy(actor, diff);
+                MWBase::Environment::get().getWorld()->moveObjectBy(actor, diff, false);
         }
 
         template <class R>
@@ -65,8 +65,8 @@ namespace MWScript
                         from = container;
                     else
                     {
-                        std::string error = "Failed to find the container of object '"
-                            + from.getCellRef().getRefId().getRefIdString() + "'";
+                        const std::string error
+                            = "Failed to find the container of object " + from.getCellRef().getRefId().toDebugString();
                         runtime.getContext().report(error);
                         Log(Debug::Error) << error;
                         runtime.push(0.f);
@@ -77,7 +77,7 @@ namespace MWScript
                 const MWWorld::Ptr to = MWBase::Environment::get().getWorld()->searchPtr(name, false);
                 if (to.isEmpty())
                 {
-                    std::string error = "Failed to find an instance of object '" + name.getRefIdString() + "'";
+                    const std::string error = "Failed to find an instance of object " + name.toDebugString();
                     runtime.getContext().report(error);
                     Log(Debug::Error) << error;
                     runtime.push(0.f);
@@ -87,8 +87,7 @@ namespace MWScript
                 float distance;
                 // If the objects are in different worldspaces, return a large value (just like vanilla)
                 if (!to.isInCell() || !from.isInCell()
-                    || to.getCell()->getCell()->getCellId().mWorldspace
-                        != from.getCell()->getCell()->getCellId().mWorldspace)
+                    || to.getCell()->getCell()->getWorldSpace() != from.getCell()->getCell()->getWorldSpace())
                     distance = std::numeric_limits<float>::max();
                 else
                 {
@@ -317,7 +316,8 @@ namespace MWScript
                     {
                         float terrainHeight = -std::numeric_limits<float>::max();
                         if (ptr.getCell()->isExterior())
-                            terrainHeight = MWBase::Environment::get().getWorld()->getTerrainHeightAt(curPos);
+                            terrainHeight = MWBase::Environment::get().getWorld()->getTerrainHeightAt(
+                                curPos, ptr.getCell()->getCell()->getWorldSpace());
 
                         if (pos < terrainHeight)
                             pos = terrainHeight;
@@ -331,7 +331,7 @@ namespace MWScript
                 }
 
                 dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext())
-                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObject(ptr, newPos, true, true));
+                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObjectBy(ptr, newPos - curPos, true));
             }
         };
 
@@ -382,7 +382,7 @@ namespace MWScript
                 runtime.pop();
                 Interpreter::Type_Float zRot = runtime[0].mFloat;
                 runtime.pop();
-                const ESM::RefId cellID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
+                std::string_view cellID = runtime.getStringLiteral(runtime[0].mInteger);
                 runtime.pop();
 
                 if (ptr.getContainerStore())
@@ -391,49 +391,51 @@ namespace MWScript
                 bool isPlayer = ptr == MWMechanics::getPlayer();
                 auto world = MWBase::Environment::get().getWorld();
                 auto worldModel = MWBase::Environment::get().getWorldModel();
+                if (ptr.getClass().isActor())
+                    ptr.getClass().getCreatureStats(ptr).setTeleported(true);
                 if (isPlayer)
-                {
                     world->getPlayer().setTeleported(true);
-                }
 
-                MWWorld::CellStore* store = nullptr;
-                try
-                {
-                    store = worldModel->getCell(cellID);
-                }
-                catch (std::exception&)
+                MWWorld::CellStore* store = worldModel->findCell(cellID);
+
+                if (store != nullptr && store->isExterior())
+                    store = &worldModel->getExterior(
+                        ESM::positionToExteriorCellLocation(x, y, store->getCell()->getWorldSpace()));
+
+                if (store == nullptr)
                 {
                     // cell not found, move to exterior instead if moving the player (vanilla PositionCell
                     // compatibility)
-                    std::string error
-                        = "Warning: PositionCell: unknown interior cell (" + cellID.getRefIdString() + ")";
+                    std::string error = "PositionCell: unknown interior cell (" + std::string(cellID) + ")";
                     if (isPlayer)
                         error += ", moving to exterior instead";
                     runtime.getContext().report(error);
-                    Log(Debug::Warning) << error;
                     if (!isPlayer)
+                    {
+                        Log(Debug::Error) << error;
                         return;
-                    const osg::Vec2i cellIndex = MWWorld::positionToCellIndex(x, y);
-                    store = worldModel->getExterior(cellIndex.x(), cellIndex.y());
+                    }
+                    Log(Debug::Warning) << error;
+                    const ESM::ExteriorCellLocation cellIndex
+                        = ESM::positionToExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId);
+                    store = &worldModel->getExterior(cellIndex);
                 }
-                if (store)
-                {
-                    MWWorld::Ptr base = ptr;
-                    ptr = world->moveObject(ptr, store, osg::Vec3f(x, y, z));
-                    dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(base, ptr);
 
-                    auto rot = ptr.getRefData().getPosition().asRotationVec3();
-                    // Note that you must specify ZRot in minutes (1 degree = 60 minutes; north = 0, east = 5400, south
-                    // = 10800, west = 16200) except for when you position the player, then degrees must be used. See
-                    // "Morrowind Scripting for Dummies (9th Edition)" pages 50 and 54 for reference.
-                    if (!isPlayer)
-                        zRot = zRot / 60.0f;
-                    rot.z() = osg::DegreesToRadians(zRot);
-                    world->rotateObject(ptr, rot);
+                MWWorld::Ptr base = ptr;
+                ptr = world->moveObject(ptr, store, osg::Vec3f(x, y, z));
+                dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(base, ptr);
 
-                    bool cellActive = MWBase::Environment::get().getWorldScene()->isCellActive(*ptr.getCell());
-                    ptr.getClass().adjustPosition(ptr, isPlayer || !cellActive);
-                }
+                auto rot = ptr.getRefData().getPosition().asRotationVec3();
+                // Note that you must specify ZRot in minutes (1 degree = 60 minutes; north = 0, east = 5400, south
+                // = 10800, west = 16200) except for when you position the player, then degrees must be used. See
+                // "Morrowind Scripting for Dummies (9th Edition)" pages 50 and 54 for reference.
+                if (!isPlayer)
+                    zRot = zRot / 60.0f;
+                rot.z() = osg::DegreesToRadians(zRot);
+                world->rotateObject(ptr, rot);
+
+                bool cellActive = MWBase::Environment::get().getWorldScene()->isCellActive(*ptr.getCell());
+                ptr.getClass().adjustPosition(ptr, isPlayer || !cellActive);
             }
         };
 
@@ -459,19 +461,19 @@ namespace MWScript
 
                 bool isPlayer = ptr == MWMechanics::getPlayer();
                 auto world = MWBase::Environment::get().getWorld();
+                if (ptr.getClass().isActor())
+                    ptr.getClass().getCreatureStats(ptr).setTeleported(true);
                 if (isPlayer)
-                {
                     world->getPlayer().setTeleported(true);
-                }
-                const osg::Vec2i cellIndex = MWWorld::positionToCellIndex(x, y);
+                const ESM::ExteriorCellLocation location
+                    = ESM::positionToExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId);
 
                 // another morrowind oddity: player will be moved to the exterior cell at this location,
                 // non-player actors will move within the cell they are in.
                 MWWorld::Ptr base = ptr;
                 if (isPlayer)
                 {
-                    MWWorld::CellStore* cell
-                        = MWBase::Environment::get().getWorldModel()->getExterior(cellIndex.x(), cellIndex.y());
+                    MWWorld::CellStore* cell = &MWBase::Environment::get().getWorldModel()->getExterior(location);
                     ptr = world->moveObject(ptr, cell, osg::Vec3(x, y, z));
                 }
                 else
@@ -500,7 +502,7 @@ namespace MWScript
             {
                 const ESM::RefId itemID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
-                auto cellID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
+                std::string_view cellName = runtime.getStringLiteral(runtime[0].mInteger);
                 runtime.pop();
 
                 Interpreter::Type_Float x = runtime[0].mFloat;
@@ -512,30 +514,26 @@ namespace MWScript
                 Interpreter::Type_Float zRotDegrees = runtime[0].mFloat;
                 runtime.pop();
 
-                MWWorld::CellStore* store = nullptr;
-                try
+                MWWorld::CellStore* const store = MWBase::Environment::get().getWorldModel()->findCell(cellName);
+                if (store == nullptr)
                 {
-                    store = MWBase::Environment::get().getWorldModel()->getCell(cellID);
+                    const std::string message = "unknown cell (" + std::string(cellName) + ")";
+                    runtime.getContext().report(message);
+                    Log(Debug::Error) << message;
+                    return;
                 }
-                catch (std::exception&)
-                {
-                    runtime.getContext().report("unknown cell (" + cellID.getRefIdString() + ")");
-                    Log(Debug::Error) << "Error: unknown cell (" << cellID << ")";
-                }
-                if (store)
-                {
-                    ESM::Position pos;
-                    pos.pos[0] = x;
-                    pos.pos[1] = y;
-                    pos.pos[2] = z;
-                    pos.rot[0] = pos.rot[1] = 0;
-                    pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
-                    MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), itemID);
-                    ref.getPtr().mRef->mData.mPhysicsPostponed = !ref.getPtr().getClass().isActor();
-                    ref.getPtr().getCellRef().setPosition(pos);
-                    MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(), store, pos);
-                    placed.getClass().adjustPosition(placed, true);
-                }
+
+                ESM::Position pos;
+                pos.pos[0] = x;
+                pos.pos[1] = y;
+                pos.pos[2] = z;
+                pos.rot[0] = pos.rot[1] = 0;
+                pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
+                MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), itemID);
+                ref.getPtr().mRef->mData.mPhysicsPostponed = !ref.getPtr().getClass().isActor();
+                ref.getPtr().getCellRef().setPosition(pos);
+                MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(), store, pos);
+                placed.getClass().adjustPosition(placed, true);
             }
         };
 
@@ -564,8 +562,9 @@ namespace MWScript
                 MWWorld::CellStore* store = nullptr;
                 if (player.getCell()->isExterior())
                 {
-                    const osg::Vec2i cellIndex = MWWorld::positionToCellIndex(x, y);
-                    store = MWBase::Environment::get().getWorldModel()->getExterior(cellIndex.x(), cellIndex.y());
+                    const ESM::ExteriorCellLocation cellIndex
+                        = ESM::positionToExteriorCellLocation(x, y, player.getCell()->getCell()->getWorldSpace());
+                    store = &MWBase::Environment::get().getWorldModel()->getExterior(cellIndex);
                 }
                 else
                     store = player.getCell();
@@ -576,7 +575,7 @@ namespace MWScript
                 pos.pos[2] = z;
                 pos.rot[0] = pos.rot[1] = 0;
                 pos.rot[2] = osg::DegreesToRadians(zRotDegrees);
-                MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), itemID);
+                MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), itemID);
                 ref.getPtr().mRef->mData.mPhysicsPostponed = !ref.getPtr().getClass().isActor();
                 ref.getPtr().getCellRef().setPosition(pos);
                 MWWorld::Ptr placed = MWBase::Environment::get().getWorld()->placeObject(ref.getPtr(), store, pos);
@@ -614,7 +613,7 @@ namespace MWScript
                 for (int i = 0; i < count; ++i)
                 {
                     // create item
-                    MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), itemID, 1);
+                    MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), itemID, 1);
                     ref.getPtr().mRef->mData.mPhysicsPostponed = !ref.getPtr().getClass().isActor();
 
                     MWWorld::Ptr ptr = MWBase::Environment::get().getWorld()->safePlaceObject(
@@ -749,7 +748,7 @@ namespace MWScript
                 // This approach can be used to create elevators.
                 moveStandingActors(ptr, diff);
                 dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext())
-                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObjectBy(ptr, diff));
+                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObjectBy(ptr, diff, false));
             }
         };
 
@@ -784,7 +783,7 @@ namespace MWScript
                 // This approach can be used to create elevators.
                 moveStandingActors(ptr, diff);
                 dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext())
-                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObjectBy(ptr, diff));
+                    .updatePtr(ptr, MWBase::Environment::get().getWorld()->moveObjectBy(ptr, diff, false));
             }
         };
 

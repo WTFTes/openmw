@@ -9,7 +9,7 @@
 #include <osgParticle/Operator>
 #include <osgParticle/ParticleSystemUpdater>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/sceneutil/controller.hpp>
 #include <components/sceneutil/depth.hpp>
@@ -228,9 +228,10 @@ namespace
 
 namespace MWRender
 {
-    SkyManager::SkyManager(osg::Group* parentNode, Resource::SceneManager* sceneManager, bool enableSkyRTT)
+    SkyManager::SkyManager(osg::Group* parentNode, osg::Group* rootNode, osg::Camera* camera,
+        Resource::SceneManager* sceneManager, bool enableSkyRTT)
         : mSceneManager(sceneManager)
-        , mCamera(nullptr)
+        , mCamera(camera)
         , mAtmosphereNightRoll(0.f)
         , mCreated(false)
         , mIsStorm(false)
@@ -278,7 +279,7 @@ namespace MWRender
 
         if (enableSkyRTT)
         {
-            mSkyRTT = new SkyRTT(Settings::Manager::getVector2("sky rtt resolution", "Fog"), mEarlyRenderBinRoot);
+            mSkyRTT = new SkyRTT(Settings::fog().mSkyRttResolution, mEarlyRenderBinRoot);
             skyroot->addChild(mSkyRTT);
             mRootNode = new osg::Group;
             skyroot->addChild(mRootNode);
@@ -289,6 +290,9 @@ namespace MWRender
         mRootNode->setNodeMask(Mask_Sky);
         mRootNode->addChild(mEarlyRenderBinRoot);
         mUnderwaterSwitch = new UnderwaterSwitchCallback(skyroot);
+
+        mPrecipitationOcclusion = Settings::Manager::getBool("weather particle occlusion", "Shaders");
+        mPrecipitationOccluder = std::make_unique<PrecipitationOccluder>(skyroot, parentNode, rootNode, camera);
     }
 
     void SkyManager::create()
@@ -361,11 +365,8 @@ namespace MWRender
         if (mSceneManager->getForceShaders())
         {
             Shader::ShaderManager::DefineMap defines = {};
-            Stereo::Manager::instance().shaderStereoDefines(defines);
-            auto vertex = mSceneManager->getShaderManager().getShader("sky_vertex.glsl", defines, osg::Shader::VERTEX);
-            auto fragment
-                = mSceneManager->getShaderManager().getShader("sky_fragment.glsl", defines, osg::Shader::FRAGMENT);
-            auto program = mSceneManager->getShaderManager().getProgram(vertex, fragment);
+            Stereo::shaderStereoDefines(defines);
+            auto program = mSceneManager->getShaderManager().getProgram("sky", defines);
             mEarlyRenderBinRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("pass", -1));
             mEarlyRenderBinRoot->getOrCreateStateSet()->setAttributeAndModes(
                 program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
@@ -380,11 +381,6 @@ namespace MWRender
         mMoonScriptColor = Fallback::Map::getColour("Moons_Script_Color");
 
         mCreated = true;
-    }
-
-    void SkyManager::setCamera(osg::Camera* camera)
-    {
-        mCamera = camera;
     }
 
     void SkyManager::createRain()
@@ -466,9 +462,12 @@ namespace MWRender
         mRainNode->setNodeMask(Mask_WeatherParticles);
 
         mRainParticleSystem->setUserValue("simpleLighting", true);
+        mRainParticleSystem->setUserValue("particleOcclusion", true);
         mSceneManager->recreateShaders(mRainNode);
 
         mRootNode->addChild(mRainNode);
+        if (mPrecipitationOcclusion)
+            mPrecipitationOccluder->enable();
     }
 
     void SkyManager::destroyRain()
@@ -482,6 +481,7 @@ namespace MWRender
         mCounter = nullptr;
         mRainParticleSystem = nullptr;
         mRainShooter = nullptr;
+        mPrecipitationOccluder->disable();
     }
 
     SkyManager::~SkyManager()
@@ -537,7 +537,7 @@ namespace MWRender
             osg::Quat quat;
             quat.makeRotate(MWWorld::Weather::defaultDirection(), mStormParticleDirection);
             // Morrowind deliberately rotates the blizzard mesh, so so should we.
-            if (mCurrentParticleEffect == Settings::Manager::getString("weatherblizzard", "Models"))
+            if (mCurrentParticleEffect == "meshes\\blizzard.nif")
                 quat.makeRotate(osg::Vec3f(-1, 0, 0), mStormParticleDirection);
             mParticleNode->setAttitude(quat);
         }
@@ -563,6 +563,7 @@ namespace MWRender
             * osg::DegreesToRadians(360.f) / (3600 * 96.f);
         if (mAtmosphereNightNode->getNodeMask() != 0)
             mAtmosphereNightNode->setAttitude(osg::Quat(mAtmosphereNightRoll, osg::Vec3f(0, 0, 1)));
+        mPrecipitationOccluder->update();
     }
 
     void SkyManager::setEnabled(bool enabled)
@@ -606,6 +607,7 @@ namespace MWRender
             mPlacer->setZRange(-rainRange.z() / 2, rainRange.z() / 2);
 
             mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+            mPrecipitationOccluder->updateRange(rainRange);
         }
     }
 
@@ -671,6 +673,10 @@ namespace MWRender
                     mRootNode->removeChild(mParticleNode);
                     mParticleNode = nullptr;
                 }
+                if (mRainEffect.empty())
+                {
+                    mPrecipitationOccluder->disable();
+                }
             }
             else
             {
@@ -693,6 +699,10 @@ namespace MWRender
                 SceneUtil::FindByClassVisitor findPSVisitor("ParticleSystem");
                 mParticleEffect->accept(findPSVisitor);
 
+                const osg::Vec3 defaultWrapRange = osg::Vec3(1024, 1024, 800);
+                const bool occlusionEnabledForEffect
+                    = !mRainEffect.empty() || mCurrentParticleEffect == "meshes\\snow.nif";
+
                 for (unsigned int i = 0; i < findPSVisitor.mFoundNodes.size(); ++i)
                 {
                     osgParticle::ParticleSystem* ps
@@ -700,7 +710,7 @@ namespace MWRender
 
                     osg::ref_ptr<osgParticle::ModularProgram> program = new osgParticle::ModularProgram;
                     if (!mIsStorm)
-                        program->addOperator(new WrapAroundOperator(mCamera, osg::Vec3(1024, 1024, 800)));
+                        program->addOperator(new WrapAroundOperator(mCamera, defaultWrapRange));
                     program->addOperator(new WeatherAlphaOperator(mPrecipitationAlpha, false));
                     program->setParticleSystem(ps);
                     mParticleNode->addChild(program);
@@ -713,9 +723,18 @@ namespace MWRender
                     }
 
                     ps->setUserValue("simpleLighting", true);
+
+                    if (occlusionEnabledForEffect)
+                        ps->setUserValue("particleOcclusion", true);
                 }
 
                 mSceneManager->recreateShaders(mParticleNode);
+
+                if (mPrecipitationOcclusion && occlusionEnabledForEffect)
+                {
+                    mPrecipitationOccluder->enable();
+                    mPrecipitationOccluder->updateRange(defaultWrapRange);
+                }
             }
         }
 

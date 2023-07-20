@@ -7,7 +7,7 @@
 #include <MyGUI_Widget.h>
 #include <sol/sol.hpp>
 
-#include <components/lua/scriptscontainer.hpp>
+#include <components/lua/asyncpackage.hpp>
 
 #include "properties.hpp"
 
@@ -22,6 +22,9 @@ namespace LuaUi
     {
     public:
         WidgetExtension();
+
+        virtual ~WidgetExtension() = default;
+
         // must be called after creating the underlying MyGUI::Widget
         void initialize(lua_State* lua, MyGUI::Widget* self);
         // must be called after before destroying the underlying MyGUI::Widget

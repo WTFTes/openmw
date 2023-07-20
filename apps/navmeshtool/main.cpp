@@ -8,7 +8,6 @@
 #include <components/detournavigator/navmeshdb.hpp>
 #include <components/detournavigator/recastglobalallocator.hpp>
 #include <components/detournavigator/settings.hpp>
-#include <components/esm/refid.hpp>
 #include <components/esm3/readerscache.hpp>
 #include <components/esm3/variant.hpp>
 #include <components/esmloader/esmdata.hpp>
@@ -24,7 +23,7 @@
 #include <components/resource/imagemanager.hpp>
 #include <components/resource/niffilemanager.hpp>
 #include <components/resource/scenemanager.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/to_utf8/to_utf8.hpp>
 #include <components/version/version.hpp>
 #include <components/vfs/manager.hpp>
@@ -57,6 +56,8 @@ namespace NavMeshTool
         namespace bpo = boost::program_options;
 
         using StringsVector = std::vector<std::string>;
+
+        constexpr std::string_view applicationName = "NavMeshTool";
 
         bpo::options_description makeOptionsDescription()
         {
@@ -94,9 +95,6 @@ namespace NavMeshTool
             addOption("content",
                 bpo::value<StringsVector>()->default_value(StringsVector(), "")->multitoken()->composing(),
                 "content file(s): esm/esp, or omwgame/omwaddon/omwscripts");
-
-            addOption("fs-strict", bpo::value<bool>()->implicit_value(true)->default_value(false),
-                "strict file system handling (no case folding)");
 
             addOption("encoding", bpo::value<std::string>()->default_value("win1252"),
                 "Character encoding used in OpenMW game messages:\n"
@@ -150,10 +148,9 @@ namespace NavMeshTool
             }
 
             Files::ConfigurationManager config;
-
-            bpo::variables_map composingVariables = Files::separateComposingVariables(variables, desc);
             config.readConfiguration(variables, desc);
-            Files::mergeComposingVariables(variables, composingVariables, desc);
+
+            setupLogging(config.getLogPath(), applicationName);
 
             const std::string encoding(variables["encoding"].as<std::string>());
             Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
@@ -167,12 +164,11 @@ namespace NavMeshTool
 
             config.filterOutNonExistingPaths(dataDirs);
 
-            const auto fsStrict = variables["fs-strict"].as<bool>();
             const auto resDir = variables["resources"].as<Files::MaybeQuotedPath>();
             Version::Version v = Version::getOpenmwVersion(resDir);
             Log(Debug::Info) << v.describe();
             dataDirs.insert(dataDirs.begin(), resDir / "vfs");
-            const auto fileCollections = Files::Collections(dataDirs, !fsStrict);
+            const auto fileCollections = Files::Collections(dataDirs);
             const auto archives = variables["fallback-archive"].as<StringsVector>();
             const auto contentFiles = variables["content"].as<StringsVector>();
             const std::size_t threadsNumber = variables["threads"].as<std::size_t>();
@@ -194,20 +190,20 @@ namespace NavMeshTool
 
             Fallback::Map::init(variables["fallback"].as<Fallback::FallbackMap>().mMap);
 
-            VFS::Manager vfs(fsStrict);
+            VFS::Manager vfs;
 
             VFS::registerArchives(&vfs, fileCollections, archives, true);
 
-            Settings::Manager settings;
-            settings.load(config);
+            Settings::Manager::load(config);
 
-            const auto agentCollisionShape = DetourNavigator::toCollisionShapeType(
-                Settings::Manager::getInt("actor collision shape type", "Game"));
-            const osg::Vec3f agentHalfExtents
-                = Settings::Manager::getVector3("default actor pathfind half extents", "Game");
-            const DetourNavigator::AgentBounds agentBounds{ agentCollisionShape, agentHalfExtents };
+            const DetourNavigator::AgentBounds agentBounds{
+                Settings::game().mActorCollisionShapeType,
+                Settings::game().mDefaultActorPathfindHalfExtents,
+            };
             const std::uint64_t maxDbFileSize = Settings::Manager::getUInt64("max navmeshdb file size", "Navigator");
             const auto dbPath = Files::pathToUnicodeString(config.getUserDataPath() / "navmesh.db");
+
+            Log(Debug::Info) << "Using navmeshdb at " << dbPath;
 
             DetourNavigator::NavMeshDb db(dbPath, maxDbFileSize);
 
@@ -230,8 +226,7 @@ namespace NavMeshTool
             DetourNavigator::RecastGlobalAllocator::init();
             DetourNavigator::Settings navigatorSettings = DetourNavigator::makeSettingsFromSettingsManager();
             navigatorSettings.mRecast.mSwimHeightScale
-                = EsmLoader::getGameSetting(esmData.mGameSettings, ESM::RefId::stringRefId("fSwimHeightScale"))
-                      .getFloat();
+                = EsmLoader::getGameSetting(esmData.mGameSettings, "fSwimHeightScale").getFloat();
 
             WorldspaceData cellsData = gatherWorldspaceData(
                 navigatorSettings, readers, vfs, bulletShapeManager, esmData, processInteriorCells, writeBinaryLog);
@@ -264,5 +259,5 @@ namespace NavMeshTool
 
 int main(int argc, char* argv[])
 {
-    return wrapApplication(NavMeshTool::runNavMeshTool, argc, argv, "NavMeshTool");
+    return wrapApplication(NavMeshTool::runNavMeshTool, argc, argv, NavMeshTool::applicationName);
 }

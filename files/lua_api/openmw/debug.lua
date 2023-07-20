@@ -1,7 +1,7 @@
 ---
 -- `openmw.debug` is an interface to the engine debug utils.
 -- Can be used only by local scripts, that are attached to a player.
--- @module debug
+-- @module Debug
 -- @usage local debug = require('openmw.debug')
 
 
@@ -19,12 +19,30 @@
 
 ---
 -- Rendering mode values
--- @field [parent=#debug] #RENDER_MODE RENDER_MODE
+-- @field [parent=#Debug] #RENDER_MODE RENDER_MODE
 
 ---
 -- Toggles rendering mode
--- @function [parent=#debug] toggleRenderMode
+-- @function [parent=#Debug] toggleRenderMode
 -- @param #RENDER_MODE value
+
+---
+-- Toggles god mode
+-- @function [parent=#Debug] toggleGodMode
+
+---
+-- Is god mode enabled
+-- @function [parent=#Debug] isGodMode
+-- @return #boolean
+
+---
+-- Toggles collisions
+-- @function [parent=#Debug] toggleCollision
+
+---
+-- Is player collision enabled
+-- @function [parent=#Debug] isCollisionEnabled
+-- @return #boolean
 
 ---
 -- Navigation mesh rendering modes
@@ -34,19 +52,19 @@
 
 ---
 -- Navigation mesh rendering mode values
--- @field [parent=#debug] #NAV_MESH_RENDER_MODE NAV_MESH_RENDER_MODE
+-- @field [parent=#Debug] #NAV_MESH_RENDER_MODE NAV_MESH_RENDER_MODE
 
 ---
 -- Sets navigation mesh rendering mode
--- @function [parent=#debug] setNavMeshRenderMode
+-- @function [parent=#Debug] setNavMeshRenderMode
 -- @param #NAV_MESH_RENDER_MODE value
 
 ---
 -- Enable/disable automatic reload of modified shaders
--- @function [parent=#debug] setShaderHotReloadEnabled
+-- @function [parent=#Debug] setShaderHotReloadEnabled
 -- @param #bool value
 
 ---
 -- To reload modified shaders
--- @function [parent=#debug] triggerShaderReload
+-- @function [parent=#Debug] triggerShaderReload
 return nil

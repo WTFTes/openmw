@@ -1,10 +1,21 @@
-DurationDay: "д"
-DurationHour: "ч"
-DurationMinute: "мин"
-DurationMonth: "мес"
-DurationSecond: "с"
-DurationYear: "л"
+Cancel: "Отмена"
+Close: "Закрыть"
+DurationDay: "{days} д "
+DurationHour: "{hours} ч "
+DurationMinute: "{minutes} мин "
+DurationMonth: "{months} мес "
+DurationSecond: "{seconds} с "
+DurationYear: |-
+  {years, plural,
+    one{{years} г }
+    few{{years} г }
+    other{{years} л }
+  }
 No: "Нет"
 NotAvailableShort: "Н/Д"
-Reset: "Обнулить"
+None: "Нет"
+OK: "OK"
+Off: "Выкл"
+On: "Вкл"
+Reset: "Сбросить"
 Yes: "Да"

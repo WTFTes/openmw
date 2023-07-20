@@ -7,6 +7,7 @@
 #include <MyGUI_TextBox.h>
 #include <MyGUI_Widget.h>
 
+#include <components/esm/attr.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/effectlist.hpp>
 #include <components/esm3/loadskil.hpp>
@@ -31,8 +32,6 @@ namespace MWGui
     namespace Widgets
     {
         class MWEffectList;
-
-        void fixTexturePath(std::string& path);
 
         struct SpellEffectParams
         {
@@ -100,15 +99,14 @@ namespace MWGui
 
             typedef MWMechanics::Stat<float> SkillValue;
 
-            void setSkillId(ESM::Skill::SkillEnum skillId);
-            void setSkillNumber(int skillId);
+            void setSkillId(ESM::RefId skillId);
             void setSkillValue(const SkillValue& value);
 
-            ESM::Skill::SkillEnum getSkillId() const { return mSkillId; }
+            ESM::RefId getSkillId() const { return mSkillId; }
             const SkillValue& getSkillValue() const { return mValue; }
 
             // Events
-            typedef MyGUI::delegates::CMultiDelegate1<MWSkill*> EventHandle_SkillVoid;
+            typedef MyGUI::delegates::MultiDelegate<MWSkill*> EventHandle_SkillVoid;
 
             /** Event : Skill clicked.\n
                 signature : void method(MWSkill* _sender)\n
@@ -125,7 +123,7 @@ namespace MWGui
         private:
             void updateWidgets();
 
-            ESM::Skill::SkillEnum mSkillId;
+            ESM::RefId mSkillId;
             SkillValue mValue;
             MyGUI::TextBox* mSkillNameWidget;
             MyGUI::TextBox* mSkillValueWidget;
@@ -140,14 +138,14 @@ namespace MWGui
 
             typedef MWMechanics::AttributeValue AttributeValue;
 
-            void setAttributeId(int attributeId);
+            void setAttributeId(ESM::Attribute::AttributeID attributeId);
             void setAttributeValue(const AttributeValue& value);
 
-            int getAttributeId() const { return mId; }
+            ESM::Attribute::AttributeID getAttributeId() const { return mId; }
             const AttributeValue& getAttributeValue() const { return mValue; }
 
             // Events
-            typedef MyGUI::delegates::CMultiDelegate1<MWAttribute*> EventHandle_AttributeVoid;
+            typedef MyGUI::delegates::MultiDelegate<MWAttribute*> EventHandle_AttributeVoid;
 
             /** Event : Attribute clicked.\n
                 signature : void method(MWAttribute* _sender)\n
@@ -155,7 +153,7 @@ namespace MWGui
             EventHandle_AttributeVoid eventClicked;
 
         protected:
-            virtual ~MWAttribute();
+            ~MWAttribute() override = default;
 
             void initialiseOverride() override;
 
@@ -164,7 +162,7 @@ namespace MWGui
         private:
             void updateWidgets();
 
-            int mId;
+            ESM::Attribute::AttributeID mId;
             AttributeValue mValue;
             MyGUI::TextBox* mAttributeNameWidget;
             MyGUI::TextBox* mAttributeValueWidget;

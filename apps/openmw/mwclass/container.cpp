@@ -5,7 +5,7 @@
 #include <components/esm3/containerstate.hpp>
 #include <components/esm3/loadcont.hpp>
 #include <components/esm3/loadsoun.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -42,7 +42,7 @@ namespace MWClass
         unsigned int seed = Misc::Rng::rollDice(std::numeric_limits<int>::max(), prng);
         // setting ownership not needed, since taking items from a container inherits the
         // container's owner automatically
-        mStore.fillNonRandom(container.mInventory, ESM::RefId::sEmpty, seed);
+        mStore.fillNonRandom(container.mInventory, ESM::RefId(), seed);
     }
 
     ContainerCustomData::ContainerCustomData(const ESM::InventoryState& inventory)
@@ -61,7 +61,6 @@ namespace MWClass
 
     Container::Container()
         : MWWorld::RegisteredClass<Container>(ESM::Container::sRecordId)
-        , mHarvestEnabled(Settings::Manager::getBool("graphic herbalism", "Game"))
     {
     }
 
@@ -80,7 +79,7 @@ namespace MWClass
 
     bool Container::canBeHarvested(const MWWorld::ConstPtr& ptr) const
     {
-        if (!mHarvestEnabled)
+        if (!Settings::game().mGraphicHerbalism)
             return false;
         const MWRender::Animation* animation = MWBase::Environment::get().getWorld()->getAnimation(ptr);
         if (animation == nullptr)
@@ -108,7 +107,7 @@ namespace MWClass
     {
         if (!model.empty())
         {
-            renderingInterface.getObjects().insertModel(ptr, model, true);
+            renderingInterface.getObjects().insertModel(ptr, model);
         }
     }
 
@@ -141,7 +140,7 @@ namespace MWClass
 
         if (actor.getClass().isNpc() && actor.getClass().getNpcStats(actor).isWerewolf())
         {
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
             auto& prng = MWBase::Environment::get().getWorld()->getPrng();
             const ESM::Sound* sound = store.get<ESM::Sound>().searchRandom("WolfContainer", prng);
 
@@ -155,7 +154,7 @@ namespace MWClass
         MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
         MWWorld::InventoryStore& invStore = player.getClass().getInventoryStore(player);
 
-        bool isLocked = ptr.getCellRef().getLockLevel() > 0;
+        bool isLocked = ptr.getCellRef().isLocked();
         bool isTrapped = !ptr.getCellRef().getTrap().empty();
         bool hasKey = false;
         std::string_view keyName;
@@ -178,7 +177,7 @@ namespace MWClass
             // using a key disarms the trap
             if (isTrapped)
             {
-                ptr.getCellRef().setTrap(ESM::RefId::sEmpty);
+                ptr.getCellRef().setTrap(ESM::RefId());
                 MWBase::Environment::get().getSoundManager()->playSound3D(
                     ptr, ESM::RefId::stringRefId("Disarm Trap"), 1.0f, 1.0f);
                 isTrapped = false;
@@ -229,7 +228,7 @@ namespace MWClass
         return data.mStore;
     }
 
-    const ESM::RefId& Container::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Container::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Container>* ref = ptr.get<ESM::Container>();
 
@@ -253,11 +252,14 @@ namespace MWClass
 
         std::string text;
         int lockLevel = ptr.getCellRef().getLockLevel();
-        if (lockLevel > 0 && lockLevel != ESM::UnbreakableLock)
-            text += "\n#{sLockLevel}: " + MWGui::ToolTips::toString(lockLevel);
-        else if (lockLevel < 0)
-            text += "\n#{sUnlocked}";
-        if (ptr.getCellRef().getTrap() != ESM::RefId::sEmpty)
+        if (lockLevel)
+        {
+            if (ptr.getCellRef().isLocked())
+                text += "\n#{sLockLevel}: " + MWGui::ToolTips::toString(lockLevel);
+            else
+                text += "\n#{sUnlocked}";
+        }
+        if (ptr.getCellRef().getTrap() != ESM::RefId())
             text += "\n#{sTrapped}";
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp())

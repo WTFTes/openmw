@@ -24,6 +24,7 @@
 #include "../mwworld/nullaction.hpp"
 
 #include "../mwmechanics/alchemy.hpp"
+#include "../mwmechanics/spellutil.hpp"
 
 namespace
 {
@@ -106,28 +107,28 @@ namespace
             if (!leftNameEnch.empty())
             {
                 const ESM::Enchantment* ench
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().search(leftNameEnch);
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().search(leftNameEnch);
                 if (ench)
                 {
                     if (ench->mData.mType == ESM::Enchantment::ConstantEffect)
                         leftChargePercent = 101;
                     else
-                        leftChargePercent = static_cast<int>(
-                            left.mBase.getCellRef().getNormalizedEnchantmentCharge(ench->mData.mCharge) * 100);
+                        leftChargePercent
+                            = static_cast<int>(left.mBase.getCellRef().getNormalizedEnchantmentCharge(*ench) * 100);
                 }
             }
 
             if (!rightNameEnch.empty())
             {
                 const ESM::Enchantment* ench
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().search(rightNameEnch);
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().search(rightNameEnch);
                 if (ench)
                 {
                     if (ench->mData.mType == ESM::Enchantment::ConstantEffect)
                         rightChargePercent = 101;
                     else
-                        rightChargePercent = static_cast<int>(
-                            right.mBase.getCellRef().getNormalizedEnchantmentCharge(ench->mData.mCharge) * 100);
+                        rightChargePercent
+                            = static_cast<int>(right.mBase.getCellRef().getNormalizedEnchantmentCharge(*ench) * 100);
                 }
             }
 
@@ -160,12 +161,7 @@ namespace
             if (result != 0)
                 return result > 0;
 
-            // compare items by Id
-            leftName = left.mBase.getCellRef().getRefId().getRefIdString();
-            rightName = right.mBase.getCellRef().getRefId().getRefIdString();
-
-            result = leftName.compare(rightName);
-            return result < 0;
+            return left.mBase.getCellRef().getRefId() < right.mBase.getCellRef().getRefId();
         }
     };
 }
@@ -267,9 +263,8 @@ namespace MWGui
         if ((mFilter & Filter_OnlyEnchanted) && !(item.mFlags & ItemStack::Flag_Enchanted))
             return false;
         if ((mFilter & Filter_OnlyChargedSoulstones)
-            && (base.getType() != ESM::Miscellaneous::sRecordId || base.getCellRef().getSoul() == ESM::RefId::sEmpty
-                || !MWBase::Environment::get().getWorld()->getStore().get<ESM::Creature>().search(
-                    base.getCellRef().getSoul())))
+            && (base.getType() != ESM::Miscellaneous::sRecordId || base.getCellRef().getSoul().empty()
+                || !MWBase::Environment::get().getESMStore()->get<ESM::Creature>().search(base.getCellRef().getSoul())))
             return false;
         if ((mFilter & Filter_OnlyRepairTools) && (base.getType() != ESM::Repair::sRecordId))
             return false;
@@ -302,7 +297,7 @@ namespace MWGui
 
             const ESM::RefId& enchId = base.getClass().getEnchantment(base);
             const ESM::Enchantment* ench
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().search(enchId);
+                = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().search(enchId);
             if (!ench)
             {
                 Log(Debug::Warning) << "Warning: Can't find enchantment '" << enchId << "' on item "
@@ -310,8 +305,8 @@ namespace MWGui
                 return false;
             }
 
-            if (base.getCellRef().getEnchantmentCharge() >= ench->mData.mCharge
-                || base.getCellRef().getEnchantmentCharge() == -1)
+            if (base.getCellRef().getEnchantmentCharge() == -1
+                || base.getCellRef().getEnchantmentCharge() >= MWMechanics::getEnchantmentCharge(*ench))
                 return false;
         }
 

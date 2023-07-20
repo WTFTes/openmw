@@ -26,7 +26,6 @@
 */
 #include "loadmset.hpp"
 
-#include <iostream> // FIXME: for debugging only
 #include <stdexcept>
 
 #include "reader.hpp"
@@ -34,7 +33,7 @@
 
 void ESM4::MediaSet::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -128,12 +127,8 @@ void ESM4::MediaSet::load(ESM4::Reader& reader)
                 reader.get(mTime4);
                 break;
             case ESM4::SUB_DATA:
-            {
-                // std::cout << "MSET " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::MSET::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

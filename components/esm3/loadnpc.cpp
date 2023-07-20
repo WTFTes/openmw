@@ -127,7 +127,7 @@ namespace ESM
     }
     void NPC::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mId.getRefIdString());
+        esm.writeHNCRefId("NAME", mId);
 
         if (isDeleted)
         {
@@ -137,12 +137,12 @@ namespace ESM
 
         esm.writeHNOCString("MODL", mModel);
         esm.writeHNOCString("FNAM", mName);
-        esm.writeHNCString("RNAM", mRace.getRefIdString());
-        esm.writeHNCString("CNAM", mClass.getRefIdString());
-        esm.writeHNCString("ANAM", mFaction.getRefIdString());
-        esm.writeHNCString("BNAM", mHead.getRefIdString());
-        esm.writeHNCString("KNAM", mHair.getRefIdString());
-        esm.writeHNOCString("SCRI", mScript.getRefIdString());
+        esm.writeHNCRefId("RNAM", mRace);
+        esm.writeHNCRefId("CNAM", mClass);
+        esm.writeHNCRefId("ANAM", mFaction);
+        esm.writeHNCRefId("BNAM", mHead);
+        esm.writeHNCRefId("KNAM", mHair);
+        esm.writeHNOCRefId("SCRI", mScript);
 
         if (mNpdtType == NPC_DEFAULT)
         {
@@ -202,12 +202,12 @@ namespace ESM
         mAiPackage.mList.clear();
         mName.clear();
         mModel.clear();
-        mRace = ESM::RefId::sEmpty;
-        mClass = ESM::RefId::sEmpty;
-        mFaction = ESM::RefId::sEmpty;
-        mScript = ESM::RefId::sEmpty;
-        mHair = ESM::RefId::sEmpty;
-        mHead = ESM::RefId::sEmpty;
+        mRace = ESM::RefId();
+        mClass = ESM::RefId();
+        mFaction = ESM::RefId();
+        mScript = ESM::RefId();
+        mHair = ESM::RefId();
+        mHead = ESM::RefId();
     }
 
     void NPC::blankNpdt()
@@ -215,8 +215,7 @@ namespace ESM
         mNpdt.mLevel = 0;
         mNpdt.mStrength = mNpdt.mIntelligence = mNpdt.mWillpower = mNpdt.mAgility = mNpdt.mSpeed = mNpdt.mEndurance
             = mNpdt.mPersonality = mNpdt.mLuck = 0;
-        for (int i = 0; i < Skill::Length; ++i)
-            mNpdt.mSkills[i] = 0;
+        mNpdt.mSkills.fill(0);
         mNpdt.mReputation = 0;
         mNpdt.mHealth = mNpdt.mMana = mNpdt.mFatigue = 0;
         mNpdt.mDisposition = 0;

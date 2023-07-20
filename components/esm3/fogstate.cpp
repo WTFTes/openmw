@@ -60,7 +60,7 @@ namespace ESM
     {
         esm.getHNOT(mBounds, "BOUN");
         esm.getHNOT(mNorthMarkerAngle, "ANGL");
-        int dataFormat = esm.getFormat();
+        const FormatVersion dataFormat = esm.getFormatVersion();
         while (esm.isNextSub("FTEX"))
         {
             esm.getSubHeader();
@@ -69,11 +69,11 @@ namespace ESM
             esm.getT(tex.mX);
             esm.getT(tex.mY);
 
-            size_t imageSize = esm.getSubSize() - sizeof(int) * 2;
+            const std::size_t imageSize = esm.getSubSize() - sizeof(int) * 2;
             tex.mImageData.resize(imageSize);
-            esm.getExact(&tex.mImageData[0], imageSize);
+            esm.getExact(tex.mImageData.data(), imageSize);
 
-            if (dataFormat < 7)
+            if (dataFormat <= MaxOldForOfWarFormatVersion)
                 convertFogOfWar(tex.mImageData);
 
             mFogTextures.push_back(tex);
@@ -92,7 +92,7 @@ namespace ESM
             esm.startSubRecord("FTEX");
             esm.writeT(it->mX);
             esm.writeT(it->mY);
-            esm.write(&it->mImageData[0], it->mImageData.size());
+            esm.write(it->mImageData.data(), it->mImageData.size());
             esm.endRecord("FTEX");
         }
     }

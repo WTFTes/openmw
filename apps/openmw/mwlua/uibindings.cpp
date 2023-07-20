@@ -1,3 +1,5 @@
+#include "uibindings.hpp"
+
 #include <components/lua_ui/alignment.hpp>
 #include <components/lua_ui/content.hpp>
 #include <components/lua_ui/element.hpp>
@@ -7,7 +9,7 @@
 #include <components/lua_ui/util.hpp>
 
 #include <components/misc/strings/format.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "context.hpp"
 #include "luamanagerimp.hpp"
@@ -18,71 +20,20 @@ namespace MWLua
 {
     namespace
     {
-        class UiAction final : public LuaManager::Action
+        template <typename Fn>
+        void wrapAction(const std::shared_ptr<LuaUi::Element>& element, Fn&& fn)
         {
-        public:
-            enum Type
+            try
             {
-                CREATE = 0,
-                UPDATE,
-                DESTROY,
-            };
-
-            UiAction(Type type, std::shared_ptr<LuaUi::Element> element, LuaUtil::LuaState* state)
-                : Action(state)
-                , mType{ type }
-                , mElement{ std::move(element) }
-            {
+                fn();
             }
-
-            void apply() const override
+            catch (...)
             {
-                try
-                {
-                    switch (mType)
-                    {
-                        case CREATE:
-                            mElement->create();
-                            break;
-                        case UPDATE:
-                            mElement->update();
-                            break;
-                        case DESTROY:
-                            mElement->destroy();
-                            break;
-                    }
-                }
-                catch (std::exception&)
-                {
-                    // prevent any actions on a potentially corrupted widget
-                    mElement->mRoot = nullptr;
-                    throw;
-                }
+                // prevent any actions on a potentially corrupted widget
+                element->mRoot = nullptr;
+                throw;
             }
-
-            std::string toString() const override
-            {
-                std::string result;
-                switch (mType)
-                {
-                    case CREATE:
-                        result += "Create";
-                        break;
-                    case UPDATE:
-                        result += "Update";
-                        break;
-                    case DESTROY:
-                        result += "Destroy";
-                        break;
-                }
-                result += " UI";
-                return result;
-            }
-
-        private:
-            Type mType;
-            std::shared_ptr<LuaUi::Element> mElement;
-        };
+        }
 
         // Lua arrays index from 1
         inline size_t fromLuaIndex(size_t i)
@@ -97,59 +48,20 @@ namespace MWLua
 
     sol::table initUserInterfacePackage(const Context& context)
     {
-        auto uiContent = context.mLua->sol().new_usertype<LuaUi::Content>("UiContent");
-        uiContent[sol::meta_function::length] = [](const LuaUi::Content& content) { return content.size(); };
-        uiContent[sol::meta_function::index]
-            = sol::overload([](const LuaUi::Content& content, size_t index) { return content.at(fromLuaIndex(index)); },
-                [](const LuaUi::Content& content, std::string_view name) { return content.at(name); });
-        uiContent[sol::meta_function::new_index]
-            = sol::overload([](LuaUi::Content& content, size_t index,
-                                const sol::table& table) { content.assign(fromLuaIndex(index), table); },
-                [](LuaUi::Content& content, size_t index, sol::nil_t nil) { content.remove(fromLuaIndex(index)); },
-                [](LuaUi::Content& content, std::string_view name, const sol::table& table) {
-                    content.assign(name, table);
-                },
-                [](LuaUi::Content& content, std::string_view name, sol::nil_t nil) { content.remove(name); });
-        uiContent["insert"] = [](LuaUi::Content& content, size_t index, const sol::table& table) {
-            content.insert(fromLuaIndex(index), table);
-        };
-        uiContent["add"]
-            = [](LuaUi::Content& content, const sol::table& table) { content.insert(content.size(), table); };
-        uiContent["indexOf"] = [](LuaUi::Content& content, const sol::table& table) -> sol::optional<size_t> {
-            size_t index = content.indexOf(table);
-            if (index < content.size())
-                return toLuaIndex(index);
-            else
-                return sol::nullopt;
-        };
-        {
-            auto pairs = [](LuaUi::Content& content) {
-                auto next = [](LuaUi::Content& content, size_t i) -> sol::optional<std::tuple<size_t, sol::table>> {
-                    if (i < content.size())
-                        return std::make_tuple(i + 1, content.at(i));
-                    else
-                        return sol::nullopt;
-                };
-                return std::make_tuple(next, content, 0);
-            };
-            uiContent[sol::meta_function::ipairs] = pairs;
-            uiContent[sol::meta_function::pairs] = pairs;
-        }
-
         auto element = context.mLua->sol().new_usertype<LuaUi::Element>("Element");
         element["layout"] = sol::property([](LuaUi::Element& element) { return element.mLayout; },
             [](LuaUi::Element& element, const sol::table& layout) { element.mLayout = layout; });
-        element["update"] = [context](const std::shared_ptr<LuaUi::Element>& element) {
+        element["update"] = [luaManager = context.mLuaManager](const std::shared_ptr<LuaUi::Element>& element) {
             if (element->mDestroy || element->mUpdate)
                 return;
             element->mUpdate = true;
-            context.mLuaManager->addAction(std::make_unique<UiAction>(UiAction::UPDATE, element, context.mLua));
+            luaManager->addAction([element] { wrapAction(element, [&] { element->update(); }); }, "Update UI");
         };
-        element["destroy"] = [context](const std::shared_ptr<LuaUi::Element>& element) {
+        element["destroy"] = [luaManager = context.mLuaManager](const std::shared_ptr<LuaUi::Element>& element) {
             if (element->mDestroy)
                 return;
             element->mDestroy = true;
-            context.mLuaManager->addAction(std::make_unique<UiAction>(UiAction::DESTROY, element, context.mLua));
+            luaManager->addAction([element] { wrapAction(element, [&] { element->destroy(); }); }, "Destroy UI");
         };
 
         sol::table api = context.mLua->newTable();
@@ -180,10 +92,10 @@ namespace MWLua
                 luaManager->addAction([wm, obj = obj.as<LObject>()] { wm->setConsoleSelectedObject(obj.ptr()); });
             }
         };
-        api["content"] = [](const sol::table& table) { return LuaUi::Content(table); };
-        api["create"] = [context](const sol::table& layout) {
+        api["content"] = LuaUi::loadContentConstructor(context.mLua);
+        api["create"] = [luaManager = context.mLuaManager](const sol::table& layout) {
             auto element = LuaUi::Element::make(layout);
-            context.mLuaManager->addAction(std::make_unique<UiAction>(UiAction::CREATE, element, context.mLua));
+            luaManager->addAction([element] { wrapAction(element, [&] { element->create(); }); }, "Create UI");
             return element;
         };
         api["updateAll"] = [context]() {
@@ -191,7 +103,7 @@ namespace MWLua
             context.mLuaManager->addAction(
                 []() { LuaUi::Element::forEach([](LuaUi::Element* e) { e->update(); }); }, "Update all UI elements");
         };
-        api["_getMenuTransparency"] = []() { return Settings::Manager::getFloat("menu transparency", "GUI"); };
+        api["_getMenuTransparency"] = []() -> float { return Settings::gui().mMenuTransparency; };
 
         auto uiLayer = context.mLua->sol().new_usertype<LuaUi::Layer>("UiLayer");
         uiLayer["name"] = sol::property([](LuaUi::Layer& self) { return self.name(); });

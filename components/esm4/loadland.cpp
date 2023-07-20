@@ -26,17 +26,13 @@
 */
 #include "loadland.hpp"
 
-#ifdef NDEBUG // FIXME: debuggigng only
-#undef NDEBUG
-#endif
-
-#include <cassert>
+#include <cstdint>
 #include <stdexcept>
 
-#include <iostream> // FIXME: debug only
+#include <components/debug/debuglog.hpp>
 
 #include "reader.hpp"
-//#include "writer.hpp"
+// #include "writer.hpp"
 
 //             overlap north
 //
@@ -55,11 +51,12 @@
 //
 void ESM4::Land::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
-    reader.adjustFormId(mFormId);
+    ESM::FormId formId = reader.hdr().record.getFormId();
+    reader.adjustFormId(formId);
+    mId = ESM::RefId::formIdRefId(formId);
     mFlags = reader.hdr().record.flags;
     mDataTypes = 0;
-
+    mCell = ESM::RefId::formIdRefId(reader.currCell());
     TxtLayer layer;
     std::int8_t currentAddQuad = -1; // for VTXT following ATXT
 
@@ -104,7 +101,8 @@ void ESM4::Land::load(ESM4::Reader& reader)
                 BTXT base;
                 if (reader.getExact(base))
                 {
-                    assert(base.quadrant < 4 && "base texture quadrant index error");
+                    if (base.quadrant >= 4)
+                        throw std::runtime_error("base texture quadrant index error");
 
                     reader.adjustFormId(base.formId);
                     mTextures[base.quadrant].base = std::move(base);
@@ -121,12 +119,13 @@ void ESM4::Land::load(ESM4::Reader& reader)
                 if (currentAddQuad != -1)
                 {
                     // FIXME: sometimes there are no VTXT following an ATXT?  Just add a dummy one for now
-                    std::cout << "ESM4::Land VTXT empty layer " << (int)layer.texture.layerIndex << std::endl;
+                    Log(Debug::Verbose) << "ESM4::Land VTXT empty layer " << (int)layer.texture.layerIndex;
                     mTextures[currentAddQuad].layers.push_back(layer);
                 }
                 reader.get(layer.texture);
                 reader.adjustFormId(layer.texture.formId);
-                assert(layer.texture.quadrant < 4 && "additional texture quadrant index error");
+                if (layer.texture.quadrant >= 4)
+                    throw std::runtime_error("additional texture quadrant index error");
 #if 0
                 FormId txt = layer.texture.formId;
                 std::map<FormId, int>::iterator lb = uniqueTextures.lower_bound(txt);
@@ -149,11 +148,12 @@ void ESM4::Land::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_VTXT:
             {
-                assert(currentAddQuad != -1 && "VTXT without ATXT found");
+                if (currentAddQuad == -1)
+                    throw std::runtime_error("VTXT without ATXT found");
 
                 int count = (int)reader.subRecordHeader().dataSize / sizeof(ESM4::Land::VTXT);
-                assert((reader.subRecordHeader().dataSize % sizeof(ESM4::Land::VTXT)) == 0
-                    && "ESM4::LAND VTXT data size error");
+                if ((reader.subRecordHeader().dataSize % sizeof(ESM4::Land::VTXT)) != 0)
+                    throw std::runtime_error("ESM4::LAND VTXT data size error");
 
                 if (count)
                 {
@@ -181,8 +181,9 @@ void ESM4::Land::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_VTEX: // only in Oblivion?
             {
-                int count = (int)reader.subRecordHeader().dataSize / sizeof(FormId);
-                assert((reader.subRecordHeader().dataSize % sizeof(FormId)) == 0 && "ESM4::LAND VTEX data size error");
+                int count = (int)reader.subRecordHeader().dataSize / sizeof(FormId32);
+                if ((reader.subRecordHeader().dataSize % sizeof(FormId32)) != 0)
+                    throw std::runtime_error("ESM4::LAND VTEX data size error");
 
                 if (count)
                 {
@@ -204,8 +205,8 @@ void ESM4::Land::load(ESM4::Reader& reader)
     if (currentAddQuad != -1)
     {
         // FIXME: not sure if it happens here as well
-        std::cout << "ESM4::Land VTXT empty layer " << (int)layer.texture.layerIndex << " quad "
-                  << (int)layer.texture.quadrant << std::endl;
+        Log(Debug::Verbose) << "ESM4::Land VTXT empty layer " << (int)layer.texture.layerIndex << " quad "
+                            << (int)layer.texture.quadrant;
         mTextures[currentAddQuad].layers.push_back(layer);
     }
 

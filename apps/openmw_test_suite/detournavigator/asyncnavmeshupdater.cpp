@@ -5,7 +5,6 @@
 #include <components/detournavigator/makenavmesh.hpp>
 #include <components/detournavigator/navmeshdbutils.hpp>
 #include <components/detournavigator/serialization.hpp>
-#include <components/esm/refid.hpp>
 #include <components/loadinglistener/loadinglistener.hpp>
 
 #include <BulletCollision/CollisionShapes/btBoxShape.h>
@@ -53,7 +52,7 @@ namespace
         OffMeshConnectionsManager mOffMeshConnectionsManager{ mSettings.mRecast };
         const AgentBounds mAgentBounds{ CollisionShapeType::Aabb, { 29, 29, 66 } };
         const TilePosition mPlayerTile{ 0, 0 };
-        const ESM::RefId mWorldspace = ESM::RefId::stringRefId("sys::default");
+        const std::string mWorldspace = "sys::default";
         const btBoxShape mBox{ btVector3(100, 100, 20) };
         Loading::Listener mListener;
     };
@@ -75,7 +74,7 @@ namespace
         mRecastMeshManager.setWorldspace(mWorldspace, nullptr);
         addHeightFieldPlane(mRecastMeshManager);
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, nullptr);
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const std::map<TilePosition, ChangeType> changedTiles{ { TilePosition{ 0, 0 }, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
         updater.wait(WaitConditionType::allJobsDone, &mListener);
@@ -87,7 +86,7 @@ namespace
         mRecastMeshManager.setWorldspace(mWorldspace, nullptr);
         addHeightFieldPlane(mRecastMeshManager);
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, nullptr);
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const std::map<TilePosition, ChangeType> changedTiles{ { TilePosition{ 0, 0 }, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
         updater.wait(WaitConditionType::allJobsDone, &mListener);
@@ -110,7 +109,7 @@ namespace
         mRecastMeshManager.setWorldspace(mWorldspace, nullptr);
         addHeightFieldPlane(mRecastMeshManager);
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, nullptr);
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const std::map<TilePosition, ChangeType> changedTiles{ { TilePosition{ 0, 0 }, ChangeType::update } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
         updater.wait(WaitConditionType::allJobsDone, &mListener);
@@ -136,7 +135,7 @@ namespace
         auto db = std::make_unique<NavMeshDb>(":memory:", std::numeric_limits<std::uint64_t>::max());
         NavMeshDb* const dbPtr = db.get();
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, std::move(db));
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const TilePosition tilePosition{ 0, 0 };
         const std::map<TilePosition, ChangeType> changedTiles{ { tilePosition, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
@@ -163,7 +162,7 @@ namespace
         NavMeshDb* const dbPtr = db.get();
         mSettings.mWriteToNavMeshDb = false;
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, std::move(db));
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const TilePosition tilePosition{ 0, 0 };
         const std::map<TilePosition, ChangeType> changedTiles{ { tilePosition, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
@@ -188,7 +187,7 @@ namespace
         NavMeshDb* const dbPtr = db.get();
         mSettings.mWriteToNavMeshDb = false;
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, std::move(db));
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const TilePosition tilePosition{ 0, 0 };
         const std::map<TilePosition, ChangeType> changedTiles{ { tilePosition, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
@@ -198,7 +197,7 @@ namespace
         ASSERT_NE(recastMesh, nullptr);
         const auto objects = makeDbRefGeometryObjects(
             recastMesh->getMeshSources(), [&](const MeshSource& v) { return resolveMeshSource(*dbPtr, v); });
-        EXPECT_FALSE(objects.has_value());
+        EXPECT_TRUE(std::holds_alternative<MeshSource>(objects));
     }
 
     TEST_F(DetourNavigatorAsyncNavMeshUpdaterTest, post_should_read_from_db_on_cache_miss)
@@ -208,7 +207,7 @@ namespace
         mSettings.mMaxNavMeshTilesCacheSize = 0;
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager,
             std::make_unique<NavMeshDb>(":memory:", std::numeric_limits<std::uint64_t>::max()));
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const std::map<TilePosition, ChangeType> changedTiles{ { TilePosition{ 0, 0 }, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTiles);
         updater.wait(WaitConditionType::allJobsDone, &mListener);
@@ -237,7 +236,7 @@ namespace
         mRecastMeshManager.setWorldspace(mWorldspace, nullptr);
         addHeightFieldPlane(mRecastMeshManager);
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, nullptr);
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         const std::map<TilePosition, ChangeType> changedTilesAdd{ { TilePosition{ 0, 0 }, ChangeType::add } };
         updater.post(mAgentBounds, navMeshCacheItem, mPlayerTile, mWorldspace, changedTilesAdd);
         updater.wait(WaitConditionType::allJobsDone, &mListener);
@@ -259,7 +258,7 @@ namespace
         auto db = std::make_unique<NavMeshDb>(":memory:", 4097);
         NavMeshDb* const dbPtr = db.get();
         AsyncNavMeshUpdater updater(mSettings, mRecastMeshManager, mOffMeshConnectionsManager, std::move(db));
-        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(makeEmptyNavMesh(mSettings), 1);
+        const auto navMeshCacheItem = std::make_shared<GuardedNavMeshCacheItem>(1, mSettings);
         std::map<TilePosition, ChangeType> changedTiles;
         for (int x = -5; x <= 5; ++x)
             for (int y = -5; y <= 5; ++y)
@@ -286,13 +285,14 @@ namespace
                 const TilePosition tilePosition(x, y);
                 const auto recastMesh = mRecastMeshManager.getMesh(mWorldspace, tilePosition);
                 ASSERT_NE(recastMesh, nullptr);
-                const std::optional<std::vector<DbRefGeometryObject>> objects = makeDbRefGeometryObjects(
+                const auto objects = makeDbRefGeometryObjects(
                     recastMesh->getMeshSources(), [&](const MeshSource& v) { return resolveMeshSource(*dbPtr, v); });
-                if (!objects.has_value())
+                if (std::holds_alternative<MeshSource>(objects))
                     continue;
                 EXPECT_EQ(dbPtr
                               ->findTile(mWorldspace, tilePosition,
-                                  serialize(mSettings.mRecast, mAgentBounds, *recastMesh, *objects))
+                                  serialize(mSettings.mRecast, mAgentBounds, *recastMesh,
+                                      std::get<std::vector<DbRefGeometryObject>>(objects)))
                               .has_value(),
                     present.find(tilePosition) != present.end())
                     << tilePosition.x() << " " << tilePosition.y()

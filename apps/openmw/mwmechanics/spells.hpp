@@ -47,6 +47,8 @@ namespace MWMechanics
         friend class SpellList;
 
     public:
+        using Collection = std::vector<const ESM::Spell*>;
+
         Spells();
 
         Spells(const Spells&);
@@ -65,9 +67,9 @@ namespace MWMechanics
         void purgeCorprusDisease();
         void purgeCurses();
 
-        std::vector<const ESM::Spell*>::const_iterator begin() const;
+        Collection::const_iterator begin() const;
 
-        std::vector<const ESM::Spell*>::const_iterator end() const;
+        Collection::const_iterator end() const;
 
         bool hasSpell(const ESM::RefId& spell) const;
         bool hasSpell(const ESM::Spell* spell) const;
@@ -94,6 +96,10 @@ namespace MWMechanics
         bool hasCommonDisease() const;
 
         bool hasBlightDisease() const;
+
+        /// Iteration methods for lua
+        size_t count() const { return mSpells.size(); }
+        const ESM::Spell* at(size_t index) const { return mSpells.at(index); }
 
         void readState(const ESM::SpellState& state, CreatureStats* creatureStats);
         void writeState(ESM::SpellState& state) const;

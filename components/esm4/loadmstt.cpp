@@ -27,14 +27,13 @@
 #include "loadmstt.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: testing only
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::MovableStatic::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -53,7 +52,7 @@ void ESM4::MovableStatic::load(ESM4::Reader& reader)
                 reader.get(mData);
                 break;
             case ESM4::SUB_SNAM:
-                reader.get(mLoopingSound);
+                reader.getFormId(mLoopingSound);
                 break;
             case ESM4::SUB_DEST: // destruction data
             case ESM4::SUB_OBND: // object bounds
@@ -65,11 +64,8 @@ void ESM4::MovableStatic::load(ESM4::Reader& reader)
             case ESM4::SUB_MODS:
             case ESM4::SUB_FULL:
             case ESM4::SUB_MODB:
-            {
-                // std::cout << "MSTT " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::MSTT::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

@@ -163,9 +163,9 @@ namespace MWGui
             hour = 12;
 
         ESM::EpochTimeStamp currentDate = MWBase::Environment::get().getWorld()->getEpochTimeStamp();
-        std::string daysPassed
-            = Misc::StringUtils::format("(#{sDay} %i)", MWBase::Environment::get().getWorld()->getTimeStamp().getDay());
-        std::string_view formattedHour(pm ? "#{sSaveMenuHelp05}" : "#{sSaveMenuHelp04}");
+        std::string daysPassed = Misc::StringUtils::format(
+            "(#{Calendar:day} %i)", MWBase::Environment::get().getWorld()->getTimeStamp().getDay());
+        std::string_view formattedHour(pm ? "#{Calendar:pm}" : "#{Calendar:am}");
         std::string dateTimeText
             = Misc::StringUtils::format("%i %s %s %i %s", currentDate.mDay, month, daysPassed, hour, formattedHour);
         mDateTimeText->setCaptionWithReplacing(dateTimeText);
@@ -200,7 +200,7 @@ namespace MWGui
         MWWorld::Ptr player = world->getPlayerPtr();
         if (mSleeping && player.getCell()->isExterior())
         {
-            const ESM::RefId& regionstr = player.getCell()->getCell()->mRegion;
+            const ESM::RefId& regionstr = player.getCell()->getCell()->getRegion();
             if (!regionstr.empty())
             {
                 const ESM::Region* region = world->getStore().get<ESM::Region>().find(regionstr);
@@ -279,7 +279,7 @@ namespace MWGui
 
         // trigger levelup if possible
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
         if (mSleeping && pcstats.getLevelProgress() >= gmst.find("iLevelUpTotal")->mValue.getInteger())
         {
             MWBase::Environment::get().getWindowManager()->pushGuiMode(GM_Levelup);

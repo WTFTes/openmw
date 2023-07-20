@@ -16,6 +16,7 @@
 
 #include <deque>
 #include <memory>
+#include <unordered_map>
 
 namespace osg
 {
@@ -42,7 +43,8 @@ namespace osgViewer
 namespace ESM
 {
     struct Cell;
-    struct RefNum;
+    struct FormId;
+    using RefNum = FormId;
 }
 
 namespace Terrain
@@ -73,6 +75,7 @@ namespace DetourNavigator
 namespace MWWorld
 {
     class GroundcoverStore;
+    class Cell;
 }
 
 namespace Debug
@@ -108,8 +111,8 @@ namespace MWRender
     public:
         RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
             Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
-            const std::filesystem::path& resourcePath, DetourNavigator::Navigator& navigator,
-            const MWWorld::GroundcoverStore& groundcoverStore, SceneUtil::UnrefQueue& unrefQueue);
+            DetourNavigator::Navigator& navigator, const MWWorld::GroundcoverStore& groundcoverStore,
+            SceneUtil::UnrefQueue& unrefQueue);
         ~RenderingManager();
 
         osgUtil::IncrementalCompileOperation* getIncrementalCompileOperation();
@@ -140,15 +143,15 @@ namespace MWRender
         void setSunColour(const osg::Vec4f& diffuse, const osg::Vec4f& specular, float sunVis);
         void setNight(bool isNight) { mNight = isNight; }
 
-        void configureAmbient(const ESM::Cell* cell);
-        void configureFog(const ESM::Cell* cell);
+        void configureAmbient(const MWWorld::Cell& cell);
+        void configureFog(const MWWorld::Cell& cell);
         void configureFog(
             float fogDepth, float underwaterFog, float dlFactor, float dlOffset, const osg::Vec4f& colour);
 
         void addCell(const MWWorld::CellStore* store);
         void removeCell(const MWWorld::CellStore* store);
 
-        void enableTerrain(bool enable);
+        void enableTerrain(bool enable, ESM::RefId worldspace);
 
         void updatePtr(const MWWorld::Ptr& old, const MWWorld::Ptr& updated);
 
@@ -228,7 +231,7 @@ namespace MWRender
 
         void setViewDistance(float distance, bool delay = false);
 
-        float getTerrainHeightAt(const osg::Vec3f& pos);
+        float getTerrainHeightAt(const osg::Vec3f& pos, ESM::RefId worldspace);
 
         // camera stuff
         Camera* getCamera() { return mCamera.get(); }
@@ -241,6 +244,9 @@ namespace MWRender
         void resetFieldOfView();
 
         osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& object) const;
+
+        // Return local bounding box. Safe to be called in parallel with cull thread.
+        osg::BoundingBox getCullSafeBoundingBox(const MWWorld::Ptr& ptr) const;
 
         void exportSceneGraph(
             const MWWorld::Ptr& ptr, const std::filesystem::path& filename, const std::string& format);
@@ -277,6 +283,15 @@ namespace MWRender
         void setFogColor(const osg::Vec4f& color);
         void updateThirdPersonViewMode();
 
+        struct WorldspaceChunkMgr
+        {
+            std::unique_ptr<Terrain::World> mTerrain;
+            std::unique_ptr<ObjectPaging> mObjectPaging;
+            std::unique_ptr<Groundcover> mGroundcover;
+        };
+
+        WorldspaceChunkMgr& getWorldspaceChunkMgr(ESM::RefId worldspace);
+
         void reportStats() const;
 
         void updateNavMesh();
@@ -307,10 +322,11 @@ namespace MWRender
         std::unique_ptr<Pathgrid> mPathgrid;
         std::unique_ptr<Objects> mObjects;
         std::unique_ptr<Water> mWater;
-        std::unique_ptr<Terrain::World> mTerrain;
+        std::unordered_map<ESM::RefId, WorldspaceChunkMgr> mWorldspaceChunks;
+        Terrain::World* mTerrain;
         std::unique_ptr<TerrainStorage> mTerrainStorage;
-        std::unique_ptr<ObjectPaging> mObjectPaging;
-        std::unique_ptr<Groundcover> mGroundcover;
+        ObjectPaging* mObjectPaging;
+        Groundcover* mGroundcover;
         std::unique_ptr<SkyManager> mSky;
         std::unique_ptr<FogManager> mFog;
         std::unique_ptr<ScreenshotManager> mScreenshotManager;
@@ -338,6 +354,7 @@ namespace MWRender
         float mFirstPersonFieldOfView;
         bool mUpdateProjectionMatrix = false;
         bool mNight = false;
+        const MWWorld::GroundcoverStore& mGroundCoverStore;
 
         void operator=(const RenderingManager&);
         RenderingManager(const RenderingManager&);

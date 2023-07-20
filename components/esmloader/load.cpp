@@ -45,7 +45,7 @@ namespace EsmLoader
                 return (v.mId);
             }
 
-            const ESM::CellId& operator()(const ESM::Cell& v) const { return v.mCellId; }
+            const ESM::RefId& operator()(const ESM::Cell& v) const { return v.mId; }
 
             std::pair<int, int> operator()(const ESM::Land& v) const { return std::pair(v.mX, v.mY); }
 
@@ -59,7 +59,7 @@ namespace EsmLoader
         struct CellRecords
         {
             Records<ESM::Cell> mValues;
-            std::map<ESM::RefId, std::size_t> mByName;
+            std::map<std::string, std::size_t> mByName;
             std::map<std::pair<int, int>, std::size_t> mByPosition;
         };
 

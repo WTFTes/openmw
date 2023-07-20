@@ -658,7 +658,7 @@ int CSMWorld::RefIdCollection::getIndex(const ESM::RefId& id) const
     int index = searchId(id);
 
     if (index == -1)
-        throw std::runtime_error("invalid ID: " + id.getRefIdString());
+        throw std::runtime_error("ID is not found in RefId collection: " + id.toDebugString());
 
     return index;
 }
@@ -725,19 +725,14 @@ void CSMWorld::RefIdCollection::appendBlankRecord(const ESM::RefId& id, Universa
     mData.appendRecord(type, id, false);
 }
 
-int CSMWorld::RefIdCollection::searchId(std::string_view id) const
+int CSMWorld::RefIdCollection::searchId(const ESM::RefId& id) const
 {
-    RefIdData::LocalIndex localIndex = mData.searchId(ESM::RefId::stringRefId(id));
+    const RefIdData::LocalIndex localIndex = mData.searchId(id);
 
     if (localIndex.first == -1)
         return -1;
 
     return mData.localToGlobalIndex(localIndex);
-}
-
-int CSMWorld::RefIdCollection::searchId(const ESM::RefId& id) const
-{
-    return searchId(id.getRefIdString());
 }
 
 void CSMWorld::RefIdCollection::replace(int index, std::unique_ptr<RecordBase> record)

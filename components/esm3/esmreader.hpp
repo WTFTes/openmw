@@ -36,7 +36,7 @@ namespace ESM
         const std::string& getDesc() const { return mHeader.mData.desc; }
         const std::vector<Header::MasterData>& getGameFiles() const { return mHeader.mMaster; }
         const Header& getHeader() const { return mHeader; }
-        int getFormat() const { return mHeader.mFormat; }
+        FormatVersion getFormatVersion() const { return mHeader.mFormatVersion; }
         const NAME& retSubName() const { return mCtx.subName; }
         uint32_t getSubSize() const { return mCtx.leftSub; }
         const std::filesystem::path& getName() const { return mCtx.filename; }
@@ -95,6 +95,9 @@ namespace ESM
          *  Medium-level reading shortcuts
          *
          *************************************************************************/
+
+        // Because we want to get rid of CellId, we isolate it's uses.
+        ESM::RefId getCellId();
 
         // Read data of a given type, stored in a subrecord of a given name
         template <typename X>
@@ -165,24 +168,34 @@ namespace ESM
 
         // Read a string by the given name if it is the next record.
         std::string getHNOString(NAME name);
+
         ESM::RefId getHNORefId(NAME name);
 
-        void skipHNOString(NAME name);
+        void skipHNORefId(NAME name);
 
         // Read a string with the given sub-record name
         std::string getHNString(NAME name);
 
+        RefId getHNRefId(NAME name);
+
         // Read a string, including the sub-record header (but not the name)
         std::string getHString();
+
+        std::string_view getHStringView();
+
         RefId getRefId();
 
         void skipHString();
+
+        void skipHRefId();
 
         // Read the given number of bytes from a subrecord
         void getHExact(void* p, int size);
 
         // Read the given number of bytes from a named subrecord
         void getHNExact(void* p, int size, NAME name);
+
+        ESM::FormId getFormId(bool wide = false, NAME tag = "FRMR");
 
         /*************************************************************************
          *
@@ -265,14 +278,23 @@ namespace ESM
             skip(sizeof(T));
         }
 
-        void getExact(void* x, int size) { mEsm->read((char*)x, size); }
+        void getExact(void* x, std::size_t size)
+        {
+            mEsm->read(static_cast<char*>(x), static_cast<std::streamsize>(size));
+        }
+
         void getName(NAME& name) { getT(name); }
         void getUint(uint32_t& u) { getT(u); }
 
+        std::string getMaybeFixedStringSize(std::size_t size);
+
+        RefId getMaybeFixedRefIdSize(std::size_t size);
+
         // Read the next 'size' bytes and return them as a string. Converts
         // them from native encoding to UTF8 in the process.
-        std::string getString(int size);
-        ESM::RefId getRefId(int size);
+        std::string_view getStringView(std::size_t size);
+
+        RefId getRefId(std::size_t size);
 
         void skip(std::size_t bytes)
         {
@@ -297,10 +319,12 @@ namespace ESM
     private:
         [[noreturn]] void reportSubSizeMismatch(size_t want, size_t got)
         {
-            fail("record size mismatch, requested " + std::to_string(want) + ", got" + std::to_string(got));
+            fail("record size mismatch, requested " + std::to_string(want) + ", got " + std::to_string(got));
         }
 
         void clearCtx();
+
+        RefId getRefIdImpl(std::size_t size);
 
         std::unique_ptr<std::istream> mEsm;
 

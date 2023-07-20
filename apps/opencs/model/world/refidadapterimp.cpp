@@ -7,6 +7,7 @@
 #include <apps/opencs/model/world/refiddata.hpp>
 #include <apps/opencs/model/world/universalid.hpp>
 
+#include <components/esm/attr.hpp>
 #include <components/esm3/loadcont.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadskil.hpp>
@@ -93,8 +94,6 @@ CSMWorld::IngredEffectRefIdAdapter::IngredEffectRefIdAdapter()
     : mType(UniversalId::Type_Ingredient)
 {
 }
-
-CSMWorld::IngredEffectRefIdAdapter::~IngredEffectRefIdAdapter() {}
 
 void CSMWorld::IngredEffectRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const
@@ -882,8 +881,6 @@ void CSMWorld::NpcRefIdAdapter::setData(
     record.setModified(npc);
 }
 
-CSMWorld::NpcAttributesRefIdAdapter::NpcAttributesRefIdAdapter() {}
-
 void CSMWorld::NpcAttributesRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const
 {
@@ -1011,11 +1008,8 @@ int CSMWorld::NpcAttributesRefIdAdapter::getNestedColumnsCount(const RefIdColumn
 int CSMWorld::NpcAttributesRefIdAdapter::getNestedRowsCount(
     const RefIdColumn* column, const RefIdData& data, int index) const
 {
-    // There are 8 attributes
-    return 8;
+    return ESM::Attribute::Length;
 }
-
-CSMWorld::NpcSkillsRefIdAdapter::NpcSkillsRefIdAdapter() {}
 
 void CSMWorld::NpcSkillsRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const
@@ -1105,10 +1099,6 @@ int CSMWorld::NpcSkillsRefIdAdapter::getNestedRowsCount(
     // There are 27 skills
     return ESM::Skill::Length;
 }
-
-CSMWorld::NpcMiscRefIdAdapter::NpcMiscRefIdAdapter() {}
-
-CSMWorld::NpcMiscRefIdAdapter::~NpcMiscRefIdAdapter() {}
 
 void CSMWorld::NpcMiscRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const
@@ -1268,8 +1258,6 @@ int CSMWorld::NpcMiscRefIdAdapter::getNestedRowsCount(const RefIdColumn* column,
     return 1; // fixed at size 1
 }
 
-CSMWorld::CreatureAttributesRefIdAdapter::CreatureAttributesRefIdAdapter() {}
-
 void CSMWorld::CreatureAttributesRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const
 {
@@ -1397,11 +1385,8 @@ int CSMWorld::CreatureAttributesRefIdAdapter::getNestedColumnsCount(
 int CSMWorld::CreatureAttributesRefIdAdapter::getNestedRowsCount(
     const RefIdColumn* column, const RefIdData& data, int index) const
 {
-    // There are 8 attributes
-    return 8;
+    return ESM::Attribute::Length;
 }
-
-CSMWorld::CreatureAttackRefIdAdapter::CreatureAttackRefIdAdapter() {}
 
 void CSMWorld::CreatureAttackRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const
@@ -1490,10 +1475,6 @@ int CSMWorld::CreatureAttackRefIdAdapter::getNestedRowsCount(
     // There are 3 attacks
     return 3;
 }
-
-CSMWorld::CreatureMiscRefIdAdapter::CreatureMiscRefIdAdapter() {}
-
-CSMWorld::CreatureMiscRefIdAdapter::~CreatureMiscRefIdAdapter() {}
 
 void CSMWorld::CreatureMiscRefIdAdapter::addNestedRow(
     const RefIdColumn* column, RefIdData& data, int index, int position) const

@@ -4,7 +4,7 @@
 #include <map>
 #include <sol/sol.hpp>
 
-#include "scriptscontainer.hpp"
+#include "asyncpackage.hpp"
 #include "serialization.hpp"
 
 namespace LuaUtil
@@ -14,6 +14,9 @@ namespace LuaUtil
     {
     public:
         static void initLuaBindings(lua_State*);
+        static sol::table initGlobalPackage(lua_State* lua, LuaStorage* globalStorage);
+        static sol::table initLocalPackage(lua_State* lua, LuaStorage* globalStorage);
+        static sol::table initPlayerPackage(lua_State* lua, LuaStorage* globalStorage, LuaStorage* playerStorage);
 
         explicit LuaStorage(lua_State* lua)
             : mLua(lua)
@@ -42,6 +45,7 @@ namespace LuaUtil
         class Listener
         {
         public:
+            virtual ~Listener() = default;
             virtual void valueChanged(
                 std::string_view section, std::string_view key, const sol::object& value) const = 0;
             virtual void sectionReplaced(std::string_view section, const sol::optional<sol::table>& values) const = 0;

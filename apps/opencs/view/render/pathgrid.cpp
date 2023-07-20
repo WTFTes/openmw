@@ -347,10 +347,10 @@ namespace CSVRender
 
             QModelIndex parent = model->index(recordIndex, parentColumn);
 
-            for (size_t i = 0; i < mSelected.size(); ++i)
+            for (const auto& selected : mSelected)
             {
-                const CSMWorld::Pathgrid::Point& point = source->mPoints[mSelected[i]];
-                int row = static_cast<int>(mSelected[i]);
+                const CSMWorld::Pathgrid::Point& point = source->mPoints[selected];
+                int row = static_cast<int>(selected);
 
                 commands.push(new CSMWorld::ModifyCommand(
                     *model, model->index(row, posXColumn, parent), clampToCell(point.mX + offsetX)));
@@ -378,9 +378,9 @@ namespace CSVRender
         const CSMWorld::Pathgrid* source = getPathgridSource();
         if (source)
         {
-            for (size_t i = 0; i < mSelected.size(); ++i)
+            for (const auto& selected : mSelected)
             {
-                addEdge(commands, *source, node, mSelected[i]);
+                addEdge(commands, *source, node, selected);
             }
         }
     }
@@ -424,9 +424,9 @@ namespace CSVRender
                 int adjustment1 = 0;
 
                 // Determine necessary adjustment
-                for (std::vector<unsigned short>::iterator point = mSelected.begin(); point != mSelected.end(); ++point)
+                for (const auto point : mSelected)
                 {
-                    if (source->mEdges[edge].mV0 == *point || source->mEdges[edge].mV1 == *point)
+                    if (source->mEdges[edge].mV0 == point || source->mEdges[edge].mV1 == point)
                     {
                         edgeRowsToRemove.insert(static_cast<int>(edge));
 
@@ -435,10 +435,10 @@ namespace CSVRender
                         break;
                     }
 
-                    if (source->mEdges[edge].mV0 > *point)
+                    if (source->mEdges[edge].mV0 > point)
                         --adjustment0;
 
-                    if (source->mEdges[edge].mV1 > *point)
+                    if (source->mEdges[edge].mV1 > point)
                         --adjustment1;
                 }
 
@@ -457,10 +457,9 @@ namespace CSVRender
                 }
             }
 
-            std::set<int, std::greater<int>>::iterator row;
-            for (row = edgeRowsToRemove.begin(); row != edgeRowsToRemove.end(); ++row)
+            for (const auto row : edgeRowsToRemove)
             {
-                commands.push(new CSMWorld::DeleteNestedCommand(*model, mId.getRefIdString(), *row, parentColumn));
+                commands.push(new CSMWorld::DeleteNestedCommand(*model, mId.getRefIdString(), row, parentColumn));
             }
         }
 

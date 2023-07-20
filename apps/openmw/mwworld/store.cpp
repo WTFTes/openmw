@@ -1,23 +1,26 @@
 #include "store.hpp"
 
-#include <components/debug/debuglog.hpp>
-
-#include <components/esm/records.hpp>
-#include <components/esm3/esmreader.hpp>
-#include <components/esm3/esmwriter.hpp>
-
-#include <components/loadinglistener/loadinglistener.hpp>
-#include <components/misc/rng.hpp>
-
 #include <iterator>
 #include <sstream>
 #include <stdexcept>
 
+#include <components/debug/debuglog.hpp>
+#include <components/esm/records.hpp>
+#include <components/esm3/esmreader.hpp>
+#include <components/esm3/esmwriter.hpp>
+#include <components/esm4/loadland.hpp>
+#include <components/esm4/loadwrld.hpp>
+#include <components/fallback/fallback.hpp>
+#include <components/loadinglistener/loadinglistener.hpp>
+#include <components/misc/rng.hpp>
+
+#include "../mwworld/cell.hpp"
+
 namespace
 {
     // TODO: Switch to C++23 to get a working version of std::unordered_map::erase
-    template <class T>
-    bool eraseFromMap(T& map, const ESM::RefId& value)
+    template <class T, class Id>
+    bool eraseFromMap(T& map, const Id& value)
     {
         auto it = map.find(value);
         if (it != map.end())
@@ -26,6 +29,22 @@ namespace
             return true;
         }
         return false;
+    }
+
+    std::string_view getGMSTString(const MWWorld::Store<ESM::GameSetting>& settings, std::string_view id)
+    {
+        const ESM::GameSetting* setting = settings.search(id);
+        if (setting && setting->mValue.getType() == ESM::VT_String)
+            return setting->mValue.getString();
+        return id;
+    }
+
+    float getGMSTFloat(const MWWorld::Store<ESM::GameSetting>& settings, std::string_view id)
+    {
+        const ESM::GameSetting* setting = settings.search(id);
+        if (setting && (setting->mValue.getType() == ESM::VT_Float || setting->mValue.getType() == ESM::VT_Int))
+            return setting->mValue.getFloat();
+        return {};
     }
 }
 
@@ -93,21 +112,20 @@ namespace MWWorld
 
     // Need to instantiate these before they're used
     template class IndexedStore<ESM::MagicEffect>;
-    template class IndexedStore<ESM::Skill>;
 
-    template <typename T>
-    TypedDynamicStore<T>::TypedDynamicStore()
+    template <class T, class Id>
+    TypedDynamicStore<T, Id>::TypedDynamicStore()
     {
     }
 
-    template <typename T>
-    TypedDynamicStore<T>::TypedDynamicStore(const TypedDynamicStore<T>& orig)
+    template <class T, class Id>
+    TypedDynamicStore<T, Id>::TypedDynamicStore(const TypedDynamicStore<T, Id>& orig)
         : mStatic(orig.mStatic)
     {
     }
 
-    template <typename T>
-    void TypedDynamicStore<T>::clearDynamic()
+    template <class T, class Id>
+    void TypedDynamicStore<T, Id>::clearDynamic()
     {
         // remove the dynamic part of mShared
         assert(mShared.size() >= mStatic.size());
@@ -115,8 +133,8 @@ namespace MWWorld
         mDynamic.clear();
     }
 
-    template <typename T>
-    const T* TypedDynamicStore<T>::search(const ESM::RefId& id) const
+    template <class T, class Id>
+    const T* TypedDynamicStore<T, Id>::search(const Id& id) const
     {
         typename Dynamic::const_iterator dit = mDynamic.find(id);
         if (dit != mDynamic.end())
@@ -128,8 +146,8 @@ namespace MWWorld
 
         return nullptr;
     }
-    template <typename T>
-    const T* TypedDynamicStore<T>::searchStatic(const ESM::RefId& id) const
+    template <class T, class Id>
+    const T* TypedDynamicStore<T, Id>::searchStatic(const Id& id) const
     {
         typename Static::const_iterator it = mStatic.find(id);
         if (it != mStatic.end())
@@ -138,77 +156,111 @@ namespace MWWorld
         return nullptr;
     }
 
-    template <typename T>
-    bool TypedDynamicStore<T>::isDynamic(const ESM::RefId& id) const
+    template <class T, class Id>
+    bool TypedDynamicStore<T, Id>::isDynamic(const Id& id) const
     {
         typename Dynamic::const_iterator dit = mDynamic.find(id);
         return (dit != mDynamic.end());
     }
-    template <typename T>
-    const T* TypedDynamicStore<T>::searchRandom(const std::string_view prefix, Misc::Rng::Generator& prng) const
+    template <class T, class Id>
+    const T* TypedDynamicStore<T, Id>::searchRandom(const std::string_view prefix, Misc::Rng::Generator& prng) const
     {
-        std::vector<const T*> results;
-        std::copy_if(mShared.begin(), mShared.end(), std::back_inserter(results),
-            [prefix](const T* item) { return Misc::StringUtils::ciStartsWith(item->mId.getRefIdString(), prefix); });
-        if (!results.empty())
-            return results[Misc::Rng::rollDice(results.size(), prng)];
-        return nullptr;
+        if constexpr (std::is_same_v<Id, ESM::RefId>)
+        {
+            if (prefix.empty())
+            {
+                if (!mShared.empty())
+                    return mShared[Misc::Rng::rollDice(mShared.size(), prng)];
+            }
+            else
+            {
+                std::vector<const T*> results;
+                std::copy_if(mShared.begin(), mShared.end(), std::back_inserter(results),
+                    [prefix](const T* item) { return item->mId.startsWith(prefix); });
+                if (!results.empty())
+                    return results[Misc::Rng::rollDice(results.size(), prng)];
+            }
+            return nullptr;
+        }
+        else
+            throw std::runtime_error("Store<T>::searchRandom is supported only if Id is ESM::RefId");
     }
-    template <typename T>
-    const T* TypedDynamicStore<T>::find(const ESM::RefId& id) const
+    template <class T, class Id>
+    const T* TypedDynamicStore<T, Id>::find(const Id& id) const
     {
         const T* ptr = search(id);
         if (ptr == nullptr)
         {
             std::stringstream msg;
-            msg << T::getRecordType() << " '" << id << "' not found";
+            if constexpr (!ESM::isESM4Rec(T::sRecordId))
+            {
+                msg << T::getRecordType();
+            }
+            else
+            {
+                msg << "ESM::REC_" << getRecNameString(T::sRecordId).toStringView();
+            }
+            msg << " '" << id << "' not found";
             throw std::runtime_error(msg.str());
         }
         return ptr;
     }
-    template <typename T>
-    RecordId TypedDynamicStore<T>::load(ESM::ESMReader& esm)
+    template <class T, class Id>
+    RecordId TypedDynamicStore<T, Id>::load(ESM::ESMReader& esm)
     {
-        T record;
-        bool isDeleted = false;
+        if constexpr (!ESM::isESM4Rec(T::sRecordId))
+        {
+            T record;
+            bool isDeleted = false;
+            record.load(esm, isDeleted);
 
-        record.load(esm, isDeleted);
+            std::pair<typename Static::iterator, bool> inserted = mStatic.insert_or_assign(record.mId, record);
+            if (inserted.second)
+                mShared.push_back(&inserted.first->second);
 
-        std::pair<typename Static::iterator, bool> inserted = mStatic.insert_or_assign(record.mId, record);
-        if (inserted.second)
-            mShared.push_back(&inserted.first->second);
-
-        return RecordId(record.mId, isDeleted);
+            if constexpr (std::is_same_v<Id, ESM::RefId>)
+                return RecordId(record.mId, isDeleted);
+            else
+                return RecordId();
+        }
+        else
+        {
+            std::stringstream msg;
+            msg << "Can not load record of type ESM::REC_" << getRecNameString(T::sRecordId).toStringView()
+                << ": ESM::ESMReader can load only ESM3 records.";
+            throw std::runtime_error(msg.str());
+        }
     }
-    template <typename T>
-    void TypedDynamicStore<T>::setUp()
+
+    template <class T, class Id>
+    void TypedDynamicStore<T, Id>::setUp()
     {
     }
 
-    template <typename T>
-    typename TypedDynamicStore<T>::iterator TypedDynamicStore<T>::begin() const
+    template <class T, class Id>
+    typename TypedDynamicStore<T, Id>::iterator TypedDynamicStore<T, Id>::begin() const
     {
         return mShared.begin();
     }
-    template <typename T>
-    typename TypedDynamicStore<T>::iterator TypedDynamicStore<T>::end() const
+    template <class T, class Id>
+    typename TypedDynamicStore<T, Id>::iterator TypedDynamicStore<T, Id>::end() const
     {
         return mShared.end();
     }
 
-    template <typename T>
-    size_t TypedDynamicStore<T>::getSize() const
+    template <class T, class Id>
+    size_t TypedDynamicStore<T, Id>::getSize() const
     {
         return mShared.size();
     }
 
-    template <typename T>
-    int TypedDynamicStore<T>::getDynamicSize() const
+    template <class T, class Id>
+    int TypedDynamicStore<T, Id>::getDynamicSize() const
     {
         return mDynamic.size();
     }
-    template <typename T>
-    void TypedDynamicStore<T>::listIdentifier(std::vector<ESM::RefId>& list) const
+    template <class T, class Id>
+    void TypedDynamicStore<T, Id>::listIdentifier(std::vector<Id>& list) const
     {
         list.reserve(list.size() + getSize());
         typename std::vector<T*>::const_iterator it = mShared.begin();
@@ -217,8 +269,8 @@ namespace MWWorld
             list.push_back((*it)->mId);
         }
     }
-    template <typename T>
-    T* TypedDynamicStore<T>::insert(const T& item, bool overrideOnly)
+    template <class T, class Id>
+    T* TypedDynamicStore<T, Id>::insert(const T& item, bool overrideOnly)
     {
         if (overrideOnly)
         {
@@ -232,8 +284,8 @@ namespace MWWorld
             mShared.push_back(ptr);
         return ptr;
     }
-    template <typename T>
-    T* TypedDynamicStore<T>::insertStatic(const T& item)
+    template <class T, class Id>
+    T* TypedDynamicStore<T, Id>::insertStatic(const T& item)
     {
         std::pair<typename Static::iterator, bool> result = mStatic.insert_or_assign(item.mId, item);
         T* ptr = &result.first->second;
@@ -241,8 +293,8 @@ namespace MWWorld
             mShared.push_back(ptr);
         return ptr;
     }
-    template <typename T>
-    bool TypedDynamicStore<T>::eraseStatic(const ESM::RefId& id)
+    template <class T, class Id>
+    bool TypedDynamicStore<T, Id>::eraseStatic(const Id& id)
     {
         typename Static::iterator it = mStatic.find(id);
 
@@ -267,8 +319,8 @@ namespace MWWorld
         return true;
     }
 
-    template <typename T>
-    bool TypedDynamicStore<T>::erase(const ESM::RefId& id)
+    template <class T, class Id>
+    bool TypedDynamicStore<T, Id>::erase(const Id& id)
     {
         if (!eraseFromMap(mDynamic, id))
             return false;
@@ -282,31 +334,39 @@ namespace MWWorld
         }
         return true;
     }
-    template <typename T>
-    bool TypedDynamicStore<T>::erase(const T& item)
+    template <class T, class Id>
+    bool TypedDynamicStore<T, Id>::erase(const T& item)
     {
         return erase(item.mId);
     }
-    template <typename T>
-    void TypedDynamicStore<T>::write(ESM::ESMWriter& writer, Loading::Listener& progress) const
+    template <class T, class Id>
+    void TypedDynamicStore<T, Id>::write(ESM::ESMWriter& writer, Loading::Listener& progress) const
     {
         for (typename Dynamic::const_iterator iter(mDynamic.begin()); iter != mDynamic.end(); ++iter)
         {
-            writer.startRecord(T::sRecordId);
-            iter->second.save(writer);
-            writer.endRecord(T::sRecordId);
+            if constexpr (!ESM::isESM4Rec(T::sRecordId))
+            {
+                writer.startRecord(T::sRecordId);
+                iter->second.save(writer);
+                writer.endRecord(T::sRecordId);
+            }
         }
     }
-    template <typename T>
-    RecordId TypedDynamicStore<T>::read(ESM::ESMReader& reader, bool overrideOnly)
+    template <class T, class Id>
+    RecordId TypedDynamicStore<T, Id>::read(ESM::ESMReader& reader, bool overrideOnly)
     {
         T record;
         bool isDeleted = false;
-
-        record.load(reader, isDeleted);
+        if constexpr (!ESM::isESM4Rec(T::sRecordId))
+        {
+            record.load(reader, isDeleted);
+        }
         insert(record, overrideOnly);
 
-        return RecordId(record.mId, isDeleted);
+        if constexpr (std::is_same_v<Id, ESM::RefId>)
+            return RecordId(record.mId, isDeleted);
+        else
+            return RecordId();
     }
 
     // LandTexture
@@ -435,13 +495,13 @@ namespace MWWorld
         else
             mStatic.insert(it, std::move(land));
 
-        return RecordId(ESM::RefId::sEmpty, isDeleted);
+        return RecordId(ESM::RefId(), isDeleted);
     }
     void Store<ESM::Land>::setUp()
     {
         // The land is static for given game session, there is no need to refresh it every load.
         if (mBuilt)
-            return;
+            throw std::logic_error("Store<ESM::Land>::setUp() is called twice");
 
         mBuilt = true;
     }
@@ -449,13 +509,17 @@ namespace MWWorld
     // Cell
     //=========================================================================
 
+    const ESM::Cell* Store<ESM::Cell>::search(const ESM::RefId& cellId) const
+    {
+        auto foundCellIt = mCells.find(cellId);
+        if (foundCellIt != mCells.end())
+            return &foundCellIt->second;
+        return nullptr;
+    }
+
     const ESM::Cell* Store<ESM::Cell>::search(const ESM::Cell& cell) const
     {
-        if (cell.isExterior())
-        {
-            return search(cell.getGridX(), cell.getGridY());
-        }
-        return search(cell.mName);
+        return search(cell.mId);
     }
 
     // this method *must* be called right after esm3.loadCell()
@@ -497,18 +561,18 @@ namespace MWWorld
 
         esm.restoreContext(ctx);
     }
-    const ESM::Cell* Store<ESM::Cell>::search(const ESM::RefId& id) const
+    const ESM::Cell* Store<ESM::Cell>::search(std::string_view name) const
     {
-        DynamicInt::const_iterator it = mInt.find(id);
+        DynamicInt::const_iterator it = mInt.find(name);
         if (it != mInt.end())
         {
-            return &(it->second);
+            return it->second;
         }
 
-        DynamicInt::const_iterator dit = mDynamicInt.find(id);
+        DynamicInt::const_iterator dit = mDynamicInt.find(name);
         if (dit != mDynamicInt.end())
         {
-            return &dit->second;
+            return dit->second;
         }
 
         return nullptr;
@@ -518,11 +582,11 @@ namespace MWWorld
         std::pair<int, int> key(x, y);
         DynamicExt::const_iterator it = mExt.find(key);
         if (it != mExt.end())
-            return &(it->second);
+            return it->second;
 
         DynamicExt::const_iterator dit = mDynamicExt.find(key);
         if (dit != mDynamicExt.end())
-            return &dit->second;
+            return dit->second;
 
         return nullptr;
     }
@@ -530,7 +594,7 @@ namespace MWWorld
     {
         DynamicExt::const_iterator it = mExt.find(std::make_pair(x, y));
         if (it != mExt.end())
-            return &(it->second);
+            return (it->second);
         return nullptr;
     }
     const ESM::Cell* Store<ESM::Cell>::searchOrCreate(int x, int y)
@@ -538,11 +602,11 @@ namespace MWWorld
         std::pair<int, int> key(x, y);
         DynamicExt::const_iterator it = mExt.find(key);
         if (it != mExt.end())
-            return &(it->second);
+            return (it->second);
 
         DynamicExt::const_iterator dit = mDynamicExt.find(key);
         if (dit != mDynamicExt.end())
-            return &dit->second;
+            return dit->second;
 
         ESM::Cell newCell;
         newCell.mData.mX = x;
@@ -552,18 +616,28 @@ namespace MWWorld
         newCell.mAmbi.mSunlight = 0;
         newCell.mAmbi.mFog = 0;
         newCell.mAmbi.mFogDensity = 0;
-        newCell.mCellId.mPaged = true;
-        newCell.mCellId.mIndex.mX = x;
-        newCell.mCellId.mIndex.mY = y;
+        newCell.updateId();
 
-        return &mExt.insert(std::make_pair(key, newCell)).first->second;
+        ESM::Cell* newCellInserted = &mCells.insert(std::make_pair(newCell.mId, newCell)).first->second;
+
+        return mExt.insert(std::make_pair(key, newCellInserted)).first->second;
     }
     const ESM::Cell* Store<ESM::Cell>::find(const ESM::RefId& id) const
     {
         const ESM::Cell* ptr = search(id);
         if (ptr == nullptr)
         {
-            const std::string msg = "Cell '" + id.getRefIdString() + "' not found";
+            const std::string msg = "Cell " + id.toDebugString() + " not found";
+            throw std::runtime_error(msg);
+        }
+        return ptr;
+    }
+    const ESM::Cell* Store<ESM::Cell>::find(std::string_view id) const
+    {
+        const ESM::Cell* ptr = search(id);
+        if (ptr == nullptr)
+        {
+            const std::string msg = "Cell '" + std::string(id) + "' not found";
             throw std::runtime_error(msg);
         }
         return ptr;
@@ -588,12 +662,12 @@ namespace MWWorld
         mSharedInt.clear();
         mSharedInt.reserve(mInt.size());
         for (auto& [_, cell] : mInt)
-            mSharedInt.push_back(&cell);
+            mSharedInt.push_back(cell);
 
         mSharedExt.clear();
         mSharedExt.reserve(mExt.size());
         for (auto& [_, cell] : mExt)
-            mSharedExt.push_back(&cell);
+            mSharedExt.push_back(cell);
     }
     RecordId Store<ESM::Cell>::load(ESM::ESMReader& esm)
     {
@@ -603,97 +677,76 @@ namespace MWWorld
         //  are not available until both cells have been loaded at least partially!
 
         // All cells have a name record, even nameless exterior cells.
-        ESM::Cell cell;
+        ESM::Cell* emplacedCell = nullptr;
         bool isDeleted = false;
+        bool newCell = false;
 
+        {
+            ESM::Cell cellToLoad;
+            cellToLoad.loadNameAndData(esm, isDeleted);
+            auto [it, inserted] = mCells.insert(std::make_pair(cellToLoad.mId, cellToLoad));
+            emplacedCell = &it->second;
+            if (!inserted)
+            {
+                emplacedCell->mData = cellToLoad.mData;
+                emplacedCell->mName = cellToLoad.mName;
+            }
+            newCell = inserted;
+        }
+        ESM::Cell& cell = *emplacedCell;
         // Load the (x,y) coordinates of the cell, if it is an exterior cell,
         // so we can find the cell we need to merge with
-        cell.loadNameAndData(esm, isDeleted);
-
         if (cell.mData.mFlags & ESM::Cell::Interior)
         {
-            // Store interior cell by name, try to merge with existing parent data.
-            ESM::Cell* oldcell = const_cast<ESM::Cell*>(search(cell.mName));
-            if (oldcell)
-            {
-                // merge new cell into old cell
-                // push the new references on the list of references to manage (saveContext = true)
-                oldcell->mData = cell.mData;
-                oldcell->mName
-                    = cell.mName; // merge name just to be sure (ID will be the same, but case could have been changed)
-                oldcell->loadCell(esm, true);
-            }
-            else
-            {
-                // spawn a new cell
-                cell.loadCell(esm, true);
-
-                mInt[cell.mName] = cell;
-            }
+            cell.loadCell(esm, true);
+            if (newCell)
+                mInt[cell.mName] = &cell;
         }
         else
         {
-            // Store exterior cells by grid position, try to merge with existing parent data.
-            ESM::Cell* oldcell = const_cast<ESM::Cell*>(search(cell.getGridX(), cell.getGridY()));
-            if (oldcell)
+            cell.loadCell(esm, false);
+            // handle moved ref (MVRF) subrecords
+            ESM::MovedCellRefTracker newMovedRefs;
+            std::swap(newMovedRefs, cell.mMovedRefs);
+            handleMovedCellRefs(esm, &cell);
+            std::swap(newMovedRefs, cell.mMovedRefs);
+            // push the new references on the list of references to manage
+            cell.postLoad(esm);
+            if (newCell)
+                mExt[std::make_pair(cell.mData.mX, cell.mData.mY)] = &cell;
+            else
             {
-                // merge new cell into old cell
-                oldcell->mData = cell.mData;
-                oldcell->mName = cell.mName;
-                oldcell->loadCell(esm, false);
-
-                // handle moved ref (MVRF) subrecords
-                handleMovedCellRefs(esm, &cell);
-
-                // push the new references on the list of references to manage
-                oldcell->postLoad(esm);
-
                 // merge lists of leased references, use newer data in case of conflict
-                for (ESM::MovedCellRefTracker::const_iterator it = cell.mMovedRefs.begin(); it != cell.mMovedRefs.end();
-                     ++it)
+                for (const auto& movedRef : newMovedRefs)
                 {
                     // remove reference from current leased ref tracker and add it to new cell
-                    ESM::MovedCellRefTracker::iterator itold
-                        = std::find(oldcell->mMovedRefs.begin(), oldcell->mMovedRefs.end(), it->mRefNum);
-                    if (itold != oldcell->mMovedRefs.end())
+                    auto itOld = std::find(cell.mMovedRefs.begin(), cell.mMovedRefs.end(), movedRef.mRefNum);
+                    if (itOld != cell.mMovedRefs.end())
                     {
-                        if (it->mTarget[0] != itold->mTarget[0] || it->mTarget[1] != itold->mTarget[1])
+                        if (movedRef.mTarget[0] != itOld->mTarget[0] || movedRef.mTarget[1] != itOld->mTarget[1])
                         {
-                            ESM::Cell* wipecell = const_cast<ESM::Cell*>(search(itold->mTarget[0], itold->mTarget[1]));
-                            ESM::CellRefTracker::iterator it_lease = std::find_if(wipecell->mLeasedRefs.begin(),
-                                wipecell->mLeasedRefs.end(), ESM::CellRefTrackerPredicate(it->mRefNum));
-                            if (it_lease != wipecell->mLeasedRefs.end())
-                                wipecell->mLeasedRefs.erase(it_lease);
+                            ESM::Cell* wipecell = const_cast<ESM::Cell*>(search(itOld->mTarget[0], itOld->mTarget[1]));
+                            auto itLease = std::find_if(wipecell->mLeasedRefs.begin(), wipecell->mLeasedRefs.end(),
+                                ESM::CellRefTrackerPredicate(movedRef.mRefNum));
+                            if (itLease != wipecell->mLeasedRefs.end())
+                                wipecell->mLeasedRefs.erase(itLease);
                             else
-                                Log(Debug::Error) << "Error: can't find " << it->mRefNum.mIndex << " "
-                                                  << it->mRefNum.mContentFile << " in leasedRefs";
+                                Log(Debug::Error) << "Error: can't find " << movedRef.mRefNum.mIndex << " "
+                                                  << movedRef.mRefNum.mContentFile << " in leasedRefs";
                         }
-                        *itold = *it;
+                        *itOld = movedRef;
                     }
                     else
-                        oldcell->mMovedRefs.push_back(*it);
+                        cell.mMovedRefs.push_back(movedRef);
                 }
 
                 // We don't need to merge mLeasedRefs of cell / oldcell. This list is filled when another cell moves a
                 // reference to this cell, so the list for the new cell should be empty. The list for oldcell,
                 // however, could have leased refs in it and so should be kept.
             }
-            else
-            {
-                // spawn a new cell
-                cell.loadCell(esm, false);
-
-                // handle moved ref (MVRF) subrecords
-                handleMovedCellRefs(esm, &cell);
-
-                // push the new references on the list of references to manage
-                cell.postLoad(esm);
-
-                mExt[std::make_pair(cell.mData.mX, cell.mData.mY)] = cell;
-            }
         }
 
-        return RecordId(cell.mName, isDeleted);
+        return RecordId(cell.mId, isDeleted);
     }
     Store<ESM::Cell>::iterator Store<ESM::Cell>::intBegin() const
     {
@@ -711,12 +764,12 @@ namespace MWWorld
     {
         return iterator(mSharedExt.end());
     }
-    const ESM::Cell* Store<ESM::Cell>::searchExtByName(const ESM::RefId& id) const
+    const ESM::Cell* Store<ESM::Cell>::searchExtByName(std::string_view name) const
     {
         const ESM::Cell* cell = nullptr;
         for (const ESM::Cell* sharedCell : mSharedExt)
         {
-            if (sharedCell->mName == id)
+            if (Misc::StringUtils::ciEqual(sharedCell->mName, name))
             {
                 if (cell == nullptr || (sharedCell->mData.mX > cell->mData.mX)
                     || (sharedCell->mData.mX == cell->mData.mX && sharedCell->mData.mY > cell->mData.mY))
@@ -761,7 +814,7 @@ namespace MWWorld
 
         for (const ESM::Cell* sharedCell : mSharedInt)
         {
-            list.push_back(sharedCell->mName);
+            list.push_back(ESM::RefId::stringRefId(sharedCell->mName));
         }
     }
     ESM::Cell* Store<ESM::Cell>::insert(const ESM::Cell& cell)
@@ -771,67 +824,23 @@ namespace MWWorld
             const std::string cellType = (cell.isExterior()) ? "exterior" : "interior";
             throw std::runtime_error("Failed to create " + cellType + " cell");
         }
+        ESM::Cell* insertedCell = &mCells.emplace(cell.mId, cell).first->second;
         if (cell.isExterior())
         {
             std::pair<int, int> key(cell.getGridX(), cell.getGridY());
 
             // duplicate insertions are avoided by search(ESM::Cell &)
-            DynamicExt::iterator result = mDynamicExt.emplace(key, cell).first;
-            mSharedExt.push_back(&result->second);
-            return &result->second;
+            DynamicExt::iterator result = mDynamicExt.emplace(key, insertedCell).first;
+            mSharedExt.push_back(result->second);
+            return result->second;
         }
         else
         {
             // duplicate insertions are avoided by search(ESM::Cell &)
-            DynamicInt::iterator result = mDynamicInt.emplace(cell.mName, cell).first;
-            mSharedInt.push_back(&result->second);
-            return &result->second;
+            DynamicInt::iterator result = mDynamicInt.emplace(cell.mName, insertedCell).first;
+            mSharedInt.push_back(result->second);
+            return result->second;
         }
-    }
-    bool Store<ESM::Cell>::erase(const ESM::Cell& cell)
-    {
-        if (cell.isExterior())
-        {
-            return erase(cell.getGridX(), cell.getGridY());
-        }
-        return erase(cell.mName);
-    }
-    bool Store<ESM::Cell>::erase(const ESM::RefId& id)
-    {
-        DynamicInt::iterator it = mDynamicInt.find(id);
-
-        if (it == mDynamicInt.end())
-        {
-            return false;
-        }
-        mDynamicInt.erase(it);
-        mSharedInt.erase(mSharedInt.begin() + mSharedInt.size(), mSharedInt.end());
-
-        for (it = mDynamicInt.begin(); it != mDynamicInt.end(); ++it)
-        {
-            mSharedInt.push_back(&it->second);
-        }
-
-        return true;
-    }
-    bool Store<ESM::Cell>::erase(int x, int y)
-    {
-        std::pair<int, int> key(x, y);
-        DynamicExt::iterator it = mDynamicExt.find(key);
-
-        if (it == mDynamicExt.end())
-        {
-            return false;
-        }
-        mDynamicExt.erase(it);
-        mSharedExt.erase(mSharedExt.begin() + mSharedExt.size(), mSharedExt.end());
-
-        for (it = mDynamicExt.begin(); it != mDynamicExt.end(); ++it)
-        {
-            mSharedExt.push_back(&it->second);
-        }
-
-        return true;
     }
 
     // Pathgrid
@@ -859,103 +868,123 @@ namespace MWWorld
         // also an exterior cell with the coordinates of (0,0), so that doesn't help. Check whether mCell is an interior
         // cell. This isn't perfect, will break if a Region with the same name as an interior cell is created. A proper
         // fix should be made for future versions of the file format.
-        bool interior = pathgrid.mData.mX == 0 && pathgrid.mData.mY == 0 && mCells->search(pathgrid.mCell) != nullptr;
+        bool interior = pathgrid.mData.mX == 0 && pathgrid.mData.mY == 0
+            && mCells->search(pathgrid.mCell.getRefIdString()) != nullptr;
 
+        ESM::RefId cell
+            = interior ? pathgrid.mCell : ESM::RefId::esm3ExteriorCell(pathgrid.mData.mX, pathgrid.mData.mY);
         // deal with mods that have empty pathgrid records (Issue #6209)
         // we assume that these records are empty on purpose (i.e. to remove old pathgrid on an updated cell)
         if (isDeleted || pathgrid.mPoints.empty() || pathgrid.mEdges.empty())
         {
-            if (interior)
-            {
-                Interior::iterator it = mInt.find(pathgrid.mCell);
-                if (it != mInt.end())
-                    mInt.erase(it);
-            }
-            else
-            {
-                Exterior::iterator it = mExt.find(std::make_pair(pathgrid.mData.mX, pathgrid.mData.mY));
-                if (it != mExt.end())
-                    mExt.erase(it);
-            }
+            mStatic.erase(cell);
 
-            return RecordId(ESM::RefId::sEmpty, isDeleted);
+            return RecordId(ESM::RefId(), isDeleted);
         }
 
         // Try to overwrite existing record
-        if (interior)
-        {
-            std::pair<Interior::iterator, bool> ret = mInt.insert(std::make_pair(pathgrid.mCell, pathgrid));
-            if (!ret.second)
-                ret.first->second = pathgrid;
-        }
-        else
-        {
-            std::pair<Exterior::iterator, bool> ret
-                = mExt.insert(std::make_pair(std::make_pair(pathgrid.mData.mX, pathgrid.mData.mY), pathgrid));
-            if (!ret.second)
-                ret.first->second = pathgrid;
-        }
+        auto ret = mStatic.emplace(cell, pathgrid);
+        if (!ret.second)
+            ret.first->second = pathgrid;
 
-        return RecordId(ESM::RefId::sEmpty, isDeleted);
+        return RecordId(ESM::RefId(), isDeleted);
     }
     size_t Store<ESM::Pathgrid>::getSize() const
     {
-        return mInt.size() + mExt.size();
+        return mStatic.size();
     }
     void Store<ESM::Pathgrid>::setUp() {}
-    const ESM::Pathgrid* Store<ESM::Pathgrid>::search(int x, int y) const
-    {
-        Exterior::const_iterator it = mExt.find(std::make_pair(x, y));
-        if (it != mExt.end())
-            return &(it->second);
-        return nullptr;
-    }
     const ESM::Pathgrid* Store<ESM::Pathgrid>::search(const ESM::RefId& name) const
     {
-        Interior::const_iterator it = mInt.find(name);
-        if (it != mInt.end())
+        auto it = mStatic.find(name);
+        if (it != mStatic.end())
             return &(it->second);
         return nullptr;
-    }
-    const ESM::Pathgrid* Store<ESM::Pathgrid>::find(int x, int y) const
-    {
-        const ESM::Pathgrid* pathgrid = search(x, y);
-        if (!pathgrid)
-        {
-            const std::string msg = "Pathgrid in cell '" + std::to_string(x) + " " + std::to_string(y) + "' not found";
-            throw std::runtime_error(msg);
-        }
-        return pathgrid;
     }
     const ESM::Pathgrid* Store<ESM::Pathgrid>::find(const ESM::RefId& name) const
     {
         const ESM::Pathgrid* pathgrid = search(name);
-        if (!pathgrid)
-        {
-            const std::string msg = "Pathgrid in cell '" + name.getRefIdString() + "' not found";
-            throw std::runtime_error(msg);
-        }
+        if (pathgrid == nullptr)
+            throw std::runtime_error("Pathgrid in cell " + name.toDebugString() + " is not found");
         return pathgrid;
     }
     const ESM::Pathgrid* Store<ESM::Pathgrid>::search(const ESM::Cell& cell) const
     {
-        if (!(cell.mData.mFlags & ESM::Cell::Interior))
-            return search(cell.mData.mX, cell.mData.mY);
-        else
-            return search(cell.mName);
+        return search(cell.mId);
+    }
+    const ESM::Pathgrid* Store<ESM::Pathgrid>::search(const MWWorld::Cell& cellVariant) const
+    {
+        return ESM::visit(ESM::VisitOverload{
+                              [&](const ESM::Cell& cell) { return search(cell); },
+                              [&](const ESM4::Cell& cell) -> const ESM::Pathgrid* { return nullptr; },
+                          },
+            cellVariant);
     }
     const ESM::Pathgrid* Store<ESM::Pathgrid>::find(const ESM::Cell& cell) const
     {
-        if (!(cell.mData.mFlags & ESM::Cell::Interior))
-            return find(cell.mData.mX, cell.mData.mY);
-        else
-            return find(cell.mName);
+        return find(cell.mId);
     }
 
     // Skill
     //=========================================================================
 
-    Store<ESM::Skill>::Store() {}
+    void Store<ESM::Skill>::setUp(const MWWorld::Store<ESM::GameSetting>& settings)
+    {
+        constexpr std::string_view skillValues[ESM::Skill::Length][4] = {
+            { "sSkillBlock", "icons\\k\\combat_block.dds", "fWerewolfBlock", {} },
+            { "sSkillArmorer", "icons\\k\\combat_armor.dds", "fWerewolfArmorer", {} },
+            { "sSkillMediumarmor", "icons\\k\\combat_mediumarmor.dds", "fWerewolfMediumarmor", {} },
+            { "sSkillHeavyarmor", "icons\\k\\combat_heavyarmor.dds", "fWerewolfHeavyarmor", {} },
+            { "sSkillBluntweapon", "icons\\k\\combat_blunt.dds", "fWerewolfBluntweapon", {} },
+            { "sSkillLongblade", "icons\\k\\combat_longblade.dds", "fWerewolfLongblade", {} },
+            { "sSkillAxe", "icons\\k\\combat_axe.dds", "fWerewolfAxe", {} },
+            { "sSkillSpear", "icons\\k\\combat_spear.dds", "fWerewolfSpear", {} },
+            { "sSkillAthletics", "icons\\k\\combat_athletics.dds", "fWerewolfAthletics", {} },
+            { "sSkillEnchant", "icons\\k\\magic_enchant.dds", "fWerewolfEnchant", {} },
+            { "sSkillDestruction", "icons\\k\\magic_destruction.dds", "fWerewolfDestruction", "destruction" },
+            { "sSkillAlteration", "icons\\k\\magic_alteration.dds", "fWerewolfAlteration", "alteration" },
+            { "sSkillIllusion", "icons\\k\\magic_illusion.dds", "fWerewolfIllusion", "illusion" },
+            { "sSkillConjuration", "icons\\k\\magic_conjuration.dds", "fWerewolfConjuration", "conjuration" },
+            { "sSkillMysticism", "icons\\k\\magic_mysticism.dds", "fWerewolfMysticism", "mysticism" },
+            { "sSkillRestoration", "icons\\k\\magic_restoration.dds", "fWerewolfRestoration", "restoration" },
+            { "sSkillAlchemy", "icons\\k\\magic_alchemy.dds", "fWerewolfAlchemy", {} },
+            { "sSkillUnarmored", "icons\\k\\magic_unarmored.dds", "fWerewolfUnarmored", {} },
+            { "sSkillSecurity", "icons\\k\\stealth_security.dds", "fWerewolfSecurity", {} },
+            { "sSkillSneak", "icons\\k\\stealth_sneak.dds", "fWerewolfSneak", {} },
+            { "sSkillAcrobatics", "icons\\k\\stealth_acrobatics.dds", "fWerewolfAcrobatics", {} },
+            { "sSkillLightarmor", "icons\\k\\stealth_lightarmor.dds", "fWerewolfLightarmor", {} },
+            { "sSkillShortblade", "icons\\k\\stealth_shortblade.dds", "fWerewolfShortblade", {} },
+            { "sSkillMarksman", "icons\\k\\stealth_marksman.dds", "fWerewolfMarksman", {} },
+            // "Mercantile"! >_<
+            { "sSkillMercantile", "icons\\k\\stealth_mercantile.dds", "fWerewolfMerchantile", {} },
+            { "sSkillSpeechcraft", "icons\\k\\stealth_speechcraft.dds", "fWerewolfSpeechcraft", {} },
+            { "sSkillHandtohand", "icons\\k\\stealth_handtohand.dds", "fWerewolfHandtohand", {} },
+        };
+        for (ESM::Skill* skill : mShared)
+        {
+            if (skill->mIndex >= 0)
+            {
+                skill->mName = getGMSTString(settings, skillValues[skill->mIndex][0]);
+                skill->mIcon = skillValues[skill->mIndex][1];
+                skill->mWerewolfValue = getGMSTFloat(settings, skillValues[skill->mIndex][2]);
+                const auto& school = skillValues[skill->mIndex][3];
+                if (!school.empty())
+                {
+                    if (!skill->mSchool)
+                        skill->mSchool = ESM::MagicSchool{};
+                    const std::string id{ school };
+                    skill->mSchool->mAreaSound = ESM::RefId::stringRefId(id + " area");
+                    skill->mSchool->mBoltSound = ESM::RefId::stringRefId(id + " bolt");
+                    skill->mSchool->mCastSound = ESM::RefId::stringRefId(id + " cast");
+                    skill->mSchool->mFailureSound = ESM::RefId::stringRefId("Spell Failure " + id);
+                    skill->mSchool->mHitSound = ESM::RefId::stringRefId(id + " hit");
+                    const std::string name = "sSchool" + id;
+                    skill->mSchool->mName = getGMSTString(settings, name);
+                    skill->mSchool->mAutoCalcMax = int(getGMSTFloat(settings, "iAutoSpell" + id + "Max"));
+                }
+            }
+        }
+    }
 
     // Game Settings
     //=========================================================================
@@ -973,6 +1002,26 @@ namespace MWWorld
     const ESM::GameSetting* Store<ESM::GameSetting>::search(std::string_view id) const
     {
         return TypedDynamicStore::search(ESM::RefId::stringRefId(id));
+    }
+
+    void Store<ESM::GameSetting>::setUp()
+    {
+        auto addSetting = [&](const std::string& key, ESM::Variant value) {
+            ESM::GameSetting setting;
+            setting.blank();
+            setting.mId = ESM::RefId::stringRefId(key);
+            setting.mValue = std::move(value);
+            auto [iter, inserted] = mStatic.insert_or_assign(setting.mId, std::move(setting));
+            if (inserted)
+                mShared.push_back(&iter->second);
+        };
+        for (auto& [key, value] : Fallback::Map::getIntFallbackMap())
+            addSetting(key, ESM::Variant(value));
+        for (auto& [key, value] : Fallback::Map::getFloatFallbackMap())
+            addSetting(key, ESM::Variant(value));
+        for (auto& [key, value] : Fallback::Map::getNonNumericFallbackMap())
+            addSetting(key, ESM::Variant(value));
+        TypedDynamicStore<ESM::GameSetting>::setUp();
     }
 
     // Magic effect
@@ -1005,16 +1054,51 @@ namespace MWWorld
         }
         return ptr;
     }
-    void Store<ESM::Attribute>::setUp()
+    void Store<ESM::Attribute>::setUp(const MWWorld::Store<ESM::GameSetting>& settings)
     {
-        for (int i = 0; i < ESM::Attribute::Length; ++i)
-        {
-            ESM::Attribute newAttribute;
-            newAttribute.mId = ESM::Attribute::sAttributeIds[i];
-            newAttribute.mName = ESM::Attribute::sGmstAttributeIds[i];
-            newAttribute.mDescription = ESM::Attribute::sGmstAttributeDescIds[i];
-            mStatic.push_back(newAttribute);
-        }
+        // TODO remove after !3084 gets merged
+        mStatic.clear();
+        mStatic.push_back({ .mId = ESM::Attribute::Strength,
+            .mName = std::string{ getGMSTString(settings, "sAttributeStrength") },
+            .mDescription = std::string{ getGMSTString(settings, "sStrDesc") },
+            .mIcon = "icons\\k\\attribute_strength.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfStrength") });
+        mStatic.push_back({ .mId = ESM::Attribute::Intelligence,
+            .mName = std::string{ getGMSTString(settings, "sAttributeIntelligence") },
+            .mDescription = std::string{ getGMSTString(settings, "sIntDesc") },
+            .mIcon = "icons\\k\\attribute_int.dds",
+            // Oh, Bethesda. It's "Intelligence".
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfIntellegence") });
+        mStatic.push_back({ .mId = ESM::Attribute::Willpower,
+            .mName = std::string{ getGMSTString(settings, "sAttributeWillpower") },
+            .mDescription = std::string{ getGMSTString(settings, "sWilDesc") },
+            .mIcon = "icons\\k\\attribute_wilpower.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfWillpower") });
+        mStatic.push_back({ .mId = ESM::Attribute::Agility,
+            .mName = std::string{ getGMSTString(settings, "sAttributeAgility") },
+            .mDescription = std::string{ getGMSTString(settings, "sAgiDesc") },
+            .mIcon = "icons\\k\\attribute_agility.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfAgility") });
+        mStatic.push_back({ .mId = ESM::Attribute::Speed,
+            .mName = std::string{ getGMSTString(settings, "sAttributeSpeed") },
+            .mDescription = std::string{ getGMSTString(settings, "sSpdDesc") },
+            .mIcon = "icons\\k\\attribute_speed.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfSpeed") });
+        mStatic.push_back({ .mId = ESM::Attribute::Endurance,
+            .mName = std::string{ getGMSTString(settings, "sAttributeEndurance") },
+            .mDescription = std::string{ getGMSTString(settings, "sEndDesc") },
+            .mIcon = "icons\\k\\attribute_endurance.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfEndurance") });
+        mStatic.push_back({ .mId = ESM::Attribute::Personality,
+            .mName = std::string{ getGMSTString(settings, "sAttributePersonality") },
+            .mDescription = std::string{ getGMSTString(settings, "sPerDesc") },
+            .mIcon = "icons\\k\\attribute_personality.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfPersonality") });
+        mStatic.push_back({ .mId = ESM::Attribute::Luck,
+            .mName = std::string{ getGMSTString(settings, "sAttributeLuck") },
+            .mDescription = std::string{ getGMSTString(settings, "sLucDesc") },
+            .mIcon = "icons\\k\\attribute_luck.dds",
+            .mWerewolfValue = getGMSTFloat(settings, "fWerewolfLuck") });
     }
     size_t Store<ESM::Attribute>::getSize() const
     {
@@ -1042,7 +1126,7 @@ namespace MWWorld
         // DialInfos marked as deleted are kept during the loading phase, so that the linked list
         // structure is kept intact for inserting further INFOs. Delete them now that loading is done.
         for (auto& [_, dial] : mStatic)
-            dial.clearDeletedInfos();
+            dial.setUp();
 
         mShared.clear();
         mShared.reserve(mStatic.size());
@@ -1132,7 +1216,7 @@ namespace MWWorld
             list.push_back(dialogue->mId);
     }
 
-    const MWDialogue::KeywordSearch<std::string, int>& Store<ESM::Dialogue>::getDialogIdKeywordSearch() const
+    const MWDialogue::KeywordSearch<int>& Store<ESM::Dialogue>::getDialogIdKeywordSearch() const
     {
         if (mKeywordSearchModFlag)
         {
@@ -1141,7 +1225,7 @@ namespace MWWorld
             std::vector<std::string> keywordList;
             keywordList.reserve(getSize());
             for (const auto& it : *this)
-                keywordList.push_back(Misc::StringUtils::lowerCase(it.mId.getRefIdString()));
+                keywordList.push_back(Misc::StringUtils::lowerCase(it.mStringId));
             sort(keywordList.begin(), keywordList.end());
 
             for (const auto& it : keywordList)
@@ -1151,6 +1235,121 @@ namespace MWWorld
         }
 
         return mKeywordSearch;
+    }
+
+    // ESM4 Cell
+    //=========================================================================
+
+    const ESM4::Cell* Store<ESM4::Cell>::searchCellName(std::string_view cellName) const
+    {
+        const auto foundCell = mCellNameIndex.find(cellName);
+        if (foundCell == mCellNameIndex.end())
+            return nullptr;
+        return foundCell->second;
+    }
+
+    const ESM4::Cell* Store<ESM4::Cell>::searchExterior(ESM::ExteriorCellLocation cellIndex) const
+    {
+        const auto foundCell = mExteriors.find(cellIndex);
+        if (foundCell == mExteriors.end())
+            return nullptr;
+        return foundCell->second;
+    }
+
+    ESM4::Cell* Store<ESM4::Cell>::insert(const ESM4::Cell& item, bool overrideOnly)
+    {
+        auto cellPtr = TypedDynamicStore<ESM4::Cell>::insert(item, overrideOnly);
+        insertCell(cellPtr);
+        return cellPtr;
+    }
+
+    ESM4::Cell* Store<ESM4::Cell>::insertStatic(const ESM4::Cell& item)
+    {
+        auto cellPtr = TypedDynamicStore<ESM4::Cell>::insertStatic(item);
+        insertCell(cellPtr);
+        return cellPtr;
+    }
+
+    void Store<ESM4::Cell>::insertCell(ESM4::Cell* cellPtr)
+    {
+        // Do not index exterior cells with Rec_Persistent flag because they are not real cells.
+        // References from these cells are merged into normal cells.
+        if (cellPtr->isExterior() && cellPtr->mFlags & ESM4::Rec_Persistent)
+            return;
+
+        if (!cellPtr->mEditorId.empty())
+            mCellNameIndex[cellPtr->mEditorId] = cellPtr;
+        if (cellPtr->isExterior())
+            mExteriors[ESM::ExteriorCellLocation(cellPtr->mX, cellPtr->mY, cellPtr->mParent)] = cellPtr;
+    }
+
+    void Store<ESM4::Cell>::clearDynamic()
+    {
+        for (auto& cellToDeleteIt : mDynamic)
+        {
+            ESM4::Cell& cellToDelete = cellToDeleteIt.second;
+            if (cellToDelete.isExterior())
+            {
+                mExteriors.erase({ cellToDelete.mX, cellToDelete.mY, cellToDelete.mParent });
+            }
+            if (!cellToDelete.mEditorId.empty())
+                mCellNameIndex.erase(cellToDelete.mEditorId);
+        }
+        MWWorld::TypedDynamicStore<ESM4::Cell>::clearDynamic();
+    }
+
+    // ESM4 Land
+    //=========================================================================
+    // Needed to avoid include of ESM4::Land in header
+    Store<ESM4::Land>::Store() {}
+
+    void Store<ESM4::Land>::updateLandPositions(const Store<ESM4::Cell>& cells)
+    {
+        for (const auto& [id, value] : mStatic)
+        {
+            const ESM4::Cell* cell = cells.find(value.mCell);
+            mLands[cell->getExteriorCellLocation()] = &value;
+        }
+        for (const auto& [id, value] : mDynamic)
+        {
+            const ESM4::Cell* cell = cells.find(value.mCell);
+            mLands[cell->getExteriorCellLocation()] = &value;
+        }
+    }
+
+    const ESM4::Land* MWWorld::Store<ESM4::Land>::search(ESM::ExteriorCellLocation cellLocation) const
+    {
+        auto foundLand = mLands.find(cellLocation);
+        if (foundLand == mLands.end())
+            return nullptr;
+        return foundLand->second;
+    }
+
+    // ESM4 Reference
+    //=========================================================================
+
+    void Store<ESM4::Reference>::preprocessReferences(const Store<ESM4::Cell>& cells)
+    {
+        for (auto& [_, ref] : mStatic)
+        {
+            const ESM4::Cell* cell = cells.find(ref.mParent);
+            if (cell->isExterior() && (cell->mFlags & ESM4::Rec_Persistent))
+            {
+                const ESM4::Cell* actualCell = cells.searchExterior(
+                    positionToExteriorCellLocation(ref.mPos.pos[0], ref.mPos.pos[1], cell->mParent));
+                if (actualCell)
+                    ref.mParent = actualCell->mId;
+            }
+            mPerCellReferences[ref.mParent].push_back(&ref);
+        }
+    }
+
+    std::span<const ESM4::Reference* const> Store<ESM4::Reference>::getByCell(ESM::RefId cellId) const
+    {
+        auto it = mPerCellReferences.find(cellId);
+        if (it == mPerCellReferences.end())
+            return {};
+        return it->second;
     }
 }
 
@@ -1189,10 +1388,30 @@ template class MWWorld::TypedDynamicStore<ESM::Race>;
 template class MWWorld::TypedDynamicStore<ESM::Region>;
 template class MWWorld::TypedDynamicStore<ESM::Repair>;
 template class MWWorld::TypedDynamicStore<ESM::Script>;
-// template class MWWorld::Store<ESM::Skill>;
+template class MWWorld::TypedDynamicStore<ESM::Skill>;
 template class MWWorld::TypedDynamicStore<ESM::Sound>;
 template class MWWorld::TypedDynamicStore<ESM::SoundGenerator>;
 template class MWWorld::TypedDynamicStore<ESM::Spell>;
 template class MWWorld::TypedDynamicStore<ESM::StartScript>;
 template class MWWorld::TypedDynamicStore<ESM::Static>;
 template class MWWorld::TypedDynamicStore<ESM::Weapon>;
+
+template class MWWorld::TypedDynamicStore<ESM4::Activator>;
+template class MWWorld::TypedDynamicStore<ESM4::Potion>;
+template class MWWorld::TypedDynamicStore<ESM4::Ammunition>;
+template class MWWorld::TypedDynamicStore<ESM4::Armor>;
+template class MWWorld::TypedDynamicStore<ESM4::Book>;
+template class MWWorld::TypedDynamicStore<ESM4::Clothing>;
+template class MWWorld::TypedDynamicStore<ESM4::Container>;
+template class MWWorld::TypedDynamicStore<ESM4::Door>;
+template class MWWorld::TypedDynamicStore<ESM4::Furniture>;
+template class MWWorld::TypedDynamicStore<ESM4::Ingredient>;
+template class MWWorld::TypedDynamicStore<ESM4::MiscItem>;
+template class MWWorld::TypedDynamicStore<ESM4::Static>;
+template class MWWorld::TypedDynamicStore<ESM4::Tree>;
+template class MWWorld::TypedDynamicStore<ESM4::Light>;
+template class MWWorld::TypedDynamicStore<ESM4::Reference, ESM::FormId>;
+template class MWWorld::TypedDynamicStore<ESM4::Cell>;
+template class MWWorld::TypedDynamicStore<ESM4::Weapon>;
+template class MWWorld::TypedDynamicStore<ESM4::World>;
+template class MWWorld::TypedDynamicStore<ESM4::Land>;

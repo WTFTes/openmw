@@ -29,8 +29,10 @@
 #include <components/misc/osguservalues.hpp>
 #include <components/misc/pathhelpers.hpp>
 #include <components/misc/strings/algorithm.hpp>
+#include <components/misc/strings/conversion.hpp>
 
 #include <components/vfs/manager.hpp>
+#include <components/vfs/pathutil.hpp>
 
 #include <components/sceneutil/clone.hpp>
 #include <components/sceneutil/controller.hpp>
@@ -308,8 +310,8 @@ namespace Resource
                         if (descriptionParts.at(0) == "alphatest")
                         {
                             osg::AlphaFunc::ComparisonFunction mode = getTestMode(descriptionParts.at(1));
-                            osg::ref_ptr<osg::AlphaFunc> alphaFunc(
-                                new osg::AlphaFunc(mode, std::stod(descriptionParts.at(2))));
+                            osg::ref_ptr<osg::AlphaFunc> alphaFunc(new osg::AlphaFunc(
+                                mode, Misc::StringUtils::toNumeric<float>(descriptionParts.at(2), 0.0f)));
                             node.getStateSet()->setAttributeAndModes(alphaFunc, osg::StateAttribute::ON);
                         }
                     }
@@ -506,7 +508,7 @@ namespace Resource
 
     bool SceneManager::checkLoaded(const std::string& name, double timeStamp)
     {
-        return mCache->checkInObjectCache(mVFS->normalizeFilename(name), timeStamp);
+        return mCache->checkInObjectCache(VFS::Path::normalizeFilename(name), timeStamp);
     }
 
     /// @brief Callback to read image files from the VFS.
@@ -636,6 +638,9 @@ namespace Resource
 
                             backToOriginTrans->addChild(newRiggeometryHolder);
                             group->addChild(backToOriginTrans);
+
+                            node->getOrCreateUserDataContainer()->addUserObject(
+                                new TemplateRef(newRiggeometryHolder->getGeometry(0)));
                         }
                     }
                 }
@@ -779,7 +784,7 @@ namespace Resource
 
             // NPC skeleton files can not be optimized because of keyframes added in post
             // (most of them are usually named like 'xbase_anim.nif' anyway, but not all of them :( )
-            if (basename.compare(0, 9, "base_anim") == 0 || basename.compare(0, 4, "skin") == 0)
+            if (basename.starts_with("base_anim") || basename.starts_with("skin"))
                 return false;
         }
 
@@ -828,9 +833,37 @@ namespace Resource
         mSharedStateMutex.unlock();
     }
 
+    osg::ref_ptr<osg::Node> SceneManager::loadErrorMarker()
+    {
+        try
+        {
+            for (const auto meshType : { "nif", "osg", "osgt", "osgb", "osgx", "osg2", "dae" })
+            {
+                const std::string normalized = "meshes/marker_error." + std::string(meshType);
+                if (mVFS->exists(normalized))
+                    return load(normalized, mVFS, mImageManager, mNifFileManager);
+            }
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to load error marker:" << e.what()
+                                << ", using embedded marker_error instead";
+        }
+        Files::IMemStream file(ErrorMarker::sValue.data(), ErrorMarker::sValue.size());
+        return loadNonNif("error_marker.osgt", file, mImageManager);
+    }
+
+    osg::ref_ptr<osg::Node> SceneManager::cloneErrorMarker()
+    {
+        if (!mErrorMarker)
+            mErrorMarker = loadErrorMarker();
+
+        return static_cast<osg::Node*>(mErrorMarker->clone(osg::CopyOp::DEEP_COPY_ALL));
+    }
+
     osg::ref_ptr<const osg::Node> SceneManager::getTemplate(const std::string& name, bool compile)
     {
-        std::string normalized = mVFS->normalizeFilename(name);
+        std::string normalized = VFS::Path::normalizeFilename(name);
 
         osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(normalized);
         if (obj)
@@ -847,21 +880,8 @@ namespace Resource
             }
             catch (const std::exception& e)
             {
-                static osg::ref_ptr<osg::Node> errorMarkerNode = [&] {
-                    static const char* const sMeshTypes[] = { "nif", "osg", "osgt", "osgb", "osgx", "osg2", "dae" };
-
-                    for (unsigned int i = 0; i < sizeof(sMeshTypes) / sizeof(sMeshTypes[0]); ++i)
-                    {
-                        normalized = "meshes/marker_error." + std::string(sMeshTypes[i]);
-                        if (mVFS->exists(normalized))
-                            return load(normalized, mVFS, mImageManager, mNifFileManager);
-                    }
-                    Files::IMemStream file(ErrorMarker::sValue.data(), ErrorMarker::sValue.size());
-                    return loadNonNif("error_marker.osgt", file, mImageManager);
-                }();
-
                 Log(Debug::Error) << "Failed to load '" << name << "': " << e.what() << ", using marker_error instead";
-                loaded = static_cast<osg::Node*>(errorMarkerNode->clone(osg::CopyOp::DEEP_COPY_ALL));
+                loaded = cloneErrorMarker();
             }
 
             // set filtering settings

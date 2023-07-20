@@ -4,6 +4,9 @@
 #include <iostream>
 #include <sstream>
 
+#include <components/esm3/cellstate.hpp>
+#include <components/esm3/esmreader.hpp>
+#include <components/misc/strings/conversion.hpp>
 #include <components/misc/strings/format.hpp>
 
 namespace
@@ -66,9 +69,7 @@ namespace
 
         std::string type_str = "INVALID";
         std::string func_str = Misc::StringUtils::format("INVALID=%s", rule.substr(1, 3));
-        int func;
-        std::istringstream iss(rule.substr(2, 2));
-        iss >> func;
+        int func = Misc::StringUtils::toNumeric<int>(rule.substr(2, 2), 0);
 
         switch (type)
         {
@@ -213,11 +214,19 @@ namespace
                 std::cout << "  Destination Cell: " << dest.mCellName << std::endl;
         }
     }
-
 }
 
 namespace EsmTool
 {
+    void CellState::load(ESM::ESMReader& reader, bool& deleted)
+    {
+        mCellState.mId = reader.getCellId();
+        mCellState.load(reader);
+        if (mCellState.mHasFogOfWar)
+            mFogState.load(reader);
+        deleted = false;
+        reader.skipRecord();
+    }
 
     std::unique_ptr<RecordBase> RecordBase::create(const ESM::NAME type)
     {
@@ -435,6 +444,11 @@ namespace EsmTool
                 record = std::make_unique<EsmTool::Record<ESM::StartScript>>();
                 break;
             }
+            case ESM::REC_CSTA:
+            {
+                record = std::make_unique<EsmTool::Record<CellState>>();
+                break;
+            }
             default:
                 break;
         }
@@ -608,18 +622,15 @@ namespace EsmTool
         std::cout << "  Description: " << mData.mDescription << std::endl;
         std::cout << "  Playable: " << mData.mData.mIsPlayable << std::endl;
         std::cout << "  AI Services: " << Misc::StringUtils::format("0x%08X", mData.mData.mServices) << std::endl;
-        std::cout << "  Attribute1: " << attributeLabel(mData.mData.mAttribute[0]) << " (" << mData.mData.mAttribute[0]
-                  << ")" << std::endl;
-        std::cout << "  Attribute2: " << attributeLabel(mData.mData.mAttribute[1]) << " (" << mData.mData.mAttribute[1]
-                  << ")" << std::endl;
+        for (size_t i = 0; i < mData.mData.mAttribute.size(); ++i)
+            std::cout << "  Attribute" << (i + 1) << ": " << attributeLabel(mData.mData.mAttribute[i]) << " ("
+                      << mData.mData.mAttribute[i] << ")" << std::endl;
         std::cout << "  Specialization: " << specializationLabel(mData.mData.mSpecialization) << " ("
                   << mData.mData.mSpecialization << ")" << std::endl;
-        for (int i = 0; i != 5; i++)
-            std::cout << "  Minor Skill: " << skillLabel(mData.mData.mSkills[i][0]) << " (" << mData.mData.mSkills[i][0]
-                      << ")" << std::endl;
-        for (int i = 0; i != 5; i++)
-            std::cout << "  Major Skill: " << skillLabel(mData.mData.mSkills[i][1]) << " (" << mData.mData.mSkills[i][1]
-                      << ")" << std::endl;
+        for (const auto& skills : mData.mData.mSkills)
+            std::cout << "  Minor Skill: " << skillLabel(skills[0]) << " (" << skills[0] << ")" << std::endl;
+        for (const auto& skills : mData.mData.mSkills)
+            std::cout << "  Major Skill: " << skillLabel(skills[1]) << " (" << skills[1] << ")" << std::endl;
         std::cout << "  Deleted: " << mIsDeleted << std::endl;
     }
 
@@ -727,6 +738,7 @@ namespace EsmTool
     template <>
     void Record<ESM::Dialogue>::print()
     {
+        std::cout << "  StringId: " << mData.mStringId << std::endl;
         std::cout << "  Type: " << dialogTypeLabel(mData.mType) << " (" << (int)mData.mType << ")" << std::endl;
         std::cout << "  Deleted: " << mIsDeleted << std::endl;
         // Sadly, there are no DialInfos, because the loader dumps as it
@@ -763,14 +775,13 @@ namespace EsmTool
     {
         std::cout << "  Name: " << mData.mName << std::endl;
         std::cout << "  Hidden: " << mData.mData.mIsHidden << std::endl;
-        std::cout << "  Attribute1: " << attributeLabel(mData.mData.mAttribute[0]) << " (" << mData.mData.mAttribute[0]
-                  << ")" << std::endl;
-        std::cout << "  Attribute2: " << attributeLabel(mData.mData.mAttribute[1]) << " (" << mData.mData.mAttribute[1]
-                  << ")" << std::endl;
+        for (size_t i = 0; i < mData.mData.mAttribute.size(); ++i)
+            std::cout << "  Attribute" << (i + 1) << ": " << attributeLabel(mData.mData.mAttribute[i]) << " ("
+                      << mData.mData.mAttribute[i] << ")" << std::endl;
         for (int skill : mData.mData.mSkills)
             if (skill != -1)
                 std::cout << "  Skill: " << skillLabel(skill) << " (" << skill << ")" << std::endl;
-        for (int i = 0; i != 10; i++)
+        for (size_t i = 0; i != mData.mData.mRankData.size(); i++)
             if (!mData.mRanks[i].empty())
             {
                 std::cout << "  Rank: " << mData.mRanks[i] << std::endl;
@@ -828,7 +839,7 @@ namespace EsmTool
         if (mData.mData.mDisposition > 0)
             std::cout << "  Disposition/Journal index: " << mData.mData.mDisposition << std::endl;
         if (mData.mData.mGender != ESM::DialInfo::NA)
-            std::cout << "  Gender: " << mData.mData.mGender << std::endl;
+            std::cout << "  Gender: " << static_cast<int>(mData.mData.mGender) << std::endl;
         if (!mData.mSound.empty())
             std::cout << "  Sound File: " << mData.mSound << std::endl;
 
@@ -894,7 +905,7 @@ namespace EsmTool
             std::cout << "  Height Offset: " << data->mHeightOffset << std::endl;
             // Lots of missing members.
             std::cout << "  Unknown1: " << data->mUnk1 << std::endl;
-            std::cout << "  Unknown2: " << data->mUnk2 << std::endl;
+            std::cout << "  Unknown2: " << static_cast<unsigned>(data->mUnk2) << std::endl;
         }
         mData.unloadData();
         std::cout << "  Deleted: " << mIsDeleted << std::endl;
@@ -1021,8 +1032,8 @@ namespace EsmTool
             std::cout << "  Area Static: " << mData.mArea << std::endl;
         if (!mData.mAreaSound.empty())
             std::cout << "  Area Sound: " << mData.mAreaSound << std::endl;
-        std::cout << "  School: " << schoolLabel(mData.mData.mSchool) << " (" << mData.mData.mSchool << ")"
-                  << std::endl;
+        std::cout << "  School: " << schoolLabel(ESM::MagicSchool::skillRefIdToIndex(mData.mData.mSchool)) << " ("
+                  << mData.mData.mSchool << ")" << std::endl;
         std::cout << "  Base Cost: " << mData.mData.mBaseCost << std::endl;
         std::cout << "  Unknown 1: " << mData.mData.mUnknown1 << std::endl;
         std::cout << "  Speed: " << mData.mData.mSpeed << std::endl;
@@ -1089,8 +1100,8 @@ namespace EsmTool
             std::cout << "    Luck: " << (int)mData.mNpdt.mLuck << std::endl;
 
             std::cout << "  Skills:" << std::endl;
-            for (int i = 0; i != ESM::Skill::Length; i++)
-                std::cout << "    " << skillLabel(i) << ": " << (int)(mData.mNpdt.mSkills[i]) << std::endl;
+            for (size_t i = 0; i != mData.mNpdt.mSkills.size(); i++)
+                std::cout << "    " << skillLabel(i) << ": " << int(mData.mNpdt.mSkills[i]) << std::endl;
 
             std::cout << "  Health: " << mData.mNpdt.mHealth << std::endl;
             std::cout << "  Magicka: " << mData.mNpdt.mMana << std::endl;
@@ -1129,7 +1140,7 @@ namespace EsmTool
         std::cout << "  Cell: " << mData.mCell << std::endl;
         std::cout << "  Coordinates: (" << mData.mData.mX << "," << mData.mData.mY << ")" << std::endl;
         std::cout << "  Unknown S1: " << mData.mData.mS1 << std::endl;
-        if ((unsigned int)mData.mData.mS2 != mData.mPoints.size())
+        if (static_cast<size_t>(mData.mData.mS2) != mData.mPoints.size())
             std::cout << "  Reported Point Count: " << mData.mData.mS2 << std::endl;
         std::cout << "  Point Count: " << mData.mPoints.size() << std::endl;
         std::cout << "  Edge Count: " << mData.mEdges.size() << std::endl;
@@ -1149,7 +1160,7 @@ namespace EsmTool
         for (const ESM::Pathgrid::Edge& edge : mData.mEdges)
         {
             std::cout << "  Edge[" << i << "]: " << edge.mV0 << " -> " << edge.mV1 << std::endl;
-            if (edge.mV0 >= mData.mData.mS2 || edge.mV1 >= mData.mData.mS2)
+            if (edge.mV0 >= static_cast<size_t>(mData.mData.mS2) || edge.mV1 >= static_cast<size_t>(mData.mData.mS2))
                 std::cout << "  BAD POINT IN EDGE!" << std::endl;
             i++;
         }
@@ -1160,7 +1171,7 @@ namespace EsmTool
     template <>
     void Record<ESM::Race>::print()
     {
-        static const char* sAttributeNames[8]
+        static const char* sAttributeNames[ESM::Attribute::Length]
             = { "Strength", "Intelligence", "Willpower", "Agility", "Speed", "Endurance", "Personality", "Luck" };
 
         std::cout << "  Name: " << mData.mName << std::endl;
@@ -1173,7 +1184,7 @@ namespace EsmTool
 
             std::cout << (male ? "  Male:" : "  Female:") << std::endl;
 
-            for (int j = 0; j < 8; ++j)
+            for (int j = 0; j < ESM::Attribute::Length; ++j)
                 std::cout << "    " << sAttributeNames[j] << ": " << mData.mData.mAttributeValues[j].getValue(male)
                           << std::endl;
 
@@ -1181,11 +1192,11 @@ namespace EsmTool
             std::cout << "    Weight: " << mData.mData.mWeight.getValue(male) << std::endl;
         }
 
-        for (int i = 0; i != 7; i++)
+        for (const auto& bonus : mData.mData.mBonus)
             // Not all races have 7 skills.
-            if (mData.mData.mBonus[i].mSkill != -1)
-                std::cout << "  Skill: " << skillLabel(mData.mData.mBonus[i].mSkill) << " ("
-                          << mData.mData.mBonus[i].mSkill << ") = " << mData.mData.mBonus[i].mBonus << std::endl;
+            if (bonus.mSkill != -1)
+                std::cout << "  Skill: " << skillLabel(bonus.mSkill) << " (" << bonus.mSkill << ") = " << bonus.mBonus
+                          << std::endl;
 
         for (const auto& power : mData.mPowers.mList)
             std::cout << "  Power: " << power << std::endl;
@@ -1340,9 +1351,38 @@ namespace EsmTool
     }
 
     template <>
+    void Record<CellState>::print()
+    {
+        std::cout << "  Id:" << std::endl;
+        std::cout << "    CellId: " << mData.mCellState.mId << std::endl;
+        std::cout << "    Index:" << std::endl;
+        std::cout << "  WaterLevel: " << mData.mCellState.mWaterLevel << std::endl;
+        std::cout << "  HasFogOfWar: " << mData.mCellState.mHasFogOfWar << std::endl;
+        std::cout << "  LastRespawn:" << std::endl;
+        std::cout << "    Day:" << mData.mCellState.mLastRespawn.mDay << std::endl;
+        std::cout << "    Hour:" << mData.mCellState.mLastRespawn.mHour << std::endl;
+        if (mData.mCellState.mHasFogOfWar)
+        {
+            std::cout << "  NorthMarkerAngle: " << mData.mFogState.mNorthMarkerAngle << std::endl;
+            std::cout << "  Bounds:" << std::endl;
+            std::cout << "    MinX: " << mData.mFogState.mBounds.mMinX << std::endl;
+            std::cout << "    MinY: " << mData.mFogState.mBounds.mMinY << std::endl;
+            std::cout << "    MaxX: " << mData.mFogState.mBounds.mMaxX << std::endl;
+            std::cout << "    MaxY: " << mData.mFogState.mBounds.mMaxY << std::endl;
+            for (const ESM::FogTexture& fogTexture : mData.mFogState.mFogTextures)
+            {
+                std::cout << "  FogTexture:" << std::endl;
+                std::cout << "    X: " << fogTexture.mX << std::endl;
+                std::cout << "    Y: " << fogTexture.mY << std::endl;
+                std::cout << "    ImageData: (" << fogTexture.mImageData.size() << ")" << std::endl;
+            }
+        }
+    }
+
+    template <>
     std::string Record<ESM::Cell>::getId() const
     {
-        return mData.mName.getRefIdString();
+        return mData.mName;
     }
 
     template <>
@@ -1367,6 +1407,14 @@ namespace EsmTool
     std::string Record<ESM::Skill>::getId() const
     {
         return std::string(); // No ID for Skill record
+    }
+
+    template <>
+    std::string Record<CellState>::getId() const
+    {
+        std::ostringstream stream;
+        stream << mData.mCellState.mId;
+        return stream.str();
     }
 
 } // end namespace

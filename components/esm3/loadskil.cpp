@@ -1,9 +1,9 @@
 #include "loadskil.hpp"
 
-#include <sstream>
-
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
+
+#include <components/misc/strings/algorithm.hpp>
 
 namespace ESM
 {
@@ -36,68 +36,15 @@ namespace ESM
         "Speechcraft",
         "Handtohand",
     };
-    const std::string Skill::sSkillNameIds[Length] = {
-        "sSkillBlock",
-        "sSkillArmorer",
-        "sSkillMediumarmor",
-        "sSkillHeavyarmor",
-        "sSkillBluntweapon",
-        "sSkillLongblade",
-        "sSkillAxe",
-        "sSkillSpear",
-        "sSkillAthletics",
-        "sSkillEnchant",
-        "sSkillDestruction",
-        "sSkillAlteration",
-        "sSkillIllusion",
-        "sSkillConjuration",
-        "sSkillMysticism",
-        "sSkillRestoration",
-        "sSkillAlchemy",
-        "sSkillUnarmored",
-        "sSkillSecurity",
-        "sSkillSneak",
-        "sSkillAcrobatics",
-        "sSkillLightarmor",
-        "sSkillShortblade",
-        "sSkillMarksman",
-        "sSkillMercantile",
-        "sSkillSpeechcraft",
-        "sSkillHandtohand",
-    };
-    const std::string Skill::sIconNames[Length] = {
-        "combat_block.dds",
-        "combat_armor.dds",
-        "combat_mediumarmor.dds",
-        "combat_heavyarmor.dds",
-        "combat_blunt.dds",
-        "combat_longblade.dds",
-        "combat_axe.dds",
-        "combat_spear.dds",
-        "combat_athletics.dds",
-        "magic_enchant.dds",
-        "magic_destruction.dds",
-        "magic_alteration.dds",
-        "magic_illusion.dds",
-        "magic_conjuration.dds",
-        "magic_mysticism.dds",
-        "magic_restoration.dds",
-        "magic_alchemy.dds",
-        "magic_unarmored.dds",
-        "stealth_security.dds",
-        "stealth_sneak.dds",
-        "stealth_acrobatics.dds",
-        "stealth_lightarmor.dds",
-        "stealth_shortblade.dds",
-        "stealth_marksman.dds",
-        "stealth_mercantile.dds",
-        "stealth_speechcraft.dds",
-        "stealth_handtohand.dds",
-    };
-    const std::array<Skill::SkillEnum, Skill::Length> Skill::sSkillIds
-        = { { Block, Armorer, MediumArmor, HeavyArmor, BluntWeapon, LongBlade, Axe, Spear, Athletics, Enchant,
-            Destruction, Alteration, Illusion, Conjuration, Mysticism, Restoration, Alchemy, Unarmored, Security, Sneak,
-            Acrobatics, LightArmor, ShortBlade, Marksman, Mercantile, Speechcraft, HandToHand } };
+
+    int Skill::stringToSkillId(std::string_view skill)
+    {
+        for (int id = 0; id < Skill::Length; ++id)
+            if (Misc::StringUtils::ciEqual(sSkillNames[id], skill))
+                return id;
+
+        throw std::logic_error("No such skill: " + std::string(skill));
+    }
 
     void Skill::load(ESMReader& esm, bool& isDeleted)
     {
@@ -128,12 +75,14 @@ namespace ESM
         }
         if (!hasIndex)
             esm.fail("Missing INDX");
+        else if (mIndex < 0 || mIndex >= Length)
+            esm.fail("Invalid INDX");
         if (!hasData)
             esm.fail("Missing SKDT");
 
         // create an ID from the index and the name (only used in the editor and likely to change in the
         // future)
-        mId = ESM::RefId::stringRefId(indexToId(mIndex));
+        mId = indexToRefId(mIndex);
     }
 
     void Skill::save(ESMWriter& esm, bool /*isDeleted*/) const
@@ -152,23 +101,36 @@ namespace ESM
         mDescription.clear();
     }
 
-    std::string Skill::indexToId(int index)
+    RefId Skill::indexToRefId(int index)
     {
-        std::ostringstream stream;
+        if (index < 0 || index >= Length)
+            return RefId();
+        return RefId::index(sRecordId, static_cast<std::uint32_t>(index));
+    }
 
-        if (index != -1)
+    const std::array<RefId, MagicSchool::Length> sMagicSchools = {
+        Skill::Alteration,
+        Skill::Conjuration,
+        Skill::Destruction,
+        Skill::Illusion,
+        Skill::Mysticism,
+        Skill::Restoration,
+    };
+
+    RefId MagicSchool::indexToSkillRefId(int index)
+    {
+        if (index < 0 || index >= Length)
+            return {};
+        return sMagicSchools[index];
+    }
+
+    int MagicSchool::skillRefIdToIndex(RefId id)
+    {
+        for (size_t i = 0; i < sMagicSchools.size(); ++i)
         {
-            stream << "#";
-
-            if (index < 10)
-                stream << "0";
-
-            stream << index;
-
-            if (index >= 0 && index < Length)
-                stream << sSkillNameIds[index].substr(6);
+            if (id == sMagicSchools[i])
+                return static_cast<int>(i);
         }
-
-        return stream.str();
+        return -1;
     }
 }

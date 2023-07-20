@@ -94,6 +94,8 @@ namespace Misc::StringUtils
 
     struct CiComp
     {
+        using is_transparent = void;
+
         bool operator()(std::string_view left, std::string_view right) const { return ciLess(left, right); }
     };
 
@@ -173,6 +175,16 @@ namespace Misc::StringUtils
         if (pos == std::string::npos)
             return;
         str.replace(pos, substr.size(), with);
+    }
+
+    inline std::string_view::size_type ciFind(std::string_view str, std::string_view substr)
+    {
+        if (str.size() < substr.size())
+            return std::string_view::npos;
+        for (std::string_view::size_type i = 0, n = str.size() - substr.size() + 1; i < n; ++i)
+            if (ciEqual(str.substr(i, substr.size()), substr))
+                return i;
+        return std::string_view::npos;
     }
 }
 

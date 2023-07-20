@@ -9,7 +9,6 @@
 #include "spells.hpp"
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/esmstore.hpp"
 
@@ -18,16 +17,16 @@ namespace
     template <class T>
     const std::vector<ESM::RefId> getSpellList(const ESM::RefId& id)
     {
-        return MWBase::Environment::get().getWorld()->getStore().get<T>().find(id)->mSpells.mList;
+        return MWBase::Environment::get().getESMStore()->get<T>().find(id)->mSpells.mList;
     }
 
     template <class T>
     bool withBaseRecord(const ESM::RefId& id, const std::function<bool(std::vector<ESM::RefId>&)>& function)
     {
-        T copy = *MWBase::Environment::get().getWorld()->getStore().get<T>().find(id);
+        T copy = *MWBase::Environment::get().getESMStore()->get<T>().find(id);
         bool changed = function(copy.mSpells.mList);
         if (changed)
-            MWBase::Environment::get().getWorld()->createOverrideRecord(copy);
+            MWBase::Environment::get().getESMStore()->overrideRecord(copy);
         return changed;
     }
 }
@@ -49,7 +48,7 @@ namespace MWMechanics
             case ESM::REC_NPC_:
                 return ::withBaseRecord<ESM::NPC>(mId, function);
             default:
-                throw std::logic_error("failed to update base record for " + mId.getRefIdString());
+                throw std::logic_error("failed to update base record for " + mId.toDebugString());
         }
     }
 
@@ -62,13 +61,13 @@ namespace MWMechanics
             case ESM::REC_NPC_:
                 return getSpellList<ESM::NPC>(mId);
             default:
-                throw std::logic_error("failed to get spell list for " + mId.getRefIdString());
+                throw std::logic_error("failed to get spell list for " + mId.toDebugString());
         }
     }
 
     const ESM::Spell* SpellList::getSpell(const ESM::RefId& id)
     {
-        return MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().find(id);
+        return MWBase::Environment::get().getESMStore()->get<ESM::Spell>().find(id);
     }
 
     void SpellList::add(const ESM::Spell* spell)

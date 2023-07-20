@@ -2,7 +2,6 @@
 #define OPENMW_COMPONENTS_DETOURNAVIGATOR_MAKENAVMESH_H
 
 #include "recastmesh.hpp"
-#include "sharednavmesh.hpp"
 #include "tileposition.hpp"
 
 #include <memory>
@@ -43,13 +42,16 @@ namespace DetourNavigator
     }
 
     std::unique_ptr<PreparedNavMeshData> prepareNavMeshTileData(const RecastMesh& recastMesh,
-        const TilePosition& tilePosition, const AgentBounds& agentBounds, const RecastSettings& settings);
+        std::string_view worldspace, const TilePosition& tilePosition, const AgentBounds& agentBounds,
+        const RecastSettings& settings);
 
     NavMeshData makeNavMeshTileData(const PreparedNavMeshData& data,
         const std::vector<OffMeshConnection>& offMeshConnections, const AgentBounds& agentBounds,
         const TilePosition& tile, const RecastSettings& settings);
 
-    NavMeshPtr makeEmptyNavMesh(const Settings& settings);
+    void initEmptyNavMesh(const Settings& settings, dtNavMesh& navMesh);
+
+    bool isSupportedAgentBounds(const RecastSettings& settings, const AgentBounds& agentBounds);
 }
 
 #endif

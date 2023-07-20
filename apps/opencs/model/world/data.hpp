@@ -15,6 +15,7 @@
 
 #include <components/esm3/debugprofile.hpp>
 #include <components/esm3/filter.hpp>
+#include <components/esm3/infoorder.hpp>
 #include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadclas.hpp>
@@ -123,10 +124,9 @@ namespace CSMWorld
         const ESM::Dialogue* mDialogue; // last loaded dialogue
         bool mBase;
         bool mProject;
-        std::map<std::string, std::map<unsigned int, unsigned int>, Misc::StringUtils::CiComp> mRefLoadCache;
+        std::map<ESM::RefId, std::map<unsigned int, unsigned int>> mRefLoadCache;
         int mReaderIndex;
 
-        bool mFsStrict;
         Files::PathContainer mDataPaths;
         std::vector<std::string> mArchives;
         std::unique_ptr<VFS::Manager> mVFS;
@@ -134,6 +134,9 @@ namespace CSMWorld
         std::shared_ptr<Resource::ResourceSystem> mResourceSystem;
 
         std::vector<std::shared_ptr<ESM::ESMReader>> mReaders;
+
+        InfoOrderByTopic mJournalInfoOrder;
+        InfoOrderByTopic mTopicInfoOrder;
 
         // not implemented
         Data(const Data&);
@@ -149,8 +152,8 @@ namespace CSMWorld
         void loadFallbackEntries();
 
     public:
-        Data(ToUTF8::FromType encoding, bool fsStrict, const Files::PathContainer& dataPaths,
-            const std::vector<std::string>& archives, const std::filesystem::path& resDir);
+        Data(ToUTF8::FromType encoding, const Files::PathContainer& dataPaths, const std::vector<std::string>& archives,
+            const std::filesystem::path& resDir);
 
         ~Data() override;
 
@@ -303,6 +306,8 @@ namespace CSMWorld
 
         bool continueLoading(CSMDoc::Messages& messages);
         ///< \return Finished?
+
+        void finishLoading();
 
         bool hasId(const std::string& id) const;
 

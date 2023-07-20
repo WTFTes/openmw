@@ -12,7 +12,7 @@
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadstat.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "actorutil.hpp"
 #include "creaturestats.hpp"
@@ -149,7 +149,6 @@ namespace MWMechanics
         params.mEffects = mEffects;
         params.mDisplayName = mDisplayName;
         params.mCasterActorId = mCasterActorId;
-        params.mItem.unset();
         if (mSlot)
         {
             // Note that we're storing the inventory slot as a RefNum instead of an int as a matter of future proofing
@@ -290,9 +289,7 @@ namespace MWMechanics
                 {
                     if (!reflected)
                     {
-                        static const bool keepOriginalCaster
-                            = Settings::Manager::getBool("classic reflected absorb spells behavior", "Game");
-                        if (keepOriginalCaster)
+                        if (Settings::game().mClassicReflectedAbsorbSpellsBehavior)
                             reflected = { *spellIt, caster };
                         else
                             reflected = { *spellIt, ptr };
@@ -324,9 +321,8 @@ namespace MWMechanics
             }
             if (reflected)
             {
-                const ESM::Static* reflectStatic
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Static>().find(
-                        ESM::RefId::stringRefId("VFX_Reflect"));
+                const ESM::Static* reflectStatic = MWBase::Environment::get().getESMStore()->get<ESM::Static>().find(
+                    ESM::RefId::stringRefId("VFX_Reflect"));
                 MWRender::Animation* animation = MWBase::Environment::get().getWorld()->getAnimation(ptr);
                 if (animation && !reflectStatic->mModel.empty())
                 {
@@ -371,12 +367,11 @@ namespace MWMechanics
             ++spellIt;
         }
 
-        static const bool keepCalm = Settings::Manager::getBool("classic calm spells behavior", "Game");
-        if (keepCalm)
+        if (Settings::game().mClassicCalmSpellsBehavior)
         {
             ESM::MagicEffect::Effects effect
                 = ptr.getClass().isNpc() ? ESM::MagicEffect::CalmHumanoid : ESM::MagicEffect::CalmCreature;
-            if (creatureStats.getMagicEffects().get(effect).getMagnitude() > 0.f)
+            if (creatureStats.getMagicEffects().getOrDefault(effect).getMagnitude() > 0.f)
                 creatureStats.getAiSequence().stopCombat();
         }
     }
@@ -523,9 +518,15 @@ namespace MWMechanics
         purge([=](const ActiveSpellParams& params) { return params.mId == id; }, ptr);
     }
 
-    void ActiveSpells::purgeEffect(const MWWorld::Ptr& ptr, short effectId)
+    void ActiveSpells::purgeEffect(const MWWorld::Ptr& ptr, int effectId, int effectArg)
     {
-        purge([=](const ActiveSpellParams&, const ESM::ActiveEffect& effect) { return effect.mEffectId == effectId; },
+        purge(
+            [=](const ActiveSpellParams&, const ESM::ActiveEffect& effect) {
+                if (effectArg < 0)
+                    return effect.mEffectId == effectId;
+                else
+                    return effect.mEffectId == effectId && effect.mArg == effectArg;
+            },
             ptr);
     }
 

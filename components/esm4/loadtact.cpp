@@ -26,7 +26,6 @@
 */
 #include "loadtact.hpp"
 
-#include <iostream> // FIXME: testing only
 #include <stdexcept>
 
 #include "reader.hpp"
@@ -34,7 +33,7 @@
 
 void ESM4::TalkingActivator::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -71,11 +70,10 @@ void ESM4::TalkingActivator::load(ESM4::Reader& reader)
             case ESM4::SUB_PNAM:
             case ESM4::SUB_MODT: // texture file hash?
             case ESM4::SUB_OBND:
-            {
-                // std::cout << "TACT " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
+            case ESM4::SUB_VMAD:
+            case ESM4::SUB_MODS:
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::TACT::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

@@ -30,6 +30,7 @@ namespace SceneUtil
     class LightSource;
     class LightListCallback;
     class Skeleton;
+    struct LightCommon;
 }
 
 namespace MWRender
@@ -292,7 +293,7 @@ namespace MWRender
          */
         void resetActiveGroups();
 
-        size_t detectBlendMask(const osg::Node* node) const;
+        size_t detectBlendMask(const osg::Node* node, const std::string& controllerName) const;
 
         /* Updates the position of the accum root node for the given time, and
          * returns the wanted movement vector from the previous time. */
@@ -333,7 +334,7 @@ namespace MWRender
         void addSingleAnimSource(const std::string& model, const std::string& baseModel);
 
         /** Adds an additional light to the given node using the specified ESM record. */
-        void addExtraLight(osg::ref_ptr<osg::Group> parent, const ESM::Light* light);
+        void addExtraLight(osg::ref_ptr<osg::Group> parent, const SceneUtil::LightCommon& light);
 
         void clearAnimSources();
 

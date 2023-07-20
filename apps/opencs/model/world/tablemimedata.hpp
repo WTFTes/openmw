@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <QModelIndex>
 #include <QStringList>
 #include <QtCore/QMimeData>
 
@@ -13,6 +14,11 @@
 namespace CSMDoc
 {
     class Document;
+}
+
+namespace CSVWorld
+{
+    class DragRecordTable;
 }
 
 namespace CSMWorld
@@ -30,13 +36,15 @@ namespace CSMWorld
         std::vector<UniversalId> mUniversalId;
         QStringList mObjectsFormats;
         const CSMDoc::Document& mDocument;
+        const CSVWorld::DragRecordTable* mTableOfDragStart;
+        QModelIndex mIndexAtDragStart;
 
     public:
         TableMimeData(UniversalId id, const CSMDoc::Document& document);
 
         TableMimeData(const std::vector<UniversalId>& id, const CSMDoc::Document& document);
 
-        ~TableMimeData();
+        ~TableMimeData() override = default;
 
         QStringList formats() const override;
 
@@ -55,6 +63,14 @@ namespace CSMWorld
         const CSMDoc::Document* getDocumentPtr() const;
 
         UniversalId returnMatching(CSMWorld::ColumnBase::Display type) const;
+
+        void setIndexAtDragStart(const QModelIndex& index) { mIndexAtDragStart = index; }
+
+        void setTableOfDragStart(const CSVWorld::DragRecordTable* const table) { mTableOfDragStart = table; }
+
+        const QModelIndex getIndexAtDragStart() const { return mIndexAtDragStart; }
+
+        const CSVWorld::DragRecordTable* getTableOfDragStart() const { return mTableOfDragStart; }
 
         static CSMWorld::UniversalId::Type convertEnums(CSMWorld::ColumnBase::Display type);
 

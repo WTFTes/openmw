@@ -5,12 +5,11 @@
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadweap.hpp>
 #include <components/misc/constants.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/actionequip.hpp"
 #include "../mwworld/cellstore.hpp"
@@ -77,7 +76,7 @@ namespace MWClass
         return ref->mBase->mData.mHealth;
     }
 
-    const ESM::RefId& Weapon::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Weapon::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Weapon>* ref = ptr.get<ESM::Weapon>();
 
@@ -108,7 +107,7 @@ namespace MWClass
         return std::make_pair(slots_, stack);
     }
 
-    int Weapon::getEquipmentSkill(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Weapon::getEquipmentSkill(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Weapon>* ref = ptr.get<ESM::Weapon>();
         int type = ref->mBase->mData.mType;
@@ -155,18 +154,17 @@ namespace MWClass
             = MyGUI::TextIterator::toTagsString(MWGui::toUString(name)) + MWGui::ToolTips::getCountString(count);
         info.icon = ref->mBase->mIcon;
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
         std::string text;
 
         // weapon type & damage
-        if (weaponType->mWeaponClass != ESM::WeaponType::Ammo
-            || Settings::Manager::getBool("show projectile damage", "Game"))
+        if (weaponType->mWeaponClass != ESM::WeaponType::Ammo || Settings::game().mShowProjectileDamage)
         {
             text += "\n#{sType} ";
 
-            int skill = MWMechanics::getWeaponType(ref->mBase->mData.mType)->mSkill;
-            const std::string& type = ESM::Skill::sSkillNameIds[skill];
+            const ESM::Skill* skill
+                = store.get<ESM::Skill>().find(MWMechanics::getWeaponType(ref->mBase->mData.mType)->mSkill);
             std::string_view oneOrTwoHanded;
             if (weaponType->mWeaponClass == ESM::WeaponType::Melee)
             {
@@ -176,7 +174,7 @@ namespace MWClass
                     oneOrTwoHanded = "sOneHanded";
             }
 
-            text += store.get<ESM::GameSetting>().find(type)->mValue.getString();
+            text += skill->mName;
             if (!oneOrTwoHanded.empty())
                 text += ", " + store.get<ESM::GameSetting>().find(oneOrTwoHanded)->mValue.getString();
 
@@ -215,7 +213,7 @@ namespace MWClass
                 + MWGui::ToolTips::toString(ref->mBase->mData.mHealth);
         }
 
-        const bool verbose = Settings::Manager::getBool("show melee info", "Game");
+        const bool verbose = Settings::game().mShowMeleeInfo;
         // add reach for melee weapon
         if (weaponType->mWeaponClass == ESM::WeaponType::Melee && verbose)
         {
@@ -251,7 +249,7 @@ namespace MWClass
         return info;
     }
 
-    const ESM::RefId& Weapon::getEnchantment(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Weapon::getEnchantment(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Weapon>* ref = ptr.get<ESM::Weapon>();
 
@@ -264,12 +262,12 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Weapon>* ref = ptr.get<ESM::Weapon>();
 
         ESM::Weapon newItem = *ref->mBase;
-        newItem.mId = ESM::RefId::sEmpty;
+        newItem.mId = ESM::RefId();
         newItem.mName = newName;
         newItem.mData.mEnchant = enchCharge;
         newItem.mEnchant = enchId;
         newItem.mData.mFlags |= ESM::Weapon::Magical;
-        const ESM::Weapon* record = MWBase::Environment::get().getWorld()->createRecord(newItem);
+        const ESM::Weapon* record = MWBase::Environment::get().getESMStore()->insert(newItem);
         return record->mId;
     }
 

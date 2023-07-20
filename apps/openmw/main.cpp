@@ -70,10 +70,8 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
     }
 
     cfgMgr.readConfiguration(variables, desc);
-    Settings::Manager::load(cfgMgr);
 
     setupLogging(cfgMgr.getLogPath(), "OpenMW");
-    MWGui::DebugWindow::startLogRecording();
 
     Version::Version v
         = Version::getOpenmwVersion(variables["resources"]
@@ -82,15 +80,16 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
                                                       // MSVC 14.26 due to implementation bugs.
     Log(Debug::Info) << v.describe();
 
+    Settings::Manager::load(cfgMgr);
+
+    MWGui::DebugWindow::startLogRecording();
+
     engine.setGrabMouse(!variables["no-grab"].as<bool>());
 
     // Font encoding settings
     std::string encoding(variables["encoding"].as<std::string>());
     Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
     engine.setEncoding(ToUTF8::calculateEncoding(encoding));
-
-    // directory settings
-    engine.enableFSStrict(variables["fs-strict"].as<bool>());
 
     Files::PathContainer dataDirs(asPathContainer(variables["data"].as<Files::MaybeQuotedPathContainer>()));
 
@@ -256,7 +255,7 @@ extern "C" int SDL_main(int argc, char** argv)
 int main(int argc, char** argv)
 #endif
 {
-    return wrapApplication(&runApplication, argc, argv, "OpenMW", false);
+    return wrapApplication(&runApplication, argc, argv, "OpenMW");
 }
 
 // Platform specific for Windows when there is no console built into the executable.

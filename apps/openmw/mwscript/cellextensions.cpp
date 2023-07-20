@@ -86,25 +86,25 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
-                const ESM::RefId cell = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
+                std::string_view cell = runtime.getStringLiteral(runtime[0].mInteger);
                 runtime.pop();
 
                 ESM::Position pos;
                 MWBase::World* world = MWBase::Environment::get().getWorld();
                 const MWWorld::Ptr playerPtr = world->getPlayerPtr();
 
-                if (world->findExteriorPosition(cell, pos))
+                if (const ESM::RefId refId = world->findExteriorPosition(cell, pos); !refId.empty())
                 {
-                    MWWorld::ActionTeleport({}, pos, false).execute(playerPtr);
+                    MWWorld::ActionTeleport(refId, pos, false).execute(playerPtr);
                     world->adjustPosition(playerPtr, false);
+                    return;
                 }
-                else
+                if (const ESM::RefId refId = world->findInteriorPosition(cell, pos); !refId.empty())
                 {
-                    // Change to interior even if findInteriorPosition()
-                    // yields false. In this case position will be zero-point.
-                    world->findInteriorPosition(cell, pos);
-                    MWWorld::ActionTeleport(cell, pos, false).execute(playerPtr);
+                    MWWorld::ActionTeleport(refId, pos, false).execute(playerPtr);
+                    return;
                 }
+                throw std::runtime_error("Cell " + std::string(cell) + " is not found");
             }
         };
 
@@ -123,12 +123,15 @@ namespace MWScript
                 MWBase::World* world = MWBase::Environment::get().getWorld();
                 const MWWorld::Ptr playerPtr = world->getPlayerPtr();
 
-                world->indexToPosition(x, y, pos.pos[0], pos.pos[1], true);
+                osg::Vec2 posFromIndex
+                    = ESM::indexToPosition(ESM::ExteriorCellLocation(x, y, ESM::Cell::sDefaultWorldspaceId), true);
+                pos.pos[0] = posFromIndex.x();
+                pos.pos[1] = posFromIndex.y();
                 pos.pos[2] = 0;
 
                 pos.rot[0] = pos.rot[1] = pos.rot[2] = 0;
 
-                MWWorld::ActionTeleport({}, pos, false).execute(playerPtr);
+                MWWorld::ActionTeleport(ESM::RefId::esm3ExteriorCell(x, y), pos, false).execute(playerPtr);
                 world->adjustPosition(playerPtr, false);
             }
         };

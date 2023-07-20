@@ -26,14 +26,7 @@
 */
 #include "loadnavi.hpp"
 
-#ifdef NDEBUG // FIXME: debuggigng only
-#undef NDEBUG
-#endif
-
-#include <cassert>
 #include <stdexcept>
-
-#include <iostream> // FIXME: debugging only
 
 #include "reader.hpp"
 //#include "writer.hpp"
@@ -80,7 +73,7 @@ void ESM4::Navigation::NavMeshInfo::load(ESM4::Reader& reader)
 {
     std::uint32_t count;
 
-    reader.get(formId);
+    reader.getFormId(formId);
     reader.get(flags);
     reader.get(x);
     reader.get(y);
@@ -107,10 +100,8 @@ void ESM4::Navigation::NavMeshInfo::load(ESM4::Reader& reader)
     {
         // std::cout << "NVMI countMerged " << std::dec << count << std::endl;
         formIdMerged.resize(count);
-        for (std::vector<FormId>::iterator it = formIdMerged.begin(); it != formIdMerged.end(); ++it)
-        {
-            reader.get(*it);
-        }
+        for (FormId& value : formIdMerged)
+            reader.getFormId(value);
     }
 
     reader.get(count); // countPrefMerged;
@@ -118,10 +109,8 @@ void ESM4::Navigation::NavMeshInfo::load(ESM4::Reader& reader)
     {
         // std::cout << "NVMI countPrefMerged " << std::dec << count << std::endl;
         formIdPrefMerged.resize(count);
-        for (std::vector<FormId>::iterator it = formIdPrefMerged.begin(); it != formIdPrefMerged.end(); ++it)
-        {
-            reader.get(*it);
-        }
+        for (FormId& value : formIdPrefMerged)
+            reader.getFormId(value);
     }
 
     reader.get(count); // countLinkedDoors;
@@ -143,18 +132,20 @@ void ESM4::Navigation::NavMeshInfo::load(ESM4::Reader& reader)
         island2.load(reader);
         islandInfo.push_back(island2); // Maybe don't use a vector for just one entry?
     }
-    else if (flags == FLG_Island) // FIXME: debug only
-        std::cerr << "nvmi no island but has 0x20 flag" << std::endl;
+    // else if (flags == FLG_Island) // FIXME: debug only
+    //   std::cerr << "nvmi no island but has 0x20 flag" << std::endl;
 
     reader.get(locationMarker);
 
-    reader.get(worldSpaceId);
+    reader.getFormId(worldSpaceId);
     // FLG_Tamriel    = 0x0000003c, // grid info follows, possibly Tamriel?
     // FLG_Morrowind  = 0x01380000, // grid info follows, probably Skywind
-    if (worldSpaceId == 0x0000003c || worldSpaceId == 0x01380000)
+    if (worldSpaceId == FormId{ 0x3c, 0 } || worldSpaceId == FormId{ 0x380000, 1 })
     {
-        reader.get(cellGrid.grid.y); // NOTE: reverse order
-        reader.get(cellGrid.grid.x);
+        Grid grid;
+        reader.get(grid.y); // NOTE: reverse order
+        reader.get(grid.x);
+        cellGrid = grid;
 // FIXME: debugging only
 #if 0
     std::string padding;
@@ -167,7 +158,9 @@ void ESM4::Navigation::NavMeshInfo::load(ESM4::Reader& reader)
     }
     else
     {
-        reader.get(cellGrid.cellId);
+        FormId cellId;
+        reader.getFormId(cellId);
+        cellGrid = cellId;
 
 #if 0
         if (worldSpaceId == 0) // interior
@@ -237,7 +230,7 @@ void ESM4::Navigation::NavMeshInfo::load(ESM4::Reader& reader)
 //
 void ESM4::Navigation::load(ESM4::Reader& reader)
 {
-    // mFormId = reader.hdr().record.id;
+    // mFormId = reader.hdr().record.getFormId();
     // mFlags  = reader.hdr().record.flags;
     std::uint32_t esmVer = reader.esmVersion();
     bool isFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
@@ -275,14 +268,11 @@ void ESM4::Navigation::load(ESM4::Reader& reader)
                         reader.get(node);
                         reader.get(count);
                     }
-                    if (count)
+                    if (count > 0)
                     {
                         preferredPaths.resize(count);
-                        for (std::vector<FormId>::iterator it = preferredPaths.begin(); it != preferredPaths.end();
-                             ++it)
-                        {
-                            reader.get(*it);
-                        }
+                        for (FormId& value : preferredPaths)
+                            reader.getFormId(value);
                     }
                     mPreferredPaths.push_back(std::make_pair(node, preferredPaths));
 #if 0
@@ -291,7 +281,8 @@ void ESM4::Navigation::load(ESM4::Reader& reader)
 #endif
                 }
                 reader.get(count);
-                assert(count == 1 && "expected separator");
+                if (count != 1)
+                    throw std::runtime_error("expected separator");
 
                 reader.get(node); // HACK
                 std::vector<FormId> preferredPaths;
@@ -302,7 +293,9 @@ void ESM4::Navigation::load(ESM4::Reader& reader)
 #endif
 
                 reader.get(count); // HACK
-                assert(count == 10 && "expected 0xa");
+                if (count != 10)
+                    throw std::runtime_error("expected 0xa");
+
                 std::uint32_t index;
                 for (std::uint32_t i = 0; i < count; ++i)
                 {
@@ -312,8 +305,9 @@ void ESM4::Navigation::load(ESM4::Reader& reader)
                     std::cout << "node " << std::hex << node // FIXME: debugging only
                         << ", index " << index << ", i " << std::dec << total+i << std::endl;
 #endif
+                    FormId nodeFormId = FormId::fromUint32(node); // should we apply reader.adjustFormId?
                     // std::pair<std::map<FormId, std::uint32_t>::iterator, bool> res =
-                    mPathIndexMap.insert(std::make_pair(node, index));
+                    mPathIndexMap.emplace(nodeFormId, index);
                     // FIXME: this throws if more than one file is being loaded
                     // if (!res.second)
                     // throw std::runtime_error ("node already exists in the preferred path index map");

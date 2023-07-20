@@ -5,6 +5,8 @@
 #include <string>
 
 #include <components/esm/records.hpp>
+#include <components/esm3/cellstate.hpp>
+#include <components/esm3/fogstate.hpp>
 
 namespace ESM
 {
@@ -32,7 +34,7 @@ namespace EsmTool
         {
         }
 
-        virtual ~RecordBase() {}
+        virtual ~RecordBase() = default;
 
         virtual std::string getId() const = 0;
 
@@ -58,6 +60,16 @@ namespace EsmTool
         }
     };
 
+    struct CellState
+    {
+        ESM::CellState mCellState;
+        ESM::FogState mFogState;
+
+        void load(ESM::ESMReader& reader, bool& deleted);
+
+        void save(ESM::ESMWriter& /*writer*/, bool /*deleted*/) {}
+    };
+
     template <class T>
     class Record : public RecordBase
     {
@@ -70,7 +82,7 @@ namespace EsmTool
         {
         }
 
-        std::string getId() const override { return mData.mId.getRefIdString(); }
+        std::string getId() const override { return mData.mId.toDebugString(); }
 
         T& get() { return mData; }
 
@@ -93,6 +105,8 @@ namespace EsmTool
     std::string Record<ESM::Pathgrid>::getId() const;
     template <>
     std::string Record<ESM::Skill>::getId() const;
+    template <>
+    std::string Record<CellState>::getId() const;
 
     template <>
     void Record<ESM::Activator>::print();
@@ -178,6 +192,8 @@ namespace EsmTool
     void Record<ESM::Static>::print();
     template <>
     void Record<ESM::Weapon>::print();
+    template <>
+    void Record<CellState>::print();
 }
 
 #endif

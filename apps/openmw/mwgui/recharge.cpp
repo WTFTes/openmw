@@ -8,7 +8,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -69,8 +68,7 @@ namespace MWGui
         MWWorld::Ptr gem = *mGemIcon->getUserData<MWWorld::Ptr>();
 
         const ESM::RefId& soul = gem.getCellRef().getSoul();
-        const ESM::Creature* creature
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Creature>().find(soul);
+        const ESM::Creature* creature = MWBase::Environment::get().getESMStore()->get<ESM::Creature>().find(soul);
 
         mChargeLabel->setCaptionWithReplacing("#{sCharges} " + MyGUI::utility::toString(creature->mData.mSoul));
 

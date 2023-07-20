@@ -10,6 +10,7 @@
 #include "../mwbase/world.hpp"
 
 #include "../mwworld/esmstore.hpp"
+#include "../mwworld/globals.hpp"
 
 #include "../mwscript/interpretercontext.hpp"
 
@@ -18,8 +19,7 @@ namespace MWDialogue
     Entry::Entry(const ESM::RefId& topic, const ESM::RefId& infoId, const MWWorld::Ptr& actor)
         : mInfoId(infoId)
     {
-        const ESM::Dialogue* dialogue
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Dialogue>().find(topic);
+        const ESM::Dialogue* dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(topic);
 
         for (ESM::Dialogue::InfoContainer::const_iterator iter(dialogue->mInfo.begin()); iter != dialogue->mInfo.end();
              ++iter)
@@ -39,8 +39,7 @@ namespace MWDialogue
                 return;
             }
 
-        throw std::runtime_error(
-            "unknown info ID " + mInfoId.getRefIdString() + " for topic " + topic.getRefIdString());
+        throw std::runtime_error("unknown info ID " + mInfoId.toDebugString() + " for topic " + topic.toDebugString());
     }
 
     Entry::Entry(const ESM::JournalEntry& record)
@@ -87,8 +86,7 @@ namespace MWDialogue
 
     const ESM::RefId& JournalEntry::idFromIndex(const ESM::RefId& topic, int index)
     {
-        const ESM::Dialogue* dialogue
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Dialogue>().find(topic);
+        const ESM::Dialogue* dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(topic);
 
         for (ESM::Dialogue::InfoContainer::const_iterator iter(dialogue->mInfo.begin()); iter != dialogue->mInfo.end();
              ++iter)
@@ -97,7 +95,7 @@ namespace MWDialogue
                 return iter->mId;
             }
 
-        throw std::runtime_error("unknown journal index for topic " + topic.getRefIdString());
+        throw std::runtime_error("unknown journal index for topic " + topic.toDebugString());
     }
 
     StampedJournalEntry::StampedJournalEntry()
@@ -135,9 +133,9 @@ namespace MWDialogue
     StampedJournalEntry StampedJournalEntry::makeFromQuest(
         const ESM::RefId& topic, int index, const MWWorld::Ptr& actor)
     {
-        int day = MWBase::Environment::get().getWorld()->getGlobalInt("dayspassed");
-        int month = MWBase::Environment::get().getWorld()->getGlobalInt("month");
-        int dayOfMonth = MWBase::Environment::get().getWorld()->getGlobalInt("day");
+        const int day = MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sDaysPassed);
+        const int month = MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sMonth);
+        const int dayOfMonth = MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sDay);
 
         return StampedJournalEntry(topic, idFromIndex(topic, index), day, month, dayOfMonth, actor);
     }

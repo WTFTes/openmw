@@ -3,6 +3,7 @@
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ListBox.h>
+#include <MyGUI_ScrollView.h>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
@@ -65,7 +66,7 @@ namespace MWGui
         setClassImage(mClassImage, mCurrentClassId);
 
         mClassName->setCaption(
-            MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().find(mCurrentClassId)->mName);
+            MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(mCurrentClassId)->mName);
 
         center();
     }
@@ -208,7 +209,7 @@ namespace MWGui
     {
         mClassList->removeAllItems();
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
         std::vector<std::pair<ESM::RefId, std::string>> items; // class id, class name
         for (const ESM::Class& classInfo : store.get<ESM::Class>())
@@ -246,7 +247,7 @@ namespace MWGui
     {
         if (mCurrentClassId.empty())
             return;
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Class* klass = store.get<ESM::Class>().search(mCurrentClassId);
         if (!klass)
             return;
@@ -254,24 +255,24 @@ namespace MWGui
         ESM::Class::Specialization specialization
             = static_cast<ESM::Class::Specialization>(klass->mData.mSpecialization);
 
-        static const std::string_view specIds[3]
-            = { "sSpecializationCombat", "sSpecializationMagic", "sSpecializationStealth" };
         std::string specName{ MWBase::Environment::get().getWindowManager()->getGameSettingString(
-            specIds[specialization], specIds[specialization]) };
+            ESM::Class::sGmstSpecializationIds[specialization], ESM::Class::sGmstSpecializationIds[specialization]) };
         mSpecializationName->setCaption(specName);
         ToolTips::createSpecializationToolTip(mSpecializationName, specName, specialization);
 
-        mFavoriteAttribute[0]->setAttributeId(klass->mData.mAttribute[0]);
-        mFavoriteAttribute[1]->setAttributeId(klass->mData.mAttribute[1]);
+        mFavoriteAttribute[0]->setAttributeId(static_cast<ESM::Attribute::AttributeID>(klass->mData.mAttribute[0]));
+        mFavoriteAttribute[1]->setAttributeId(static_cast<ESM::Attribute::AttributeID>(klass->mData.mAttribute[1]));
         ToolTips::createAttributeToolTip(mFavoriteAttribute[0], mFavoriteAttribute[0]->getAttributeId());
         ToolTips::createAttributeToolTip(mFavoriteAttribute[1], mFavoriteAttribute[1]->getAttributeId());
 
-        for (int i = 0; i < 5; ++i)
+        for (size_t i = 0; i < klass->mData.mSkills.size(); ++i)
         {
-            mMinorSkill[i]->setSkillNumber(klass->mData.mSkills[i][0]);
-            mMajorSkill[i]->setSkillNumber(klass->mData.mSkills[i][1]);
-            ToolTips::createSkillToolTip(mMinorSkill[i], klass->mData.mSkills[i][0]);
-            ToolTips::createSkillToolTip(mMajorSkill[i], klass->mData.mSkills[i][1]);
+            ESM::RefId minor = ESM::Skill::indexToRefId(klass->mData.mSkills[i][0]);
+            ESM::RefId major = ESM::Skill::indexToRefId(klass->mData.mSkills[i][1]);
+            mMinorSkill[i]->setSkillId(minor);
+            mMajorSkill[i]->setSkillId(major);
+            ToolTips::createSkillToolTip(mMinorSkill[i], minor);
+            ToolTips::createSkillToolTip(mMajorSkill[i], major);
         }
 
         setClassImage(mClassImage, mCurrentClassId);
@@ -346,7 +347,7 @@ namespace MWGui
         for (const std::string& text : buttons)
         {
             button = mButtonBar->createWidget<MyGUI::Button>(
-                "MW_Button", coord, MyGUI::Align::Top | MyGUI::Align::HCenter, "");
+                "MW_Button", coord, MyGUI::Align::Top | MyGUI::Align::HCenter, {});
             button->getSubWidgetText()->setWordWrap(true);
             button->setCaption(text);
             fitToText(button);
@@ -386,7 +387,7 @@ namespace MWGui
     ClassChoiceDialog::ClassChoiceDialog()
         : InfoBoxDialog()
     {
-        setText("");
+        setText({});
         ButtonList buttons;
         buttons.emplace_back(
             MWBase::Environment::get().getWindowManager()->getGameSettingString("sClassChoiceMenu1", {}));
@@ -516,24 +517,24 @@ namespace MWGui
         return v;
     }
 
-    std::vector<ESM::Skill::SkillEnum> CreateClassDialog::getMajorSkills() const
+    std::vector<ESM::RefId> CreateClassDialog::getMajorSkills() const
     {
-        std::vector<ESM::Skill::SkillEnum> v;
-        v.reserve(5);
-        for (int i = 0; i < 5; i++)
+        std::vector<ESM::RefId> v;
+        v.reserve(mMajorSkill.size());
+        for (const auto& widget : mMajorSkill)
         {
-            v.push_back(mMajorSkill[i]->getSkillId());
+            v.push_back(widget->getSkillId());
         }
         return v;
     }
 
-    std::vector<ESM::Skill::SkillEnum> CreateClassDialog::getMinorSkills() const
+    std::vector<ESM::RefId> CreateClassDialog::getMinorSkills() const
     {
-        std::vector<ESM::Skill::SkillEnum> v;
-        v.reserve(5);
-        for (int i = 0; i < 5; i++)
+        std::vector<ESM::RefId> v;
+        v.reserve(mMinorSkill.size());
+        for (const auto& widget : mMinorSkill)
         {
-            v.push_back(mMinorSkill[i]->getSkillId());
+            v.push_back(widget->getSkillId());
         }
         return v;
     }
@@ -579,11 +580,10 @@ namespace MWGui
 
     void CreateClassDialog::setSpecialization(int id)
     {
-        mSpecializationId = (ESM::Class::Specialization)id;
-        static const std::string_view specIds[3]
-            = { "sSpecializationCombat", "sSpecializationMagic", "sSpecializationStealth" };
+        mSpecializationId = ESM::Class::Specialization(id);
         std::string specName{ MWBase::Environment::get().getWindowManager()->getGameSettingString(
-            specIds[mSpecializationId], specIds[mSpecializationId]) };
+            ESM::Class::sGmstSpecializationIds[mSpecializationId],
+            ESM::Class::sGmstSpecializationIds[mSpecializationId]) };
         mSpecializationName->setCaption(specName);
         ToolTips::createSpecializationToolTip(mSpecializationName, specName, mSpecializationId);
     }
@@ -627,7 +627,7 @@ namespace MWGui
 
     void CreateClassDialog::onSkillSelected()
     {
-        ESM::Skill::SkillEnum id = mSkillDialog->getSkillId();
+        ESM::RefId id = mSkillDialog->getSkillId();
 
         // Avoid duplicate skills by swapping any skill field that matches the selected one
         for (Widgets::MWSkillPtr& skill : mSkills)
@@ -748,30 +748,35 @@ namespace MWGui
         // Centre dialog
         center();
 
-        for (int i = 0; i < 8; ++i)
+        const auto& store = MWBase::Environment::get().getWorld()->getStore().get<ESM::Attribute>();
+        MyGUI::ScrollView* attributes;
+        getWidget(attributes, "Attributes");
+        MyGUI::IntCoord coord{ 0, 0, attributes->getWidth(), 18 };
+        for (const ESM::Attribute& attribute : store)
         {
-            Widgets::MWAttributePtr attribute;
-            char theIndex = '0' + i;
-
-            getWidget(attribute, std::string("Attribute").append(1, theIndex));
-            attribute->setAttributeId(ESM::Attribute::sAttributeIds[i]);
-            attribute->eventClicked += MyGUI::newDelegate(this, &SelectAttributeDialog::onAttributeClicked);
-            ToolTips::createAttributeToolTip(attribute, attribute->getAttributeId());
+            auto* widget
+                = attributes->createWidget<Widgets::MWAttribute>("MW_StatNameButtonC", coord, MyGUI::Align::Default);
+            coord.top += coord.height;
+            widget->setAttributeId(attribute.mId);
+            widget->eventClicked += MyGUI::newDelegate(this, &SelectAttributeDialog::onAttributeClicked);
+            ToolTips::createAttributeToolTip(widget, attribute.mId);
         }
+
+        attributes->setVisibleVScroll(false);
+        attributes->setCanvasSize(MyGUI::IntSize(attributes->getWidth(), std::max(attributes->getHeight(), coord.top)));
+        attributes->setVisibleVScroll(true);
+        attributes->setViewOffset(MyGUI::IntPoint());
 
         MyGUI::Button* cancelButton;
         getWidget(cancelButton, "CancelButton");
         cancelButton->eventMouseButtonClick += MyGUI::newDelegate(this, &SelectAttributeDialog::onCancelClicked);
     }
 
-    SelectAttributeDialog::~SelectAttributeDialog() {}
-
     // widget controls
 
     void SelectAttributeDialog::onAttributeClicked(Widgets::MWAttributePtr _sender)
     {
-        // TODO: Change MWAttribute to set and get AttributeID enum instead of int
-        mAttributeId = static_cast<ESM::Attribute::AttributeID>(_sender->getAttributeId());
+        mAttributeId = _sender->getAttributeId();
         eventItemSelected();
     }
 
@@ -795,43 +800,33 @@ namespace MWGui
         // Centre dialog
         center();
 
-        for (int i = 0; i < 9; i++)
+        std::array<std::pair<MyGUI::ScrollView*, MyGUI::IntCoord>, 3> specializations;
+        getWidget(specializations[ESM::Class::Combat].first, "CombatSkills");
+        getWidget(specializations[ESM::Class::Magic].first, "MagicSkills");
+        getWidget(specializations[ESM::Class::Stealth].first, "StealthSkills");
+        for (auto& [widget, coord] : specializations)
         {
-            char theIndex = '0' + i;
-            getWidget(mCombatSkill[i], std::string("CombatSkill").append(1, theIndex));
-            getWidget(mMagicSkill[i], std::string("MagicSkill").append(1, theIndex));
-            getWidget(mStealthSkill[i], std::string("StealthSkill").append(1, theIndex));
+            coord.width = widget->getCoord().width;
+            coord.height = 18;
+            while (widget->getChildCount() > 0)
+                MyGUI::Gui::getInstance().destroyWidget(widget->getChildAt(0));
         }
-
-        struct
+        for (const ESM::Skill& skill : MWBase::Environment::get().getESMStore()->get<ESM::Skill>())
         {
-            Widgets::MWSkillPtr widget;
-            ESM::Skill::SkillEnum skillId;
-        } mSkills[3][9]
-            = { { { mCombatSkill[0], ESM::Skill::Block }, { mCombatSkill[1], ESM::Skill::Armorer },
-                    { mCombatSkill[2], ESM::Skill::MediumArmor }, { mCombatSkill[3], ESM::Skill::HeavyArmor },
-                    { mCombatSkill[4], ESM::Skill::BluntWeapon }, { mCombatSkill[5], ESM::Skill::LongBlade },
-                    { mCombatSkill[6], ESM::Skill::Axe }, { mCombatSkill[7], ESM::Skill::Spear },
-                    { mCombatSkill[8], ESM::Skill::Athletics } },
-                  { { mMagicSkill[0], ESM::Skill::Enchant }, { mMagicSkill[1], ESM::Skill::Destruction },
-                      { mMagicSkill[2], ESM::Skill::Alteration }, { mMagicSkill[3], ESM::Skill::Illusion },
-                      { mMagicSkill[4], ESM::Skill::Conjuration }, { mMagicSkill[5], ESM::Skill::Mysticism },
-                      { mMagicSkill[6], ESM::Skill::Restoration }, { mMagicSkill[7], ESM::Skill::Alchemy },
-                      { mMagicSkill[8], ESM::Skill::Unarmored } },
-                  { { mStealthSkill[0], ESM::Skill::Security }, { mStealthSkill[1], ESM::Skill::Sneak },
-                      { mStealthSkill[2], ESM::Skill::Acrobatics }, { mStealthSkill[3], ESM::Skill::LightArmor },
-                      { mStealthSkill[4], ESM::Skill::ShortBlade }, { mStealthSkill[5], ESM::Skill::Marksman },
-                      { mStealthSkill[6], ESM::Skill::Mercantile }, { mStealthSkill[7], ESM::Skill::Speechcraft },
-                      { mStealthSkill[8], ESM::Skill::HandToHand } } };
-
-        for (int spec = 0; spec < 3; ++spec)
+            auto& [widget, coord] = specializations[skill.mData.mSpecialization];
+            auto* skillWidget
+                = widget->createWidget<Widgets::MWSkill>("MW_StatNameButton", coord, MyGUI::Align::Default);
+            coord.top += coord.height;
+            skillWidget->setSkillId(skill.mId);
+            skillWidget->eventClicked += MyGUI::newDelegate(this, &SelectSkillDialog::onSkillClicked);
+            ToolTips::createSkillToolTip(skillWidget, skill.mId);
+        }
+        for (const auto& [widget, coord] : specializations)
         {
-            for (int i = 0; i < 9; ++i)
-            {
-                mSkills[spec][i].widget->setSkillId(mSkills[spec][i].skillId);
-                mSkills[spec][i].widget->eventClicked += MyGUI::newDelegate(this, &SelectSkillDialog::onSkillClicked);
-                ToolTips::createSkillToolTip(mSkills[spec][i].widget, mSkills[spec][i].widget->getSkillId());
-            }
+            widget->setVisibleVScroll(false);
+            widget->setCanvasSize(MyGUI::IntSize(widget->getWidth(), std::max(widget->getHeight(), coord.top)));
+            widget->setVisibleVScroll(true);
+            widget->setViewOffset(MyGUI::IntPoint());
         }
 
         MyGUI::Button* cancelButton;
@@ -891,14 +886,21 @@ namespace MWGui
 
     void setClassImage(MyGUI::ImageBox* imageBox, const ESM::RefId& classId)
     {
-        const VFS::Manager* const vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
-        std::string classImage
-            = Misc::ResourceHelpers::correctTexturePath("textures\\levelup\\" + classId.getRefIdString() + ".dds", vfs);
-        if (!vfs->exists(classImage))
+        std::string_view fallback = "textures\\levelup\\warrior.dds";
+        std::string classImage;
+        if (const auto* id = classId.getIf<ESM::StringRefId>())
         {
-            Log(Debug::Warning) << "No class image for " << classId.getRefIdString() << ", falling back to default";
-            classImage = "textures\\levelup\\warrior.dds";
+            const VFS::Manager* const vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
+            classImage
+                = Misc::ResourceHelpers::correctTexturePath("textures\\levelup\\" + id->getValue() + ".dds", vfs);
+            if (!vfs->exists(classImage))
+            {
+                Log(Debug::Warning) << "No class image for " << classId << ", falling back to default";
+                classImage = fallback;
+            }
         }
+        else
+            classImage = fallback;
         imageBox->setImageTexture(classImage);
     }
 

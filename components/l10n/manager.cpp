@@ -1,5 +1,6 @@
 #include "manager.hpp"
 
+#include <set>
 #include <unicode/errorcode.h>
 
 #include <components/debug/debuglog.hpp>
@@ -8,11 +9,21 @@
 namespace l10n
 {
 
-    void Manager::setPreferredLocales(const std::vector<std::string>& langs)
+    void Manager::setPreferredLocales(const std::vector<std::string>& langs, bool gmstHasPriority)
     {
         mPreferredLocales.clear();
+        if (gmstHasPriority)
+            mPreferredLocales.push_back(icu::Locale("gmst"));
+        std::set<std::string> langSet;
         for (const auto& lang : langs)
+        {
+            if (langSet.contains(lang))
+                continue;
+            langSet.insert(lang);
             mPreferredLocales.push_back(icu::Locale(lang.c_str()));
+        }
+        if (!gmstHasPriority)
+            mPreferredLocales.push_back(icu::Locale("gmst"));
         {
             Log msg(Debug::Info);
             msg << "Preferred locales:";
@@ -83,10 +94,7 @@ namespace l10n
             throw std::runtime_error(std::string("Invalid l10n context name: ") + contextName);
         icu::Locale fallbackLocale(fallbackLocaleName.c_str());
         std::shared_ptr<MessageBundles> ctx = std::make_shared<MessageBundles>(mPreferredLocales, fallbackLocale);
-        {
-            Log msg(Debug::Verbose);
-            msg << "Fallback locale: " << fallbackLocale.getName();
-        }
+        ctx->setGmstLoader(mGmstLoader);
         updateContext(contextName, *ctx);
         mCache.emplace(key, ctx);
         return ctx;

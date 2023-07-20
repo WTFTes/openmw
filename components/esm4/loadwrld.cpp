@@ -27,15 +27,14 @@
 #include "loadwrld.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: debug only
 
 #include "reader.hpp"
-//#include "writer.hpp"
+// #include "writer.hpp"
 
 void ESM4::World::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
-    reader.adjustFormId(mFormId);
+    FormId formid = reader.hdr().record.getFormId();
+    reader.adjustFormId(formid);
     mFlags = reader.hdr().record.flags;
 
     // It should be possible to save the current world formId automatically while reading in
@@ -45,7 +44,8 @@ void ESM4::World::load(ESM4::Reader& reader)
     // Alternatively it may be possible to figure it out by examining the group headers, but
     // apparently the label field is not reliable so the parent world formid may have been
     // corrupted by the use of ignore flag (TODO: should check to verify).
-    reader.setCurrWorld(mFormId); // save for CELL later
+    reader.setCurrWorld(formid); // save for CELL later
+    mId = ESM::FormIdRefId(formid);
 
     std::uint32_t subSize = 0; // for XXXX sub record
 
@@ -79,7 +79,7 @@ void ESM4::World::load(ESM4::Reader& reader)
                 reader.getZString(mMapFile);
                 break; // map filename, Oblivion only?
             case ESM4::SUB_CNAM:
-                reader.get(mClimate);
+                reader.getFormId(mClimate);
                 break;
             case ESM4::SUB_NAM2:
                 reader.getFormId(mWater);
@@ -145,6 +145,20 @@ void ESM4::World::load(ESM4::Reader& reader)
             case ESM4::SUB_PNAM:
                 reader.get(mParentUseFlags);
                 break;
+            case ESM4::SUB_OFST:
+                if (subSize)
+                {
+                    reader.skipSubRecordData(subSize); // special post XXXX
+                    reader.updateRecordRead(subSize); // WARNING: manually update
+                    subSize = 0;
+                }
+                else
+                    reader.skipSubRecordData(); // FIXME: process the subrecord rather than skip
+
+                break;
+            case ESM4::SUB_XXXX:
+                reader.get(subSize);
+                break;
             case ESM4::SUB_RNAM: // multiple
             case ESM4::SUB_MHDT:
             case ESM4::SUB_LTMP:
@@ -164,37 +178,24 @@ void ESM4::World::load(ESM4::Reader& reader)
             case ESM4::SUB_XNAM: // FO3
             case ESM4::SUB_IMPS: // FO3 Anchorage
             case ESM4::SUB_IMPF: // FO3 Anchorage
-            {
-                // std::cout << "WRLD " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
-                reader.skipSubRecordData(); // FIXME: process the subrecord rather than skip
+                reader.skipSubRecordData();
                 break;
-            }
-            case ESM4::SUB_OFST:
-            {
-                if (subSize)
-                {
-                    reader.skipSubRecordData(subSize); // special post XXXX
-                    reader.updateRecordRead(subSize); // WARNING: manually update
-                    subSize = 0;
-                }
-                else
-                    reader.skipSubRecordData(); // FIXME: process the subrecord rather than skip
-
-                break;
-            }
-            case ESM4::SUB_XXXX:
-            {
-                reader.get(subSize);
-                break;
-            }
             default:
                 throw std::runtime_error("ESM4::WRLD::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }
 
-        if (isTES5 && usingDefaultLevels)
+        if (usingDefaultLevels)
         {
-            mLandLevel = -2700.f;
-            mWaterLevel = -14000.f;
+            if (isTES5)
+            {
+                mLandLevel = -2700.f;
+                mWaterLevel = -14000.f;
+            }
+            else
+            {
+                mLandLevel = 0.f; // FIXME: not sure that this value is correct
+                mWaterLevel = 0.f;
+            }
         }
     }
 }

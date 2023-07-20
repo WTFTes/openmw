@@ -1,7 +1,7 @@
 #include "search.hpp"
 
 #include <QModelIndex>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QString>
 
 #include <memory>
@@ -46,20 +46,24 @@ void CSMTools::Search::searchTextCell(const CSMWorld::IdTableBase* model, const 
 void CSMTools::Search::searchRegExCell(const CSMWorld::IdTableBase* model, const QModelIndex& index,
     const CSMWorld::UniversalId& id, bool writable, CSMDoc::Messages& messages) const
 {
+    // TODO: verify regular expression before starting a search
+    if (!mRegExp.isValid())
+        return;
+
     QString text = model->data(index).toString();
 
-    int pos = 0;
-
-    while ((pos = mRegExp.indexIn(text, pos)) != -1)
+    QRegularExpressionMatchIterator i = mRegExp.globalMatch(text);
+    while (i.hasNext())
     {
-        int length = mRegExp.matchedLength();
+        QRegularExpressionMatch match = i.next();
+
+        int pos = match.capturedStart();
+        int length = match.capturedLength();
 
         std::ostringstream hint;
         hint << (writable ? 'R' : 'r') << ": " << model->getColumnId(index.column()) << " " << pos << " " << length;
 
         messages.add(id, formatDescription(text, pos, length).toUtf8().data(), hint.str());
-
-        pos += length;
     }
 }
 
@@ -138,7 +142,7 @@ CSMTools::Search::Search(Type type, bool caseSensitive, const std::string& value
         throw std::logic_error("Invalid search parameter (string)");
 }
 
-CSMTools::Search::Search(Type type, bool caseSensitive, const QRegExp& value)
+CSMTools::Search::Search(Type type, bool caseSensitive, const QRegularExpression& value)
     : mType(type)
     , mRegExp(value)
     , mValue(0)
@@ -148,7 +152,7 @@ CSMTools::Search::Search(Type type, bool caseSensitive, const QRegExp& value)
     , mPaddingBefore(10)
     , mPaddingAfter(10)
 {
-    mRegExp.setCaseSensitivity(mCase ? Qt::CaseSensitive : Qt::CaseInsensitive);
+    mRegExp.setPatternOptions(mCase ? QRegularExpression::NoPatternOption : QRegularExpression::CaseInsensitiveOption);
     if (type != Type_TextRegEx && type != Type_IdRegEx)
         throw std::logic_error("Invalid search parameter (RegExp)");
 }

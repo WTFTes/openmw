@@ -86,7 +86,7 @@ namespace MWClass
             else if (creatureStats.isDead())
             {
                 const MWWorld::Store<ESM::GameSetting>& gmst
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+                    = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
                 static const float fCorpseRespawnDelay = gmst.find("fCorpseRespawnDelay")->mValue.getFloat();
                 static const float fCorpseClearDelay = gmst.find("fCorpseClearDelay")->mValue.getFloat();
 
@@ -111,7 +111,7 @@ namespace MWClass
             if (it->mLevel > player.getClass().getCreatureStats(player).getLevel())
                 continue;
 
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
             MWWorld::ManualRef ref(store, it->mId);
             ref.getPtr().getClass().getModelsToPreload(ref.getPtr(), models);
         }
@@ -127,10 +127,10 @@ namespace MWClass
         if (!customData.mSpawn)
             return;
 
-        MWWorld::LiveCellRef<ESM::CreatureLevList>* ref = ptr.get<ESM::CreatureLevList>();
-
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
-        const ESM::RefId& id = MWMechanics::getLevelledItem(ref->mBase, true, prng);
+        const ESM::RefId& id = MWMechanics::getLevelledItem(
+            store.get<ESM::CreatureLevList>().find(ptr.getCellRef().getRefId()), true, prng);
 
         if (!id.empty())
         {
@@ -144,7 +144,6 @@ namespace MWClass
                 customData.mSpawnActorId = -1;
             }
 
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
             MWWorld::ManualRef manualRef(store, id);
             manualRef.getPtr().getCellRef().setPosition(ptr.getCellRef().getPosition());
             manualRef.getPtr().getCellRef().setScale(ptr.getCellRef().getScale());

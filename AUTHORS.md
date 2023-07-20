@@ -32,6 +32,7 @@ Programmers
     Andreas Stöckel
     Andrei Kortunov (akortunov)
     Andrew Appuhamy (andrew-app)
+    Andrzej Głuszak (agluszak)
     AnyOldName3
     Ardekantur
     Armin Preiml
@@ -58,8 +59,9 @@ Programmers
     Cory F. Cohen (cfcohen)
     Cris Mihalache (Mirceam)
     crussell187
-    DanielVukelich
+    Dan Vukelich (sanchezman)
     darkf
+    Dave Corley (S3ctor)
     David Cernat (davidcernat)
     Declan Millar (declan-millar)
     devnexen
@@ -101,6 +103,7 @@ Programmers
     Jacob Turnbull (Tankinfrank)
     Jake Westrip (16bitint)
     James Carty (MrTopCat)
+    James Deciutiis (JamesDeciutiis)
     James Moore (moore.work)
     James Stephens (james-h-stephens)
     Jan-Peter Nilsson (peppe)
@@ -157,6 +160,7 @@ Programmers
     Miroslav Puda (pakanek)
     MiroslavR
     Mitchell Schwitzer (schwitzerm)
+    Mitten.O
     naclander
     Narmo
     Nat Meo (Utopium)
@@ -200,6 +204,7 @@ Programmers
     Sergey Shambir (sergey-shambir)
     sergoz
     ShadowRadiance
+    Shihan42
     Siimacore
     Simon Meulenbeek (simonmb)
     sir_herrbatka
@@ -221,7 +226,7 @@ Programmers
     tlmullis
     tri4ng1e
     Thoronador
-    Tobias Tribble (zackogenic)
+    Tobias Tribble (zackhasacat)
     Tom Lowe (Vulpen)
     Tom Mason (wheybags)
     Torben Leif Carrington (TorbenC)

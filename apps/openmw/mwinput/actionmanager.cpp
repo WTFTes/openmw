@@ -15,13 +15,11 @@
 #include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
-#include "../mwworld/inventorystore.hpp"
+#include "../mwworld/globals.hpp"
 #include "../mwworld/player.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/npcstats.hpp"
-
-#include "../mwgui/messagebox.hpp"
 
 #include "actions.hpp"
 #include "bindingsmanager.hpp"
@@ -177,7 +175,7 @@ namespace MWInput
     void ActionManager::screenshot()
     {
         const std::string& settingStr = Settings::Manager::getString("screenshot type", "Video");
-        bool regularScreenshot = settingStr.size() == 0 || settingStr.compare("regular") == 0;
+        bool regularScreenshot = settingStr.empty() || settingStr == "regular";
 
         if (regularScreenshot)
         {
@@ -310,7 +308,7 @@ namespace MWInput
         if (!checkAllowedToUseItems())
             return;
 
-        if (MWBase::Environment::get().getWorld()->getGlobalFloat("chargenstate") != -1)
+        if (MWBase::Environment::get().getWorld()->getGlobalFloat(MWWorld::Globals::sCharGenState) != -1)
             return;
 
         if (!MWBase::Environment::get().getWindowManager()->isGuiMode())
@@ -325,7 +323,7 @@ namespace MWInput
             return;
         }
 
-        if (MWBase::Environment::get().getWorld()->getGlobalFloat("chargenstate") != -1)
+        if (MWBase::Environment::get().getWorld()->getGlobalFloat(MWWorld::Globals::sCharGenState) != -1)
             return;
 
         if (!checkAllowedToUseItems())

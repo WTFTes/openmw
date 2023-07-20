@@ -74,12 +74,6 @@ namespace Stereo
                 return false;
             }
 
-            if (!Settings::Manager::getBool("multiview", "Stereo"))
-            {
-                Log(Debug::Verbose) << "Disabling Multiview (disabled by config)";
-                return false;
-            }
-
             if (!getMultiviewSupported(contextID))
             {
                 return false;
@@ -94,6 +88,8 @@ namespace Stereo
             Log(Debug::Verbose) << "Enabling Multiview";
             return true;
         }
+
+        static bool sMultiview = false;
 
         bool getMultiview(unsigned int contextID)
         {
@@ -112,16 +108,25 @@ namespace Stereo
         return getMultiview(0);
     }
 
-    void configureExtensions(unsigned int contextID)
+    void configureExtensions(unsigned int contextID, bool enableMultiview)
     {
         getTextureViewSupported(contextID);
         getMultiviewSupported(contextID);
-        getMultiview(contextID);
+
+        if (enableMultiview)
+        {
+            sMultiview = getMultiview(contextID);
+        }
+        else
+        {
+            Log(Debug::Verbose) << "Disabling Multiview (disabled by config)";
+            sMultiview = false;
+        }
     }
 
-    void setVertexBufferHint()
+    void setVertexBufferHint(bool enableMultiview)
     {
-        if (getStereo() && Settings::Manager::getBool("multiview", "Stereo"))
+        if (getStereo() && enableMultiview)
         {
             auto* ds = osg::DisplaySettings::instance().get();
             if (!Settings::Manager::getBool("allow display lists for multiview", "Stereo")
@@ -238,6 +243,8 @@ namespace Stereo
         }
 
         osg::ref_ptr<osg::Texture2D> texture2d = new osg::Texture2D;
+        texture2d->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        texture2d->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
         texture2d->setSubloadCallback(new Texture2DViewSubloadCallback(textureArray, layer));
         texture2d->setTextureSize(textureArray->getTextureWidth(), textureArray->getTextureHeight());
         texture2d->setBorderColor(textureArray->getBorderColor());
@@ -424,12 +431,16 @@ namespace Stereo
                 auto tex = new osg::Texture2DMultisample();
                 tex->setTextureSize(width, height);
                 tex->setNumSamples(samples);
+                tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+                tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
                 return tex;
             }
             else
             {
                 auto tex = new osg::Texture2D();
                 tex->setTextureSize(width, height);
+                tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+                tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
                 return tex;
             }
         }
@@ -733,6 +744,20 @@ namespace Stereo
         , mMsaaFbo(msaaFbo)
         , mBlitMask(blitMask)
     {
+    }
+
+    void MultiviewFramebufferResolve::setResolveFbo(osg::FrameBufferObject* resolveFbo)
+    {
+        if (resolveFbo != mResolveFbo)
+            dirty();
+        mResolveFbo = resolveFbo;
+    }
+
+    void MultiviewFramebufferResolve::setMsaaFbo(osg::FrameBufferObject* msaaFbo)
+    {
+        if (msaaFbo != mMsaaFbo)
+            dirty();
+        mMsaaFbo = msaaFbo;
     }
 
     void MultiviewFramebufferResolve::resolveImplementation(osg::State& state)

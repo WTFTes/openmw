@@ -45,18 +45,29 @@ namespace MWGui
         {
         }
         virtual ~WorldItemModel() override {}
-        MWWorld::Ptr copyItem(const ItemStack& item, size_t count, bool /*allowAutoEquip*/) override
+
+        MWWorld::Ptr dropItemImpl(const ItemStack& item, size_t count, bool copy)
         {
             MWBase::World* world = MWBase::Environment::get().getWorld();
 
             MWWorld::Ptr dropped;
             if (world->canPlaceObject(mLeft, mTop))
-                dropped = world->placeObject(item.mBase, mLeft, mTop, count);
+                dropped = world->placeObject(item.mBase, mLeft, mTop, count, copy);
             else
-                dropped = world->dropObjectOnGround(world->getPlayerPtr(), item.mBase, count);
-            dropped.getCellRef().setOwner(ESM::RefId::sEmpty);
+                dropped = world->dropObjectOnGround(world->getPlayerPtr(), item.mBase, count, copy);
+            dropped.getCellRef().setOwner(ESM::RefId());
 
             return dropped;
+        }
+
+        MWWorld::Ptr addItem(const ItemStack& item, size_t count, bool /*allowAutoEquip*/) override
+        {
+            return dropItemImpl(item, count, false);
+        }
+
+        MWWorld::Ptr copyItem(const ItemStack& item, size_t count, bool /*allowAutoEquip*/) override
+        {
+            return dropItemImpl(item, count, true);
         }
 
         void removeItem(const ItemStack& item, size_t count) override
@@ -394,7 +405,7 @@ namespace MWGui
 
     void HUD::setSelectedSpell(const ESM::RefId& spellId, int successChancePercent)
     {
-        const ESM::Spell* spell = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().find(spellId);
+        const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().find(spellId);
 
         const std::string& spellName = spell->mName;
         if (spellName != mSpellName && mSpellVisible)
@@ -409,13 +420,14 @@ namespace MWGui
         mSpellStatus->setProgressPosition(successChancePercent);
 
         mSpellBox->setUserString("ToolTipType", "Spell");
-        mSpellBox->setUserString("Spell", spellId.getRefIdString());
+        mSpellBox->setUserString("Spell", spellId.serialize());
 
         // use the icon of the first effect
-        const ESM::MagicEffect* effect = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(
+        const ESM::MagicEffect* effect = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(
             spell->mEffects.mList.front().mEffectID);
 
         std::string icon = effect->mIcon;
+        std::replace(icon.begin(), icon.end(), '/', '\\');
         int slashPos = icon.rfind('\\');
         icon.insert(slashPos + 1, "b_");
         icon = Misc::ResourceHelpers::correctIconPath(icon, MWBase::Environment::get().getResourceSystem()->getVFS());
@@ -466,7 +478,7 @@ namespace MWGui
 
     void HUD::unsetSelectedSpell()
     {
-        std::string_view spellName = "#{sNone}";
+        std::string_view spellName = "#{Interface:None}";
         if (spellName != mSpellName && mSpellVisible)
         {
             mWeaponSpellTimer = 5.0f;
@@ -616,9 +628,8 @@ namespace MWGui
         mEnemyHealth->setProgressPosition(static_cast<size_t>(stats.getHealth().getRatio() * 100));
 
         static const float fNPCHealthBarFade = MWBase::Environment::get()
-                                                   .getWorld()
-                                                   ->getStore()
-                                                   .get<ESM::GameSetting>()
+                                                   .getESMStore()
+                                                   ->get<ESM::GameSetting>()
                                                    .find("fNPCHealthBarFade")
                                                    ->mValue.getFloat();
         if (fNPCHealthBarFade > 0.f)
@@ -629,9 +640,8 @@ namespace MWGui
     {
         mEnemyActorId = enemy.getClass().getCreatureStats(enemy).getActorId();
         mEnemyHealthTimer = MWBase::Environment::get()
-                                .getWorld()
-                                ->getStore()
-                                .get<ESM::GameSetting>()
+                                .getESMStore()
+                                ->get<ESM::GameSetting>()
                                 .find("fNPCHealthBarTime")
                                 ->mValue.getFloat();
         if (!mEnemyHealth->getVisible())

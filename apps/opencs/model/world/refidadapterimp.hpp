@@ -106,7 +106,7 @@ namespace CSMWorld
             = static_cast<const Record<RecordT>&>(data.getRecord(RefIdData::LocalIndex(index, mType)));
 
         if (column == mBase.mId)
-            return QString::fromUtf8(record.get().mId.getRefIdString().c_str());
+            return QString::fromStdString(record.get().mId.toString());
 
         if (column == mBase.mModified)
         {
@@ -431,14 +431,11 @@ namespace CSMWorld
     {
         UniversalId::Type mType;
 
-        // not implemented
-        IngredEffectRefIdAdapter(const IngredEffectRefIdAdapter&);
-        IngredEffectRefIdAdapter& operator=(const IngredEffectRefIdAdapter&);
-
     public:
         IngredEffectRefIdAdapter();
-
-        ~IngredEffectRefIdAdapter() override;
+        IngredEffectRefIdAdapter(const IngredEffectRefIdAdapter&) = delete;
+        IngredEffectRefIdAdapter& operator=(const IngredEffectRefIdAdapter&) = delete;
+        ~IngredEffectRefIdAdapter() override = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -942,7 +939,7 @@ namespace CSMWorld
     class NpcAttributesRefIdAdapter : public NestedRefIdAdapterBase
     {
     public:
-        NpcAttributesRefIdAdapter();
+        NpcAttributesRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -967,7 +964,7 @@ namespace CSMWorld
     class NpcSkillsRefIdAdapter : public NestedRefIdAdapterBase
     {
     public:
-        NpcSkillsRefIdAdapter();
+        NpcSkillsRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -991,12 +988,11 @@ namespace CSMWorld
 
     class NpcMiscRefIdAdapter : public NestedRefIdAdapterBase
     {
-        NpcMiscRefIdAdapter(const NpcMiscRefIdAdapter&);
-        NpcMiscRefIdAdapter& operator=(const NpcMiscRefIdAdapter&);
-
     public:
-        NpcMiscRefIdAdapter();
-        ~NpcMiscRefIdAdapter() override;
+        NpcMiscRefIdAdapter() = default;
+        NpcMiscRefIdAdapter(const NpcMiscRefIdAdapter&) = delete;
+        NpcMiscRefIdAdapter& operator=(const NpcMiscRefIdAdapter&) = delete;
+        ~NpcMiscRefIdAdapter() override = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -1021,7 +1017,7 @@ namespace CSMWorld
     class CreatureAttributesRefIdAdapter : public NestedRefIdAdapterBase
     {
     public:
-        CreatureAttributesRefIdAdapter();
+        CreatureAttributesRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -1046,7 +1042,7 @@ namespace CSMWorld
     class CreatureAttackRefIdAdapter : public NestedRefIdAdapterBase
     {
     public:
-        CreatureAttackRefIdAdapter();
+        CreatureAttackRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -1070,12 +1066,11 @@ namespace CSMWorld
 
     class CreatureMiscRefIdAdapter : public NestedRefIdAdapterBase
     {
-        CreatureMiscRefIdAdapter(const CreatureMiscRefIdAdapter&);
-        CreatureMiscRefIdAdapter& operator=(const CreatureMiscRefIdAdapter&);
-
     public:
-        CreatureMiscRefIdAdapter();
-        ~CreatureMiscRefIdAdapter() override;
+        CreatureMiscRefIdAdapter() = default;
+        CreatureMiscRefIdAdapter(const CreatureMiscRefIdAdapter&) = delete;
+        CreatureMiscRefIdAdapter& operator=(const CreatureMiscRefIdAdapter&) = delete;
+        ~CreatureMiscRefIdAdapter() override = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override;
 
@@ -1115,7 +1110,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~EffectsRefIdAdapter() {}
+        virtual ~EffectsRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -1191,7 +1186,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~NestedInventoryRefIdAdapter() {}
+        virtual ~NestedInventoryRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -1327,7 +1322,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~NestedSpellRefIdAdapter() {}
+        virtual ~NestedSpellRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -1449,7 +1444,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~NestedTravelRefIdAdapter() {}
+        virtual ~NestedTravelRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -1468,7 +1463,7 @@ namespace CSMWorld
 
             ESM::Transport::Dest newRow;
             newRow.mPos = newPos;
-            newRow.mCellName = ESM::RefId::sEmpty;
+            newRow.mCellName.clear();
 
             if (position >= (int)list.size())
                 list.push_back(newRow);
@@ -1533,7 +1528,7 @@ namespace CSMWorld
             switch (subColIndex)
             {
                 case 0:
-                    return QString::fromUtf8(content.mCellName.getRefIdString().c_str());
+                    return QString::fromUtf8(content.mCellName.c_str());
                 case 1:
                     return content.mPos.pos[0];
                 case 2:
@@ -1565,7 +1560,7 @@ namespace CSMWorld
             switch (subColIndex)
             {
                 case 0:
-                    list.at(subRowIndex).mCellName = ESM::RefId::stringRefId(value.toString().toUtf8().constData());
+                    list.at(subRowIndex).mCellName = value.toString().toUtf8().constData();
                     break;
                 case 1:
                     list.at(subRowIndex).mPos.pos[0] = value.toFloat();
@@ -1618,7 +1613,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~ActorAiRefIdAdapter() {}
+        virtual ~ActorAiRefIdAdapter() = default;
 
         // FIXME: should check if the AI package type is already in the list and use a default
         //        that wasn't used already (in extreme case do not add anything at all?
@@ -1974,7 +1969,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~BodyPartRefIdAdapter() {}
+        virtual ~BodyPartRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -1986,8 +1981,8 @@ namespace CSMWorld
 
             ESM::PartReference newPart;
             newPart.mPart = 0; // 0 == head
-            newPart.mMale = ESM::RefId::sEmpty;
-            newPart.mFemale = ESM::RefId::sEmpty;
+            newPart.mMale = ESM::RefId();
+            newPart.mFemale = ESM::RefId();
 
             if (position >= (int)list.size())
                 list.push_back(newPart);
@@ -2175,7 +2170,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~NestedListLevListRefIdAdapter() {}
+        virtual ~NestedListLevListRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -2332,7 +2327,7 @@ namespace CSMWorld
         {
         }
 
-        virtual ~NestedLevListRefIdAdapter() {}
+        virtual ~NestedLevListRefIdAdapter() = default;
 
         void addNestedRow(const RefIdColumn* column, RefIdData& data, int index, int position) const override
         {
@@ -2343,7 +2338,7 @@ namespace CSMWorld
             std::vector<ESM::LevelledListBase::LevelItem>& list = leveled.mList;
 
             ESM::LevelledListBase::LevelItem newItem;
-            newItem.mId = ESM::RefId::sEmpty;
+            newItem.mId = ESM::RefId();
             newItem.mLevel = 0;
 
             if (position >= (int)list.size())

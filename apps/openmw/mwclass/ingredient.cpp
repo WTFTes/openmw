@@ -12,6 +12,7 @@
 #include "../mwworld/actioneat.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/esmstore.hpp"
+#include "../mwworld/nullaction.hpp"
 #include "../mwworld/ptr.hpp"
 
 #include "../mwgui/tooltips.hpp"
@@ -56,7 +57,7 @@ namespace MWClass
         return defaultItemActivate(ptr, actor);
     }
 
-    const ESM::RefId& Ingredient::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Ingredient::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Ingredient>* ref = ptr.get<ESM::Ingredient>();
 
@@ -72,6 +73,8 @@ namespace MWClass
 
     std::unique_ptr<MWWorld::Action> Ingredient::use(const MWWorld::Ptr& ptr, bool force) const
     {
+        if (ptr.get<ESM::Ingredient>()->mBase->mData.mEffectID[0] < 0)
+            return std::make_unique<MWWorld::NullAction>();
         std::unique_ptr<MWWorld::Action> action = std::make_unique<MWWorld::ActionEat>(ptr);
 
         action->setSound(ESM::RefId::stringRefId("Swallow"));
@@ -123,9 +126,8 @@ namespace MWClass
         float alchemySkill = player.getClass().getSkill(player, ESM::Skill::Alchemy);
 
         static const float fWortChanceValue = MWBase::Environment::get()
-                                                  .getWorld()
-                                                  ->getStore()
-                                                  .get<ESM::GameSetting>()
+                                                  .getESMStore()
+                                                  ->get<ESM::GameSetting>()
                                                   .find("fWortChanceValue")
                                                   ->mValue.getFloat();
 

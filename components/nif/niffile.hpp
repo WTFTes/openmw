@@ -27,7 +27,10 @@ namespace Nif
         enum BethVersion
         {
             BETHVER_FO3 = 34, // Fallout 3
-            BETHVER_FO4 = 130 // Fallout 4
+            BETHVER_SKY = 83, // Skyrim
+            BETHVER_SSE = 100, // Skyrim SE
+            BETHVER_FO4 = 130, // Fallout 4
+            BETHVER_F76 = 155 // Fallout 76
         };
 
         /// File version, user version, Bethesda version
@@ -110,6 +113,7 @@ namespace Nif
         bool& mUseSkinning;
 
         static std::atomic_bool sLoadUnsupportedFiles;
+        static std::atomic_bool sWriteNifDebugLog;
 
         /// Get the file's version in a human readable form
         ///\returns A string containing a human readable NIF version number
@@ -145,6 +149,8 @@ namespace Nif
         unsigned int getBethVersion() const { return bethVer; }
 
         static void setLoadUnsupportedFiles(bool load);
+
+        static void setWriteNifDebugLog(bool load);
     };
     using NIFFilePtr = std::shared_ptr<const Nif::NIFFile>;
 

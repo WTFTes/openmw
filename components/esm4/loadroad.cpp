@@ -27,7 +27,6 @@
 #include "loadroad.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: for debugging only
 
 #include "formid.hpp" // FIXME: for workaround
 #include "reader.hpp"
@@ -35,7 +34,7 @@
 
 void ESM4::Road::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
     mParent = reader.currWorld();

@@ -128,7 +128,7 @@ namespace MWGui
         setTitle(actor.getClass().getName(actor));
 
         onFilterChanged(mFilterAll);
-        mFilterEdit->setCaption("");
+        mFilterEdit->setCaption({});
     }
 
     void TradeWindow::onFrame(float dt)
@@ -259,11 +259,11 @@ namespace MWGui
 
         if (amount > 0)
         {
-            store.add(MWWorld::ContainerStore::sGoldId, amount, actor);
+            store.add(MWWorld::ContainerStore::sGoldId, amount);
         }
         else
         {
-            store.remove(MWWorld::ContainerStore::sGoldId, -amount, actor);
+            store.remove(MWWorld::ContainerStore::sGoldId, -amount);
         }
     }
 
@@ -273,7 +273,7 @@ namespace MWGui
             = MWBase::Environment::get().getWindowManager()->getInventoryWindow()->getTradeModel();
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         if (mTotalBalance->getValue() == 0)
             mCurrentBalance = 0;

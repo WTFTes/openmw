@@ -20,6 +20,8 @@
 #include <components/fx/technique.hpp>
 #include <components/fx/widgets.hpp>
 
+#include <components/misc/utf8stream.hpp>
+
 #include <components/widgets/box.hpp>
 
 #include "../mwrender/postprocessor.hpp"
@@ -79,7 +81,7 @@ namespace MWGui
 
         mConfigLayout->setVisibleVScroll(true);
 
-        mConfigArea = mConfigLayout->createWidget<MyGUI::Widget>("", {}, MyGUI::Align::Default);
+        mConfigArea = mConfigLayout->createWidget<MyGUI::Widget>({}, {}, MyGUI::Align::Default);
 
         mConfigLayout->eventMouseWheel += MyGUI::newDelegate(this, &PostProcessorHud::notifyMouseWheel);
         mConfigArea->eventMouseWheel += MyGUI::newDelegate(this, &PostProcessorHud::notifyMouseWheel);
@@ -314,7 +316,7 @@ namespace MWGui
         std::string_view version = technique->getVersion().empty() ? NA : technique->getVersion();
         std::string_view description = technique->getDescription().empty() ? NA : technique->getDescription();
 
-        auto serializeBool = [](bool value) { return value ? "#{sYes}" : "#{sNo}"; };
+        auto serializeBool = [](bool value) { return value ? "#{Interface:Yes}" : "#{Interface:No}"; };
 
         const auto flags = technique->getFlags();
 
@@ -329,26 +331,22 @@ namespace MWGui
             case fx::Technique::Status::Uncompiled:
             {
                 if (technique->getDynamic())
-                    ss << "#{fontcolourhtml=header}#{PostProcessing:ShaderLocked}:      #{fontcolourhtml=normal} "
-                          "#{PostProcessing:ShaderLockedDescription}"
+                    ss << "#{fontcolourhtml=header}#{OMWShaders:ShaderLocked}:      #{fontcolourhtml=normal} "
+                          "#{OMWShaders:ShaderLockedDescription}"
                        << endl
                        << endl;
-                ss << "#{fontcolourhtml=header}#{PostProcessing:Author}:      #{fontcolourhtml=normal} " << author
+                ss << "#{fontcolourhtml=header}#{OMWShaders:Author}:      #{fontcolourhtml=normal} " << author << endl
+                   << endl
+                   << "#{fontcolourhtml=header}#{OMWShaders:Version}:     #{fontcolourhtml=normal} " << version << endl
+                   << endl
+                   << "#{fontcolourhtml=header}#{OMWShaders:Description}: #{fontcolourhtml=normal} " << description
                    << endl
                    << endl
-                   << "#{fontcolourhtml=header}#{PostProcessing:Version}:     #{fontcolourhtml=normal} " << version
-                   << endl
-                   << endl
-                   << "#{fontcolourhtml=header}#{PostProcessing:Description}: #{fontcolourhtml=normal} " << description
-                   << endl
-                   << endl
-                   << "#{fontcolourhtml=header}#{PostProcessing:InInteriors}: #{fontcolourhtml=normal} "
-                   << flag_interior
-                   << "#{fontcolourhtml=header}   #{PostProcessing:InExteriors}: #{fontcolourhtml=normal} "
-                   << flag_exterior
-                   << "#{fontcolourhtml=header}   #{PostProcessing:Underwater}: #{fontcolourhtml=normal} "
+                   << "#{fontcolourhtml=header}#{OMWShaders:InInteriors}: #{fontcolourhtml=normal} " << flag_interior
+                   << "#{fontcolourhtml=header}   #{OMWShaders:InExteriors}: #{fontcolourhtml=normal} " << flag_exterior
+                   << "#{fontcolourhtml=header}   #{OMWShaders:Underwater}: #{fontcolourhtml=normal} "
                    << flag_underwater
-                   << "#{fontcolourhtml=header}   #{PostProcessing:Abovewater}: #{fontcolourhtml=normal} "
+                   << "#{fontcolourhtml=header}   #{OMWShaders:Abovewater}: #{fontcolourhtml=normal} "
                    << flag_abovewater;
                 break;
             }
@@ -370,7 +368,7 @@ namespace MWGui
             {
                 MyGUI::Button* resetButton
                     = mConfigArea->createWidget<MyGUI::Button>("MW_Button", { 0, 0, 0, 24 }, MyGUI::Align::Default);
-                resetButton->setCaptionWithReplacing("#{PostProcessing:ResetShader}");
+                resetButton->setCaptionWithReplacing("#{OMWShaders:ResetShader}");
                 resetButton->setTextAlign(MyGUI::Align::Center);
                 resetButton->eventMouseWheel += MyGUI::newDelegate(this, &PostProcessorHud::notifyMouseWheel);
                 resetButton->eventMouseButtonClick
@@ -430,9 +428,14 @@ namespace MWGui
             if (!technique)
                 continue;
 
-            if (!technique->getHidden() && !processor->isTechniqueEnabled(technique)
-                && name.find(mFilter->getCaption()) != std::string::npos)
-                mInactiveList->addItem(name, technique);
+            if (!technique->getHidden() && !processor->isTechniqueEnabled(technique))
+            {
+                std::string lowerName = Utf8Stream::lowerCaseUtf8(name);
+                std::string lowerCaption = mFilter->getCaption();
+                lowerCaption = Utf8Stream::lowerCaseUtf8(lowerCaption);
+                if (lowerName.find(lowerCaption) != std::string::npos)
+                    mInactiveList->addItem(name, technique);
+            }
         }
 
         for (auto technique : processor->getTechniques())
@@ -442,6 +445,9 @@ namespace MWGui
         }
 
         auto tryFocus = [this](ListWrapper* widget, const std::string& hint) {
+            MyGUI::Widget* oldFocus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
+            if (oldFocus == mFilter)
+                return;
             size_t index = widget->findItemIndexWith(hint);
 
             if (index != MyGUI::ITEM_NONE)

@@ -8,11 +8,10 @@
 #include <components/esm3/loadmgef.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -48,23 +47,18 @@ namespace MWGui
         }
 
         int w = 2;
-
+        const auto& store = MWBase::Environment::get().getESMStore();
         for (const auto& [effectId, effectInfos] : effects)
         {
-            const ESM::MagicEffect* effect
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(effectId);
+            const ESM::MagicEffect* effect = store->get<ESM::MagicEffect>().find(effectId);
 
             float remainingDuration = 0;
             float totalDuration = 0;
 
             std::string sourcesDescription;
 
-            static const float fadeTime = MWBase::Environment::get()
-                                              .getWorld()
-                                              ->getStore()
-                                              .get<ESM::GameSetting>()
-                                              .find("fMagicStartIconBlink")
-                                              ->mValue.getFloat();
+            static const float fadeTime
+                = store->get<ESM::GameSetting>().find("fMagicStartIconBlink")->mValue.getFloat();
 
             bool addNewLine = false;
             for (const MagicEffectInfo& effectInfo : effectInfos)
@@ -88,17 +82,14 @@ namespace MWGui
 
                 if (effect->mData.mFlags & ESM::MagicEffect::TargetSkill)
                 {
-                    sourcesDescription += " (";
-                    sourcesDescription += MWBase::Environment::get().getWindowManager()->getGameSettingString(
-                        ESM::Skill::sSkillNameIds[effectInfo.mKey.mArg], {});
-                    sourcesDescription += ')';
+                    const ESM::Skill* skill
+                        = store->get<ESM::Skill>().find(ESM::Skill::indexToRefId(effectInfo.mKey.mArg));
+                    sourcesDescription += " (" + skill->mName + ')';
                 }
                 if (effect->mData.mFlags & ESM::MagicEffect::TargetAttribute)
                 {
-                    sourcesDescription += " (";
-                    sourcesDescription += MWBase::Environment::get().getWindowManager()->getGameSettingString(
-                        ESM::Attribute::sGmstAttributeIds[effectInfo.mKey.mArg], {});
-                    sourcesDescription += ')';
+                    const ESM::Attribute* attribute = store->get<ESM::Attribute>().find(effectInfo.mKey.mArg);
+                    sourcesDescription += " (" + attribute->mName + ')';
                 }
                 ESM::MagicEffect::MagnitudeDisplayType displayType = effect->getMagnitudeDisplayType();
                 if (displayType == ESM::MagicEffect::MDT_TimesInt)
@@ -144,7 +135,7 @@ namespace MWGui
                                 += MWBase::Environment::get().getWindowManager()->getGameSettingString("spoint", {});
                     }
                 }
-                if (effectInfo.mRemainingTime > -1 && Settings::Manager::getBool("show effect duration", "Game"))
+                if (effectInfo.mRemainingTime > -1 && Settings::game().mShowEffectDuration)
                     sourcesDescription
                         += MWGui::ToolTips::getDurationString(effectInfo.mRemainingTime, " #{sDuration}");
 
@@ -163,7 +154,7 @@ namespace MWGui
                     image->setImageTexture(Misc::ResourceHelpers::correctIconPath(
                         effect->mIcon, MWBase::Environment::get().getResourceSystem()->getVFS()));
 
-                    const std::string& name = ESM::MagicEffect::effectIdToString(effectId);
+                    const std::string& name = ESM::MagicEffect::indexToGmstString(effectId);
 
                     ToolTipInfo tooltipInfo;
                     tooltipInfo.caption = "#{" + name + "}";

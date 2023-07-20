@@ -6,6 +6,8 @@
 #include <type_traits>
 
 #include "components/esm/esmcommon.hpp"
+#include "components/esm/refid.hpp"
+
 #include "loadtes3.hpp"
 
 namespace ToUTF8
@@ -44,8 +46,10 @@ namespace ESM
         // Counts how many records we have actually written.
         // It is a good idea to compare this with the value you wrote into the header (setRecordCount)
         // It should be the record count you set + 1 (1 additional record for the TES3 header)
-        int getRecordCount() { return mRecordCount; }
-        void setFormat(int format);
+        int getRecordCount() const { return mRecordCount; }
+
+        FormatVersion getFormatVersion() const { return mHeader.mFormatVersion; }
+        void setFormatVersion(FormatVersion value);
 
         void clearMaster();
 
@@ -75,6 +79,31 @@ namespace ESM
             if (!data.empty())
                 writeHNCString(name, data);
         }
+
+        void writeHNRefId(NAME name, RefId value);
+
+        void writeHNRefId(NAME name, RefId value, std::size_t size);
+
+        void writeHNCRefId(NAME name, RefId value)
+        {
+            startSubRecord(name);
+            writeHCRefId(value);
+            endRecord(name);
+        }
+
+        void writeHNORefId(NAME name, RefId value)
+        {
+            if (!value.empty())
+                writeHNRefId(name, value);
+        }
+
+        void writeHNOCRefId(NAME name, RefId value)
+        {
+            if (!value.empty())
+                writeHNCRefId(name, value);
+        }
+
+        void writeCellId(const ESM::RefId& cellId);
 
         template <typename T>
         void writeHNT(NAME name, const T& data)
@@ -136,11 +165,21 @@ namespace ESM
         void startSubRecord(NAME name);
         void endRecord(NAME name);
         void endRecord(uint32_t name);
-        void writeFixedSizeString(const std::string& data, int size);
+        void writeMaybeFixedSizeString(const std::string& data, std::size_t size);
         int writeHString(const std::string& data, bool encode = true);
         void writeHCString(const std::string& data);
+
+        void writeMaybeFixedSizeRefId(RefId value, std::size_t size);
+
+        void writeHRefId(RefId refId);
+
+        void writeHCRefId(RefId refId);
+
         void writeName(NAME data);
+
         void write(const char* data, size_t size);
+
+        void writeFormId(const ESM::FormId&, bool wide = false, NAME tag = "FRMR");
 
     private:
         std::list<RecordData> mRecords;
@@ -151,6 +190,8 @@ namespace ESM
         bool mCounting;
 
         Header mHeader;
+
+        void writeRefId(RefId value);
     };
 }
 

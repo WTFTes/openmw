@@ -12,24 +12,21 @@
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/l10n/manager.hpp>
 
-#include <components/lua/utilpackage.hpp>
-
+#include <components/lua_ui/content.hpp>
 #include <components/lua_ui/util.hpp>
 
 #include "../mwbase/windowmanager.hpp"
 
 #include "../mwrender/postprocessor.hpp"
 
-#include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/scene.hpp"
 
-#include "debugbindings.hpp"
 #include "luabindings.hpp"
 #include "playerscripts.hpp"
 #include "types/types.hpp"
@@ -40,17 +37,16 @@ namespace MWLua
 
     static LuaUtil::LuaStateSettings createLuaStateSettings()
     {
-        if (!Settings::Manager::getBool("lua profiler", "Lua"))
+        if (!Settings::lua().mLuaProfiler)
             LuaUtil::LuaState::disableProfiler();
-        return { .mInstructionLimit = Settings::Manager::getUInt64("instruction limit per call", "Lua"),
-            .mMemoryLimit = Settings::Manager::getUInt64("memory limit", "Lua"),
-            .mSmallAllocMaxSize = Settings::Manager::getUInt64("small alloc max size", "Lua"),
-            .mLogMemoryUsage = Settings::Manager::getBool("log memory usage", "Lua") };
+        return { .mInstructionLimit = Settings::lua().mInstructionLimitPerCall,
+            .mMemoryLimit = Settings::lua().mMemoryLimit,
+            .mSmallAllocMaxSize = Settings::lua().mSmallAllocMaxSize,
+            .mLogMemoryUsage = Settings::lua().mLogMemoryUsage };
     }
 
     LuaManager::LuaManager(const VFS::Manager* vfs, const std::filesystem::path& libsDir)
         : mLua(vfs, &mConfiguration, createLuaStateSettings())
-        , mUiResourceManager(vfs)
     {
         Log(Debug::Info) << "Lua version: " << LuaUtil::getLuaVersion();
         mLua.addInternalLibSearchPath(libsDir);
@@ -65,7 +61,7 @@ namespace MWLua
 
     void LuaManager::initConfiguration()
     {
-        mConfiguration.init(MWBase::Environment::get().getWorld()->getStore().getLuaScriptsCfg());
+        mConfiguration.init(MWBase::Environment::get().getESMStore()->getLuaScriptsCfg());
         Log(Debug::Verbose) << "Lua scripts configuration (" << mConfiguration.size() << " scripts):";
         for (size_t i = 0; i < mConfiguration.size(); ++i)
             Log(Debug::Verbose) << "#" << i << " " << LuaUtil::scriptCfgToString(mConfiguration[i]);
@@ -79,36 +75,28 @@ namespace MWLua
         context.mLuaManager = this;
         context.mLua = &mLua;
         context.mWorldView = &mWorldView;
-        context.mLocalEventQueue = &mLocalEvents;
-        context.mGlobalEventQueue = &mGlobalEvents;
+        context.mLuaEvents = &mLuaEvents;
         context.mSerializer = mGlobalSerializer.get();
 
         Context localContext = context;
         localContext.mIsGlobal = false;
         localContext.mSerializer = mLocalSerializer.get();
 
-        initObjectBindingsForGlobalScripts(context);
-        initCellBindingsForGlobalScripts(context);
-        initObjectBindingsForLocalScripts(localContext);
-        initCellBindingsForLocalScripts(localContext);
-        LocalScripts::initializeSelfPackage(localContext);
+        for (const auto& [name, package] : initCommonPackages(context))
+            mLua.addCommonPackage(name, package);
+        for (const auto& [name, package] : initGlobalPackages(context))
+            mGlobalScripts.addPackage(name, package);
+
+        mLocalPackages = initLocalPackages(localContext);
+        mPlayerPackages = initPlayerPackages(localContext);
+        mPlayerPackages.insert(mLocalPackages.begin(), mLocalPackages.end());
+
         LuaUtil::LuaStorage::initLuaBindings(mLua.sol());
-
-        mLua.addCommonPackage("openmw.async", getAsyncPackageInitializer(context));
-        mLua.addCommonPackage("openmw.util", LuaUtil::initUtilPackage(mLua.sol()));
-        mLua.addCommonPackage("openmw.core", initCorePackage(context));
-        mLua.addCommonPackage("openmw.types", initTypesPackage(context));
-        mGlobalScripts.addPackage("openmw.world", initWorldPackage(context));
-        mGlobalScripts.addPackage("openmw.storage", initGlobalStoragePackage(context, &mGlobalStorage));
-
-        mCameraPackage = initCameraPackage(localContext);
-        mUserInterfacePackage = initUserInterfacePackage(localContext);
-        mInputPackage = initInputPackage(localContext);
-        mNearbyPackage = initNearbyPackage(localContext);
-        mLocalStoragePackage = initLocalStoragePackage(localContext, &mGlobalStorage);
-        mPlayerStoragePackage = initPlayerStoragePackage(localContext, &mGlobalStorage, &mPlayerStorage);
-        mPostprocessingPackage = initPostprocessingPackage(localContext);
-        mDebugPackage = initDebugPackage(localContext);
+        mGlobalScripts.addPackage(
+            "openmw.storage", LuaUtil::LuaStorage::initGlobalPackage(mLua.sol(), &mGlobalStorage));
+        mLocalPackages["openmw.storage"] = LuaUtil::LuaStorage::initLocalPackage(mLua.sol(), &mGlobalStorage);
+        mPlayerPackages["openmw.storage"]
+            = LuaUtil::LuaStorage::initPlayerPackage(mLua.sol(), &mGlobalStorage, &mPlayerStorage);
 
         initConfiguration();
         mInitialized = true;
@@ -132,10 +120,8 @@ namespace MWLua
 
     void LuaManager::update()
     {
-        static const bool luaDebug = Settings::Manager::getBool("lua debug", "Lua");
-        static const int gcStepCount = Settings::Manager::getInt("gc steps per frame", "Lua");
-        if (gcStepCount > 0)
-            lua_gc(mLua.sol(), LUA_GCSTEP, gcStepCount);
+        if (Settings::lua().mGcStepsPerFrame > 0)
+            lua_gc(mLua.sol(), LUA_GCSTEP, Settings::lua().mGcStepsPerFrame);
 
         if (mPlayer.isEmpty())
             return; // The game is not started yet.
@@ -144,7 +130,7 @@ namespace MWLua
 
         MWWorld::Ptr newPlayerPtr = MWBase::Environment::get().getWorld()->getPlayerPtr();
         if (!(getId(mPlayer) == getId(newPlayerPtr)))
-            throw std::logic_error("Player Refnum was changed unexpectedly");
+            throw std::logic_error("Player RefNum was changed unexpectedly");
         if (!mPlayer.isInCell() || !newPlayerPtr.isInCell() || mPlayer.getCell() != newPlayerPtr.getCell())
         {
             mPlayer = newPlayerPtr; // player was moved to another cell, update ptr in registry
@@ -153,14 +139,15 @@ namespace MWLua
 
         mWorldView.update();
 
+        std::erase_if(mActiveLocalScripts, [](const LocalScripts* l) {
+            return l->getPtrOrEmpty().isEmpty() || l->getPtrOrEmpty().getRefData().isDeleted();
+        });
+
         mGlobalScripts.statsNextFrame();
         for (LocalScripts* scripts : mActiveLocalScripts)
             scripts->statsNextFrame();
 
-        std::vector<GlobalEvent> globalEvents = std::move(mGlobalEvents);
-        std::vector<LocalEvent> localEvents = std::move(mLocalEvents);
-        mGlobalEvents = std::vector<GlobalEvent>();
-        mLocalEvents = std::vector<LocalEvent>();
+        mLuaEvents.finalizeEventBatch();
 
         if (!mWorldView.isPaused())
         { // Update time and process timers
@@ -173,80 +160,33 @@ namespace MWLua
                 scripts->processTimers(simulationTime, gameTime);
         }
 
-        // Receive events
-        for (GlobalEvent& e : globalEvents)
-            mGlobalScripts.receiveEvent(e.mEventName, e.mEventData);
-        for (LocalEvent& e : localEvents)
-        {
-            LObject obj(e.mDest);
-            LocalScripts* scripts = obj.isValid() ? obj.ptr().getRefData().getLuaScripts() : nullptr;
-            if (scripts)
-                scripts->receiveEvent(e.mEventName, e.mEventData);
-            else
-                Log(Debug::Debug) << "Ignored event " << e.mEventName << " to L" << idToString(e.mDest)
-                                  << ". Object not found or has no attached scripts";
-        }
+        // Run event handlers for events that were sent before `finalizeEventBatch`.
+        mLuaEvents.callEventHandlers();
 
         // Run queued callbacks
         for (CallbackWithData& c : mQueuedCallbacks)
             c.mCallback.tryCall(c.mArg);
         mQueuedCallbacks.clear();
 
-        // Engine handlers in local scripts
-        for (const LocalEngineEvent& e : mLocalEngineEvents)
-        {
-            LObject obj(e.mDest);
-            if (!obj.isValid())
-            {
-                if (luaDebug)
-                    Log(Debug::Verbose) << "Can not call engine handlers: object" << idToString(e.mDest)
-                                        << " is not found";
-                continue;
-            }
-            LocalScripts* scripts = obj.ptr().getRefData().getLuaScripts();
-            if (scripts)
-                scripts->receiveEngineEvent(e.mEvent);
-        }
-        mLocalEngineEvents.clear();
-
+        // Run engine handlers
+        mEngineEvents.callEngineHandlers();
         if (!mWorldView.isPaused())
         {
             for (LocalScripts* scripts : mActiveLocalScripts)
                 scripts->update(frameDuration);
-        }
-
-        // Engine handlers in global scripts
-        if (mPlayerChanged)
-        {
-            mPlayerChanged = false;
-            mGlobalScripts.playerAdded(GObject(getId(mPlayer)));
-        }
-        if (mNewGameStarted)
-        {
-            mNewGameStarted = false;
-            mGlobalScripts.newGameStarted();
-        }
-
-        for (ObjectId id : mObjectAddedEvents)
-        {
-            GObject obj(id);
-            if (obj.isValid())
-            {
-                mGlobalScripts.objectActive(obj);
-                const MWWorld::Class& objClass = obj.ptr().getClass();
-                if (objClass.isActor())
-                    mGlobalScripts.actorActive(obj);
-                if (mWorldView.isItem(obj.ptr()))
-                    mGlobalScripts.itemActive(obj);
-            }
-            else if (luaDebug)
-                Log(Debug::Verbose) << "Could not resolve a Lua object added event: object" << idToString(id)
-                                    << " is already removed";
-        }
-        mObjectAddedEvents.clear();
-
-        if (!mWorldView.isPaused())
             mGlobalScripts.update(frameDuration);
+        }
+    }
+
+    void LuaManager::questUpdated(const ESM::RefId& questId, int stage)
+    {
+        if (mPlayer.isEmpty())
+            return; // The game is not started yet.
+        PlayerScripts* playerScripts = dynamic_cast<PlayerScripts*>(mPlayer.getRefData().getLuaScripts());
+        if (playerScripts)
+        {
+            playerScripts->onQuestUpdate(questId.serializeText(), stage);
+        }
     }
 
     void LuaManager::synchronizedUpdate()
@@ -275,12 +215,12 @@ namespace MWLua
             windowManager->printToConsole(msg, "#" + color.toHex());
         mInGameConsoleMessages.clear();
 
-        for (std::unique_ptr<Action>& action : mActionQueue)
-            action->safeApply();
+        for (DelayedAction& action : mActionQueue)
+            action.apply();
         mActionQueue.clear();
 
         if (mTeleportPlayerAction)
-            mTeleportPlayerAction->safeApply();
+            mTeleportPlayerAction->apply();
         mTeleportPlayerAction.reset();
     }
 
@@ -291,13 +231,9 @@ namespace MWLua
         MWBase::Environment::get().getWindowManager()->setConsoleMode("");
         MWBase::Environment::get().getWorld()->getPostProcessor()->disableDynamicShaders();
         mActiveLocalScripts.clear();
-        mLocalEvents.clear();
-        mGlobalEvents.clear();
+        mLuaEvents.clear();
+        mEngineEvents.clear();
         mInputEvents.clear();
-        mObjectAddedEvents.clear();
-        mLocalEngineEvents.clear();
-        mNewGameStarted = false;
-        mPlayerChanged = false;
         mWorldView.clear();
         mGlobalScripts.removeAllScripts();
         mGlobalScriptsStarted = false;
@@ -309,6 +245,8 @@ namespace MWLua
         }
         mGlobalStorage.clearTemporaryAndRemoveCallbacks();
         mPlayerStorage.clearTemporaryAndRemoveCallbacks();
+        for (int i = 0; i < 5; ++i)
+            lua_gc(mLua.sol(), LUA_GCCOLLECT, 0);
     }
 
     void LuaManager::setupPlayer(const MWWorld::Ptr& ptr)
@@ -318,6 +256,7 @@ namespace MWLua
         if (!mPlayer.isEmpty())
             throw std::logic_error("Player is initialized twice");
         mWorldView.objectAddedToScene(ptr);
+        mWorldView.setPlayer(ptr);
         mPlayer = ptr;
         LocalScripts* localScripts = ptr.getRefData().getLuaScripts();
         if (!localScripts)
@@ -326,16 +265,15 @@ namespace MWLua
             localScripts->addAutoStartedScripts();
         }
         mActiveLocalScripts.insert(localScripts);
-        mLocalEngineEvents.push_back({ getId(ptr), LocalScripts::OnActive{} });
-        mPlayerChanged = true;
+        mEngineEvents.addToQueue(EngineEvents::OnActive{ getId(ptr) });
     }
 
     void LuaManager::newGameStarted()
     {
-        mNewGameStarted = true;
         mInputEvents.clear();
         mGlobalScripts.addAutoStartedScripts();
         mGlobalScriptsStarted = true;
+        mEngineEvents.addToQueue(EngineEvents::OnNewGame{});
     }
 
     void LuaManager::gameLoaded()
@@ -348,6 +286,7 @@ namespace MWLua
     void LuaManager::objectAddedToScene(const MWWorld::Ptr& ptr)
     {
         mWorldView.objectAddedToScene(ptr); // assigns generated RefNum if it is not set yet.
+        mEngineEvents.addToQueue(EngineEvents::OnActive{ getId(ptr) });
 
         LocalScripts* localScripts = ptr.getRefData().getLuaScripts();
         if (!localScripts)
@@ -361,13 +300,7 @@ namespace MWLua
             }
         }
         if (localScripts)
-        {
             mActiveLocalScripts.insert(localScripts);
-            mLocalEngineEvents.push_back({ getId(ptr), LocalScripts::OnActive{} });
-        }
-
-        if (ptr != mPlayer)
-            mObjectAddedEvents.push_back(getId(ptr));
     }
 
     void LuaManager::objectRemovedFromScene(const MWWorld::Ptr& ptr)
@@ -378,19 +311,8 @@ namespace MWLua
         {
             mActiveLocalScripts.erase(localScripts);
             if (!MWBase::Environment::get().getWorldModel()->getPtr(getId(ptr)).isEmpty())
-                mLocalEngineEvents.push_back({ getId(ptr), LocalScripts::OnInactive{} });
+                mEngineEvents.addToQueue(EngineEvents::OnInactive{ getId(ptr) });
         }
-    }
-
-    void LuaManager::itemConsumed(const MWWorld::Ptr& consumable, const MWWorld::Ptr& actor)
-    {
-        MWBase::Environment::get().getWorldModel()->registerPtr(consumable);
-        mLocalEngineEvents.push_back({ getId(actor), LocalScripts::OnConsume{ LObject(getId(consumable)) } });
-    }
-
-    void LuaManager::objectActivated(const MWWorld::Ptr& object, const MWWorld::Ptr& actor)
-    {
-        mLocalEngineEvents.push_back({ getId(object), LocalScripts::OnActivated{ LObject(getId(actor)) } });
     }
 
     MWBase::LuaManager::ActorControls* LuaManager::getActorControls(const MWWorld::Ptr& ptr) const
@@ -401,7 +323,7 @@ namespace MWLua
         return localScripts->getActorControls();
     }
 
-    void LuaManager::addCustomLocalScript(const MWWorld::Ptr& ptr, int scriptId)
+    void LuaManager::addCustomLocalScript(const MWWorld::Ptr& ptr, int scriptId, std::string_view initData)
     {
         LocalScripts* localScripts = ptr.getRefData().getLuaScripts();
         if (!localScripts)
@@ -411,7 +333,7 @@ namespace MWLua
             if (ptr.isInCell() && MWBase::Environment::get().getWorldScene()->isCellActive(*ptr.getCell()))
                 mActiveLocalScripts.insert(localScripts);
         }
-        localScripts->addCustomScript(scriptId);
+        localScripts->addCustomScript(scriptId, initData);
     }
 
     LocalScripts* LuaManager::createLocalScripts(
@@ -426,12 +348,8 @@ namespace MWLua
         {
             scripts = std::make_shared<PlayerScripts>(&mLua, LObject(getId(ptr)));
             scripts->setAutoStartConf(mConfiguration.getPlayerConf());
-            scripts->addPackage("openmw.ui", mUserInterfacePackage);
-            scripts->addPackage("openmw.camera", mCameraPackage);
-            scripts->addPackage("openmw.input", mInputPackage);
-            scripts->addPackage("openmw.storage", mPlayerStoragePackage);
-            scripts->addPackage("openmw.postprocessing", mPostprocessingPackage);
-            scripts->addPackage("openmw.debug", mDebugPackage);
+            for (const auto& [name, package] : mPlayerPackages)
+                scripts->addPackage(name, package);
         }
         else
         {
@@ -439,9 +357,9 @@ namespace MWLua
             if (!autoStartConf.has_value())
                 autoStartConf = mConfiguration.getLocalConf(type, ptr.getCellRef().getRefId(), getId(ptr));
             scripts->setAutoStartConf(std::move(*autoStartConf));
-            scripts->addPackage("openmw.storage", mLocalStoragePackage);
+            for (const auto& [name, package] : mLocalPackages)
+                scripts->addPackage(name, package);
         }
-        scripts->addPackage("openmw.nearby", mNearbyPackage);
         scripts->setSerializer(mLocalSerializer.get());
 
         MWWorld::RefData& refData = ptr.getRefData();
@@ -457,7 +375,7 @@ namespace MWLua
         ESM::LuaScripts globalScripts;
         mGlobalScripts.save(globalScripts);
         globalScripts.save(writer);
-        saveEvents(writer, mGlobalEvents, mLocalEvents);
+        mLuaEvents.save(writer);
 
         writer.endRecord(ESM::REC_LUAM);
     }
@@ -470,7 +388,7 @@ namespace MWLua
         mWorldView.load(reader);
         ESM::LuaScripts globalScripts;
         globalScripts.load(reader);
-        loadEvents(mLua.sol(), reader, mGlobalEvents, mLocalEvents, mContentFileMapping, mGlobalLoader.get());
+        mLuaEvents.load(mLua.sol(), reader, mContentFileMapping, mGlobalLoader.get());
 
         mGlobalScripts.setSavedDataDeserializer(mGlobalLoader.get());
         mGlobalScripts.load(globalScripts);
@@ -520,10 +438,11 @@ namespace MWLua
             mGlobalScripts.setSavedDataDeserializer(mGlobalSerializer.get());
             ESM::LuaScripts data;
             mGlobalScripts.save(data);
+            mGlobalStorage.clearTemporaryAndRemoveCallbacks();
             mGlobalScripts.load(data);
         }
 
-        for (const auto& [id, ptr] : MWBase::Environment::get().getWorldModel()->getAllPtrs())
+        for (const auto& [id, ptr] : MWBase::Environment::get().getWorldModel()->getPtrRegistryView())
         { // Reload local scripts
             LocalScripts* scripts = ptr.getRefData().getLuaScripts();
             if (scripts == nullptr)
@@ -534,7 +453,7 @@ namespace MWLua
             scripts->load(data);
         }
         for (LocalScripts* scripts : mActiveLocalScripts)
-            scripts->receiveEngineEvent(LocalScripts::OnActive());
+            scripts->setActive(true);
     }
 
     void LuaManager::handleConsoleCommand(
@@ -557,22 +476,23 @@ namespace MWLua
                 "No Lua handlers for console\n", MWBase::WindowManager::sConsoleColor_Error);
     }
 
-    LuaManager::Action::Action(LuaUtil::LuaState* state)
+    LuaManager::DelayedAction::DelayedAction(LuaUtil::LuaState* state, std::function<void()> fn, std::string_view name)
+        : mFn(std::move(fn))
+        , mName(name)
     {
-        static const bool luaDebug = Settings::Manager::getBool("lua debug", "Lua");
-        if (luaDebug)
+        if (Settings::lua().mLuaDebug)
             mCallerTraceback = state->debugTraceback();
     }
 
-    void LuaManager::Action::safeApply() const
+    void LuaManager::DelayedAction::apply() const
     {
         try
         {
-            apply();
+            mFn();
         }
         catch (const std::exception& e)
         {
-            Log(Debug::Error) << "Error in " << this->toString() << ": " << e.what();
+            Log(Debug::Error) << "Error in DelayedAction " << mName << ": " << e.what();
 
             if (mCallerTraceback.empty())
                 Log(Debug::Error) << "Set 'lua_debug=true' in settings.cfg to enable action tracebacks";
@@ -581,30 +501,14 @@ namespace MWLua
         }
     }
 
-    namespace
-    {
-        class FunctionAction final : public LuaManager::Action
-        {
-        public:
-            FunctionAction(LuaUtil::LuaState* state, std::function<void()> fn, std::string_view name)
-                : Action(state)
-                , mFn(std::move(fn))
-                , mName(name)
-            {
-            }
-
-            void apply() const override { mFn(); }
-            std::string toString() const override { return "FunctionAction " + mName; }
-
-        private:
-            std::function<void()> mFn;
-            std::string mName;
-        };
-    }
-
     void LuaManager::addAction(std::function<void()> action, std::string_view name)
     {
-        mActionQueue.push_back(std::make_unique<FunctionAction>(&mLua, std::move(action), name));
+        mActionQueue.emplace_back(&mLua, std::move(action), name);
+    }
+
+    void LuaManager::addTeleportPlayerAction(std::function<void()> action)
+    {
+        mTeleportPlayerAction = DelayedAction(&mLua, std::move(action), "TeleportPlayer");
     }
 
     void LuaManager::reportStats(unsigned int frameNumber, osg::Stats& stats) const
@@ -635,9 +539,11 @@ namespace MWLua
                 out << (bytes / (1024 * 1024 * 1024)) << " GB";
         };
 
-        static const uint64_t smallAllocSize = Settings::Manager::getUInt64("small alloc max size", "Lua");
+        const uint64_t smallAllocSize = Settings::lua().mSmallAllocMaxSize;
         out << "Total memory usage:";
         outMemSize(mLua.getTotalMemoryUsage());
+        out << "\n";
+        out << "LuaUtil::ScriptsContainer count: " << LuaUtil::ScriptsContainer::getInstanceCount() << "\n";
         out << "\n";
         out << "small alloc max size = " << smallAllocSize << " (section [Lua] in settings.cfg)\n";
         out << "Smaller values give more information for the profiler, but increase performance overhead.\n";
@@ -663,7 +569,7 @@ namespace MWLua
             selectedScripts = selectedPtr.getRefData().getLuaScripts();
             if (selectedScripts)
                 selectedScripts->collectStats(selectedStats);
-            out << "Profiled object (selected in the in-game console): " << ptrToString(selectedPtr) << "\n";
+            out << "Profiled object (selected in the in-game console): " << selectedPtr.toString() << "\n";
         }
         else
             out << "No selected object. Use the in-game console to select an object for detailed profile.\n";

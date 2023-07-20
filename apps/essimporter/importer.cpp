@@ -14,6 +14,7 @@
 #include <components/esm3/player.hpp>
 #include <components/esm3/savedgame.hpp>
 
+#include <components/esm3/cellid.hpp>
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadclot.hpp>
@@ -161,7 +162,7 @@ namespace ESSImport
         read(mOutFile, file2); // todo rename variable
 
         // FIXME: use max(size1, size2)
-        for (unsigned int i = 0; i < file1.mRecords.size(); ++i)
+        for (size_t i = 0; i < file1.mRecords.size(); ++i)
         {
             File::Record rec = file1.mRecords[i];
 
@@ -184,7 +185,7 @@ namespace ESSImport
             }
 
             // FIXME: use max(size1, size2)
-            for (unsigned int j = 0; j < rec.mSubrecords.size(); ++j)
+            for (size_t j = 0; j < rec.mSubrecords.size(); ++j)
             {
                 File::Subrecord sub = rec.mSubrecords[j];
 
@@ -220,7 +221,7 @@ namespace ESSImport
                               << std::hex << sub.mFileOffset << " (2) 0x" << sub2.mFileOffset << std::endl;
 
                     std::cout << "Data 1:" << std::endl;
-                    for (unsigned int k = 0; k < sub.mData.size(); ++k)
+                    for (size_t k = 0; k < sub.mData.size(); ++k)
                     {
                         bool different = false;
                         if (k >= sub2.mData.size() || sub2.mData[k] != sub.mData[k])
@@ -235,7 +236,7 @@ namespace ESSImport
                     std::cout << std::endl;
 
                     std::cout << "Data 2:" << std::endl;
-                    for (unsigned int k = 0; k < sub2.mData.size(); ++k)
+                    for (size_t k = 0; k < sub2.mData.size(); ++k)
                     {
                         bool different = false;
                         if (k >= sub.mData.size() || sub.mData[k] != sub2.mData[k])
@@ -347,7 +348,7 @@ namespace ESSImport
 
         ESM::ESMWriter writer;
 
-        writer.setFormat(ESM::SavedGame::sCurrentFormat);
+        writer.setFormatVersion(ESM::CurrentSaveGameFormatVersion);
 
         std::ofstream stream(mOutFile, std::ios::out | std::ios::binary);
         // all unused
@@ -373,7 +374,7 @@ namespace ESSImport
         profile.mInGameTime.mMonth = context.mMonth;
         profile.mInGameTime.mYear = context.mYear;
         profile.mTimePlayed = 0;
-        profile.mPlayerCell = ESM::RefId::stringRefId(header.mGameData.mCurrentCell.toString());
+        profile.mPlayerCellName = context.mPlayerCellName;
         if (context.mPlayerBase.mClass == "NEWCLASSID_CHARGEN")
             profile.mPlayerClassName = context.mCustomPlayerClassName;
         else
@@ -409,16 +410,11 @@ namespace ESSImport
         }
 
         writer.startRecord(ESM::REC_PLAY);
-        if (context.mPlayer.mCellId.mPaged)
-        {
-            // exterior cell -> determine cell coordinates based on position
-            int cellX
-                = static_cast<int>(std::floor(context.mPlayer.mObject.mPosition.pos[0] / Constants::CellSizeInUnits));
-            int cellY
-                = static_cast<int>(std::floor(context.mPlayer.mObject.mPosition.pos[1] / Constants::CellSizeInUnits));
-            context.mPlayer.mCellId.mIndex.mX = cellX;
-            context.mPlayer.mCellId.mIndex.mY = cellY;
-        }
+        ESM::CellId cellId = ESM::CellId::extractFromRefId(context.mPlayer.mCellId);
+        int cellX = static_cast<int>(std::floor(context.mPlayer.mObject.mPosition.pos[0] / Constants::CellSizeInUnits));
+        int cellY = static_cast<int>(std::floor(context.mPlayer.mObject.mPosition.pos[1] / Constants::CellSizeInUnits));
+
+        context.mPlayer.mCellId = ESM::Cell::generateIdForCell(cellId.mPaged, cellId.mWorldspace, cellX, cellY);
         context.mPlayer.save(writer);
         writer.endRecord(ESM::REC_PLAY);
 

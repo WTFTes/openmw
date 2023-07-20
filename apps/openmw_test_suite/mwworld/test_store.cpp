@@ -1,13 +1,29 @@
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <fstream>
+#include <span>
 
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/variables_map.hpp>
 
+#include <components/esm/defs.hpp>
 #include <components/esm/records.hpp>
+#include <components/esm/typetraits.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
+#include <components/esm3/typetraits.hpp>
+#include <components/esm4/common.hpp>
+#include <components/esm4/loadcell.hpp>
+#include <components/esm4/loadland.hpp>
+#include <components/esm4/loadligh.hpp>
+#include <components/esm4/loadrefr.hpp>
+#include <components/esm4/loadstat.hpp>
+#include <components/esm4/loadwrld.hpp>
+#include <components/esm4/reader.hpp>
+#include <components/esm4/readerutils.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/files/conversion.hpp>
 #include <components/loadinglistener/loadinglistener.hpp>
@@ -98,7 +114,7 @@ protected:
         if (!dataLocal.empty())
             dataDirs.insert(dataDirs.end(), dataLocal.begin(), dataLocal.end());
 
-        Files::Collections collections(dataDirs, true);
+        Files::Collections collections(dataDirs);
 
         std::vector<std::string> contentFiles = variables["content"].as<std::vector<std::string>>();
         for (auto& contentFile : contentFiles)
@@ -230,20 +246,21 @@ TEST_F(ContentFileTest, autocalc_test)
 */
 
 /// Base class for tests of ESMStore that do not rely on external content files
+template <class T>
 struct StoreTest : public ::testing::Test
 {
-protected:
-    MWWorld::ESMStore mEsmStore;
 };
+
+TYPED_TEST_SUITE_P(StoreTest);
 
 /// Create an ESM file in-memory containing the specified record.
 /// @param deleted Write record with deleted flag?
 template <typename T>
-std::unique_ptr<std::istream> getEsmFile(T record, bool deleted)
+std::unique_ptr<std::istream> getEsmFile(T record, bool deleted, ESM::FormatVersion formatVersion)
 {
     ESM::ESMWriter writer;
     auto stream = std::make_unique<std::stringstream>();
-    writer.setFormat(0);
+    writer.setFormatVersion(formatVersion);
     writer.save(*stream);
     writer.startRecord(T::sRecordId);
     record.save(writer, deleted);
@@ -252,74 +269,564 @@ std::unique_ptr<std::istream> getEsmFile(T record, bool deleted)
     return stream;
 }
 
-/// Tests deletion of records.
-TEST_F(StoreTest, delete_test)
+namespace
 {
-    const ESM::RefId recordId = ESM::RefId::stringRefId("foobar");
+    std::vector<ESM::FormatVersion> getFormats()
+    {
+        std::vector<ESM::FormatVersion> result({
+            ESM::DefaultFormatVersion,
+            ESM::CurrentContentFormatVersion,
+            ESM::MaxOldWeatherFormatVersion,
+            ESM::MaxOldDeathAnimationFormatVersion,
+            ESM::MaxOldForOfWarFormatVersion,
+            ESM::MaxWerewolfDeprecatedDataFormatVersion,
+            ESM::MaxOldTimeLeftFormatVersion,
+            ESM::MaxIntFallbackFormatVersion,
+            ESM::MaxClearModifiersFormatVersion,
+            ESM::MaxOldAiPackageFormatVersion,
+            ESM::MaxOldSkillsAndAttributesFormatVersion,
+            ESM::MaxOldCreatureStatsFormatVersion,
+            ESM::MaxStringRefIdFormatVersion,
+            ESM::MaxUseEsmCellIdFormatVersion,
+        });
+        for (ESM::FormatVersion v = result.back() + 1; v <= ESM::CurrentSaveGameFormatVersion; ++v)
+            result.push_back(v);
+        return result;
+    }
 
-    typedef ESM::Apparatus RecordType;
+    template <class T, class = std::void_t<>>
+    struct HasBlankFunction : std::false_type
+    {
+    };
 
-    RecordType record;
-    record.blank();
-    record.mId = recordId;
+    template <class T>
+    struct HasBlankFunction<T, std::void_t<decltype(std::declval<T>().blank())>> : std::true_type
+    {
+    };
 
-    ESM::ESMReader reader;
-    ESM::Dialogue* dialogue = nullptr;
+    template <class T>
+    constexpr bool hasBlankFunction = HasBlankFunction<T>::value;
+}
 
-    // master file inserts a record
-    reader.open(getEsmFile(record, false), "filename");
-    mEsmStore.load(reader, &dummyListener, dialogue);
-    mEsmStore.setUp();
+/// Tests deletion of records.
+TYPED_TEST_P(StoreTest, delete_test)
+{
+    using RecordType = TypeParam;
 
-    ASSERT_TRUE(mEsmStore.get<RecordType>().getSize() == 1);
+    for (const ESM::FormatVersion formatVersion : getFormats())
+    {
+        SCOPED_TRACE("FormatVersion: " + std::to_string(formatVersion));
+        const ESM::RefId recordId = ESM::RefId::stringRefId("foobar");
 
-    // now a plugin deletes it
-    reader.open(getEsmFile(record, true), "filename");
-    mEsmStore.load(reader, &dummyListener, dialogue);
-    mEsmStore.setUp();
+        RecordType record;
+        if constexpr (hasBlankFunction<RecordType>)
+            record.blank();
+        record.mId = recordId;
 
-    ASSERT_TRUE(mEsmStore.get<RecordType>().getSize() == 0);
+        ESM::ESMReader reader;
+        ESM::Dialogue* dialogue = nullptr;
 
-    // now another plugin inserts it again
-    // expected behaviour is the record to reappear rather than staying deleted
-    reader.open(getEsmFile(record, false), "filename");
-    mEsmStore.load(reader, &dummyListener, dialogue);
-    mEsmStore.setUp();
+        {
+            MWWorld::ESMStore esmStore;
+            reader.open(getEsmFile(record, false, formatVersion), "filename");
+            esmStore.load(reader, &dummyListener, dialogue); // master file inserts a record
+            esmStore.setUp();
 
-    ASSERT_TRUE(mEsmStore.get<RecordType>().getSize() == 1);
+            EXPECT_EQ(esmStore.get<RecordType>().getSize(), 1);
+        }
+        {
+            MWWorld::ESMStore esmStore;
+            reader.open(getEsmFile(record, false, formatVersion), "filename");
+            esmStore.load(reader, &dummyListener, dialogue); // master file inserts a record
+            reader.open(getEsmFile(record, true, formatVersion), "filename");
+            esmStore.load(reader, &dummyListener, dialogue); // now a plugin deletes it
+            esmStore.setUp();
+
+            EXPECT_EQ(esmStore.get<RecordType>().getSize(), 0);
+        }
+        {
+            MWWorld::ESMStore esmStore;
+            reader.open(getEsmFile(record, false, formatVersion), "filename");
+            esmStore.load(reader, &dummyListener, dialogue); // master file inserts a record
+            reader.open(getEsmFile(record, true, formatVersion), "filename");
+            esmStore.load(reader, &dummyListener, dialogue); // now a plugin deletes it
+            // now another plugin inserts it again
+            // expected behaviour is the record to reappear rather than staying deleted
+            reader.open(getEsmFile(record, false, formatVersion), "filename");
+            esmStore.load(reader, &dummyListener, dialogue);
+            esmStore.setUp();
+
+            EXPECT_EQ(esmStore.get<RecordType>().getSize(), 1);
+        }
+    }
+}
+
+template <typename T>
+static unsigned int hasSameRecordId(const MWWorld::Store<T>& store, ESM::RecNameInts RecName)
+{
+    if constexpr (MWWorld::HasRecordId<T>::value)
+    {
+        return T::sRecordId == RecName ? 1 : 0;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+template <typename T>
+static void testRecNameIntCount(const MWWorld::Store<T>& store, const MWWorld::ESMStore::StoreTuple& stores)
+{
+    if constexpr (MWWorld::HasRecordId<T>::value)
+    {
+        const unsigned int recordIdCount
+            = std::apply([](auto&&... x) { return (hasSameRecordId(x, T::sRecordId) + ...); }, stores);
+        ASSERT_EQ(recordIdCount, static_cast<unsigned int>(1))
+            << "The same RecNameInt is used twice ESM::REC_" << ESM::getRecNameString(T::sRecordId).toStringView();
+    }
+}
+
+static void testAllRecNameIntUnique(const MWWorld::ESMStore::StoreTuple& stores)
+{
+    std::apply([&stores](auto&&... x) { (testRecNameIntCount(x, stores), ...); }, stores);
+}
+
+TEST(StoreTest, eachRecordTypeShouldHaveUniqueRecordId)
+{
+    testAllRecNameIntUnique(MWWorld::ESMStore::StoreTuple());
 }
 
 /// Tests overwriting of records.
-TEST_F(StoreTest, overwrite_test)
+TYPED_TEST_P(StoreTest, overwrite_test)
 {
-    const ESM::RefId recordId = ESM::RefId::stringRefId("foobar");
-    const ESM::RefId recordIdUpper = ESM::RefId::stringRefId("Foobar");
+    using RecordType = TypeParam;
 
-    typedef ESM::Apparatus RecordType;
+    for (const ESM::FormatVersion formatVersion : getFormats())
+    {
+        SCOPED_TRACE("FormatVersion: " + std::to_string(formatVersion));
 
-    RecordType record;
-    record.blank();
-    record.mId = recordId;
+        const ESM::RefId recordId = ESM::RefId::stringRefId("foobar");
+        const ESM::RefId recordIdUpper = ESM::RefId::stringRefId("Foobar");
 
-    ESM::ESMReader reader;
-    ESM::Dialogue* dialogue = nullptr;
+        RecordType record;
+        if constexpr (hasBlankFunction<RecordType>)
+            record.blank();
+        record.mId = recordId;
 
-    // master file inserts a record
-    reader.open(getEsmFile(record, false), "filename");
-    mEsmStore.load(reader, &dummyListener, dialogue);
-    mEsmStore.setUp();
+        ESM::ESMReader reader;
+        ESM::Dialogue* dialogue = nullptr;
+        MWWorld::ESMStore esmStore;
 
-    // now a plugin overwrites it with changed data
-    record.mId = recordIdUpper; // change id to uppercase, to test case smashing while we're at it
-    record.mModel = "the_new_model";
-    reader.open(getEsmFile(record, false), "filename");
-    mEsmStore.load(reader, &dummyListener, dialogue);
-    mEsmStore.setUp();
+        // master file inserts a record
+        reader.open(getEsmFile(record, false, formatVersion), "filename");
+        esmStore.load(reader, &dummyListener, dialogue);
 
-    // verify that changes were actually applied
-    const RecordType* overwrittenRec = mEsmStore.get<RecordType>().search(recordId);
+        // now a plugin overwrites it with changed data
+        record.mId = recordIdUpper; // change id to uppercase, to test case smashing while we're at it
+        record.mModel = "the_new_model";
+        reader.open(getEsmFile(record, false, formatVersion), "filename");
+        esmStore.load(reader, &dummyListener, dialogue);
 
-    ASSERT_TRUE(overwrittenRec != nullptr);
+        esmStore.setUp();
 
-    ASSERT_TRUE(overwrittenRec && overwrittenRec->mModel == "the_new_model");
+        // verify that changes were actually applied
+        const RecordType* overwrittenRec = esmStore.get<RecordType>().search(recordId);
+
+        ASSERT_NE(overwrittenRec, nullptr);
+
+        EXPECT_EQ(overwrittenRec->mModel, "the_new_model");
+    }
+}
+
+namespace
+{
+    using namespace ::testing;
+
+    template <class T>
+    struct StoreSaveLoadTest : public Test
+    {
+    };
+
+    TYPED_TEST_SUITE_P(StoreSaveLoadTest);
+
+    TYPED_TEST_P(StoreSaveLoadTest, shouldNotChangeRefId)
+    {
+        using RecordType = TypeParam;
+
+        const int index = 3;
+        const std::string stringId = "foobar";
+        decltype(RecordType::mId) refId;
+        if constexpr (ESM::hasIndex<RecordType> && !std::is_same_v<RecordType, ESM::LandTexture>)
+            refId = RecordType::indexToRefId(index);
+        else if constexpr (std::is_same_v<RecordType, ESM::Cell>)
+        {
+            refId = ESM::RefId::esm3ExteriorCell(0, 0);
+        }
+        else
+            refId = ESM::StringRefId(stringId);
+
+        for (const ESM::FormatVersion formatVersion : getFormats())
+        {
+            SCOPED_TRACE("FormatVersion: " + std::to_string(formatVersion));
+
+            RecordType record;
+
+            if constexpr (hasBlankFunction<RecordType>)
+                record.blank();
+
+            record.mId = refId;
+
+            if constexpr (ESM::hasStringId<RecordType>)
+                record.mStringId = stringId;
+
+            if constexpr (ESM::hasIndex<RecordType>)
+                record.mIndex = index;
+
+            if constexpr (std::is_same_v<RecordType, ESM::Global>)
+                record.mValue = ESM::Variant(42);
+
+            ESM::ESMReader reader;
+            ESM::Dialogue* dialogue = nullptr;
+            MWWorld::ESMStore esmStore;
+
+            reader.open(getEsmFile(record, false, formatVersion), "filename");
+            ASSERT_NO_THROW(esmStore.load(reader, &dummyListener, dialogue));
+            esmStore.setUp();
+
+            const RecordType* result = nullptr;
+            if constexpr (std::is_same_v<RecordType, ESM::LandTexture>)
+                result = esmStore.get<RecordType>().search(index, 0);
+            else if constexpr (ESM::hasIndex<RecordType> && !std::is_same_v<RecordType, ESM::Skill>)
+                result = esmStore.get<RecordType>().search(index);
+            else
+                result = esmStore.get<RecordType>().search(refId);
+
+            ASSERT_NE(result, nullptr);
+            EXPECT_EQ(result->mId, refId);
+        }
+    }
+
+    static_assert(ESM::hasIndex<ESM::MagicEffect>);
+    static_assert(ESM::hasStringId<ESM::Dialogue>);
+
+    template <class T, class = std::void_t<>>
+    struct HasSaveFunction : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasSaveFunction<T, std::void_t<decltype(std::declval<T>().save(std::declval<ESM::ESMWriter&>(), bool()))>>
+        : std::true_type
+    {
+    };
+
+    template <class Head, class List>
+    struct ConcatTypes;
+
+    template <class Head, class... Ts>
+    struct ConcatTypes<Head, std::tuple<Ts...>>
+    {
+        using Type = std::tuple<Head, Ts...>;
+    };
+
+    template <template <class...> class Predicate, class Out, class... Ins>
+    struct FilterTypesImpl;
+
+    template <template <class...> class Predicate, class Out, class Head, class... Tail>
+    struct FilterTypesImpl<Predicate, Out, Head, Tail...>
+    {
+        using Type = typename FilterTypesImpl<Predicate,
+            std::conditional_t<Predicate<Head>::value, typename ConcatTypes<Head, Out>::Type, Out>, Tail...>::Type;
+    };
+
+    template <template <class...> class Predicate, class Out>
+    struct FilterTypesImpl<Predicate, Out>
+    {
+        using Type = Out;
+    };
+
+    template <template <class...> class Predicate, class List>
+    struct FilterTypes;
+
+    template <template <class...> class Predicate, class... Ts>
+    struct FilterTypes<Predicate, std::tuple<Ts...>>
+    {
+        using Type = typename FilterTypesImpl<Predicate, std::tuple<>, Ts...>::Type;
+    };
+
+    template <class... T>
+    struct ToRecordTypes;
+
+    template <class... T>
+    struct ToRecordTypes<std::tuple<MWWorld::Store<T>...>>
+    {
+        using Type = std::tuple<T...>;
+    };
+
+    template <class... T>
+    struct AsTestingTypes;
+
+    template <class... T>
+    struct AsTestingTypes<std::tuple<T...>>
+    {
+        using Type = Types<T...>;
+    };
+
+    using RecordTypes = typename ToRecordTypes<MWWorld::ESMStore::StoreTuple>::Type;
+    using RecordTypesWithId = typename FilterTypes<ESM::HasId, RecordTypes>::Type;
+    using RecordTypesWithSave = typename FilterTypes<HasSaveFunction, RecordTypesWithId>::Type;
+    using RecordTypesWithModel = typename FilterTypes<ESM::HasModel, RecordTypesWithSave>::Type;
+
+    REGISTER_TYPED_TEST_SUITE_P(StoreSaveLoadTest, shouldNotChangeRefId);
+
+    static_assert(std::tuple_size_v<RecordTypesWithSave> == 39);
+
+    INSTANTIATE_TYPED_TEST_SUITE_P(
+        RecordTypesTest, StoreSaveLoadTest, typename AsTestingTypes<RecordTypesWithSave>::Type);
+}
+
+REGISTER_TYPED_TEST_SUITE_P(StoreTest, overwrite_test, delete_test);
+
+static_assert(std::tuple_size_v<RecordTypesWithModel> == 19);
+
+INSTANTIATE_TYPED_TEST_SUITE_P(RecordTypesTest, StoreTest, typename AsTestingTypes<RecordTypesWithModel>::Type);
+
+namespace ESM
+{
+    inline std::ostream& operator<<(std::ostream& stream, const ESM::DialInfo& value)
+    {
+        return stream << "ESM::DialInfo{.mId = " << value.mId << "}";
+    }
+}
+
+namespace
+{
+    using namespace ::testing;
+
+    struct DialogueData
+    {
+        ESM::Dialogue mDialogue;
+        std::vector<ESM::DialInfo> mInfos;
+    };
+
+    DialogueData generateDialogueWithInfos(std::size_t infoCount)
+    {
+        DialogueData result;
+
+        result.mDialogue.blank();
+        result.mDialogue.mId = ESM::RefId::stringRefId("dialogue");
+        result.mDialogue.mStringId = "Dialogue";
+
+        for (std::size_t i = 0; i < infoCount; ++i)
+        {
+            ESM::DialInfo& info = result.mInfos.emplace_back();
+            info.blank();
+            info.mId = ESM::RefId::stringRefId("info" + std::to_string(i));
+        }
+
+        if (infoCount >= 2)
+        {
+            result.mInfos[0].mNext = result.mInfos[1].mId;
+            result.mInfos[infoCount - 1].mPrev = result.mInfos[infoCount - 2].mId;
+        }
+
+        for (std::size_t i = 1; i < infoCount - 1; ++i)
+        {
+            result.mInfos[i].mPrev = result.mInfos[i - 1].mId;
+            result.mInfos[i].mNext = result.mInfos[i + 1].mId;
+        }
+
+        return result;
+    }
+
+    std::unique_ptr<std::stringstream> saveDialogueWithInfos(
+        const ESM::Dialogue& dialogue, std::span<const ESM::DialInfo> infos)
+    {
+        auto stream = std::make_unique<std::stringstream>();
+
+        ESM::ESMWriter writer;
+        writer.setFormatVersion(ESM::CurrentSaveGameFormatVersion);
+        writer.save(*stream);
+
+        writer.startRecord(ESM::REC_DIAL);
+        dialogue.save(writer);
+        writer.endRecord(ESM::REC_DIAL);
+
+        for (const ESM::DialInfo& info : infos)
+        {
+            writer.startRecord(ESM::REC_INFO);
+            info.save(writer);
+            writer.endRecord(ESM::REC_INFO);
+        }
+
+        return stream;
+    }
+
+    void loadEsmStore(int index, std::unique_ptr<std::istream>&& stream, MWWorld::ESMStore& esmStore)
+    {
+        ESM::ESMReader reader;
+        ESM::Dialogue* dialogue = nullptr;
+
+        reader.setIndex(index);
+        reader.open(std::move(stream), "test");
+        esmStore.load(reader, &dummyListener, dialogue);
+    }
+
+    MATCHER_P(HasIdEqualTo, v, "")
+    {
+        return v == arg.mId;
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfos)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("info2")));
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosAndOrderWhenReversed)
+    {
+        DialogueData data = generateDialogueWithInfos(3);
+
+        std::reverse(data.mInfos.begin(), data.mInfos.end());
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("info2")));
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosInsertingNewRecordBasedOnPrev)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo newInfo;
+        newInfo.blank();
+        newInfo.mId = ESM::RefId::stringRefId("newInfo");
+        newInfo.mPrev = data.mInfos[1].mId;
+        newInfo.mNext = ESM::RefId::stringRefId("invalid");
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ newInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo,
+            ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("newInfo"), HasIdEqualTo("info2")));
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosInsertingNewRecordToFrontBasedOnEmptyPrev)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo newInfo;
+        newInfo.blank();
+        newInfo.mId = ESM::RefId::stringRefId("newInfo");
+        newInfo.mNext = ESM::RefId::stringRefId("invalid");
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ newInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo,
+            ElementsAre(HasIdEqualTo("newInfo"), HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("info2")));
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosInsertingNewRecordToBackWhenPrevIsNotFound)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo newInfo;
+        newInfo.blank();
+        newInfo.mId = ESM::RefId::stringRefId("newInfo");
+        newInfo.mPrev = ESM::RefId::stringRefId("invalid");
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ newInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo,
+            ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("info2"), HasIdEqualTo("newInfo")));
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosUpdatingExistingRecord)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo updatedInfo = data.mInfos[1];
+        updatedInfo.mActor = ESM::RefId::stringRefId("newActor");
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ updatedInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        ASSERT_EQ(dialogue->mInfo.size(), 3);
+        EXPECT_EQ(std::next(dialogue->mInfo.begin())->mActor, "newActor");
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosMovingForwardExistingRecordBasedOnPrev)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo updatedInfo = data.mInfos[0];
+        updatedInfo.mPrev = data.mInfos[2].mId;
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ updatedInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info1"), HasIdEqualTo("info2"), HasIdEqualTo("info0")));
+    }
+
+    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosMovingBackwardExistingRecordBasedOnPrev)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo updatedInfo = data.mInfos[2];
+        updatedInfo.mPrev = data.mInfos[0].mId;
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ updatedInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info2"), HasIdEqualTo("info1")));
+    }
 }

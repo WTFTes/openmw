@@ -95,7 +95,7 @@ bool CSVRender::Cell::addObjects(int start, int end)
 
     for (int i = start; i <= end; ++i)
     {
-        const auto& cellId = collection.getRecord(i).get().mCell;
+        const auto& cellId = ESM::RefId::stringRefId(collection.getRecord(i).get().mCell.toString());
 
         CSMWorld::RecordBase::State state = collection.getRecord(i).mState;
 
@@ -146,8 +146,8 @@ void CSVRender::Cell::updateLand()
             }
             else
             {
-                mTerrain = std::make_unique<Terrain::TerrainGrid>(
-                    mCellNode, mCellNode, mData.getResourceSystem().get(), mTerrainStorage, Mask_Terrain);
+                mTerrain = std::make_unique<Terrain::TerrainGrid>(mCellNode, mCellNode, mData.getResourceSystem().get(),
+                    mTerrainStorage, Mask_Terrain, ESM::Cell::sDefaultWorldspaceId);
             }
 
             mTerrain->loadCell(esmLand.mX, esmLand.mY);

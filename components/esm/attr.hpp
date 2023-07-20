@@ -26,13 +26,12 @@ namespace ESM
         };
 
         AttributeID mId;
-        std::string mName, mDescription;
+        std::string mName, mDescription, mIcon;
+        float mWerewolfValue{};
 
-        static const AttributeID sAttributeIds[Length];
         static const std::string sAttributeNames[Length];
-        static const std::string sGmstAttributeIds[Length];
-        static const std::string sGmstAttributeDescIds[Length];
-        static const std::string sAttributeIcons[Length];
+
+        static AttributeID stringToAttributeId(std::string_view attribute);
     };
 }
 #endif

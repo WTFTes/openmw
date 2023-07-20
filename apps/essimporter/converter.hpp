@@ -56,7 +56,7 @@ namespace ESSImport
         /// @return the order for writing this converter's records to the output file, in relation to other converters
         virtual int getStage() { return 1; }
 
-        virtual ~Converter() {}
+        virtual ~Converter() = default;
 
         void setContext(Context& context) { mContext = &context; }
 
@@ -213,7 +213,7 @@ namespace ESSImport
     public:
         void read(ESM::ESMReader& esm) override
         {
-            auto id = ESM::RefId::stringRefId(esm.getHNString("NAME"));
+            auto id = esm.getHNRefId("NAME");
             NPCC npcc;
             npcc.load(esm);
             if (id == "PlayerSaveGame")
@@ -249,7 +249,7 @@ namespace ESSImport
             {
                 ESM::InventoryState& invState = mContext->mPlayer.mObject.mInventory;
 
-                for (unsigned int i = 0; i < invState.mItems.size(); ++i)
+                for (size_t i = 0; i < invState.mItems.size(); ++i)
                 {
                     // FIXME: in case of conflict (multiple items with this refID) use the already equipped one?
                     if (invState.mItems[i].mRef.mRefID == ESM::RefId::stringRefId(refr.mActorData.mSelectedEnchantItem))
@@ -308,7 +308,7 @@ namespace ESSImport
     {
         void read(ESM::ESMReader& esm) override
         {
-            auto id = ESM::RefId::stringRefId(esm.getHNString("NAME"));
+            auto id = esm.getHNRefId("NAME");
             CNTC cntc;
             cntc.load(esm);
             mContext->mContainerChanges.insert(std::make_pair(std::make_pair(cntc.mIndex, id), cntc));
@@ -320,7 +320,7 @@ namespace ESSImport
     public:
         void read(ESM::ESMReader& esm) override
         {
-            auto id = ESM::RefId::stringRefId(esm.getHNString("NAME"));
+            auto id = esm.getHNRefId("NAME");
             CREC crec;
             crec.load(esm);
             mContext->mCreatureChanges.insert(std::make_pair(std::make_pair(crec.mIndex, id), crec));
@@ -351,7 +351,7 @@ namespace ESSImport
             std::vector<unsigned int> mFogOfWar;
         };
 
-        std::map<ESM::RefId, Cell> mIntCells;
+        std::map<std::string, Cell, Misc::StringUtils::CiComp> mIntCells;
         std::map<std::pair<int, int>, Cell> mExtCells;
 
         std::vector<ESM::CustomMarker> mMarkers;

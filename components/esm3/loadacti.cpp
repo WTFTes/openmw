@@ -44,7 +44,7 @@ namespace ESM
     }
     void Activator::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mId.getRefIdString());
+        esm.writeHNCRefId("NAME", mId);
 
         if (isDeleted)
         {
@@ -54,14 +54,14 @@ namespace ESM
 
         esm.writeHNCString("MODL", mModel);
         esm.writeHNOCString("FNAM", mName);
-        esm.writeHNOCString("SCRI", mScript.getRefIdString());
+        esm.writeHNOCRefId("SCRI", mScript);
     }
 
     void Activator::blank()
     {
         mRecordFlags = 0;
         mName.clear();
-        mScript = ESM::RefId::sEmpty;
+        mScript = ESM::RefId();
         mModel.clear();
     }
 }

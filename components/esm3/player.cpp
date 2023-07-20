@@ -11,7 +11,7 @@ namespace ESM
         mObject.mRef.loadId(esm, true);
         mObject.load(esm);
 
-        mCellId.load(esm);
+        mCellId = esm.getCellId();
 
         esm.getHNTSized<12>(mLastKnownExteriorPosition, "LKEP");
 
@@ -19,7 +19,7 @@ namespace ESM
         {
             mHasMark = true;
             esm.getHTSized<24>(mMarkedPosition);
-            mMarkedCell.load(esm);
+            mMarkedCell = esm.getCellId();
         }
         else
             mHasMark = false;
@@ -28,7 +28,7 @@ namespace ESM
         if (esm.isNextSub("AMOV"))
             esm.skipHSub();
 
-        mBirthsign = ESM::RefId::stringRefId(esm.getHNString("SIGN"));
+        mBirthsign = esm.getHNRefId("SIGN");
 
         mCurrentCrimeId = -1;
         esm.getHNOT(mCurrentCrimeId, "CURD");
@@ -38,8 +38,8 @@ namespace ESM
         bool checkPrevItems = true;
         while (checkPrevItems)
         {
-            ESM::RefId boundItemId = ESM::RefId::stringRefId(esm.getHNOString("BOUN"));
-            ESM::RefId prevItemId = ESM::RefId::stringRefId(esm.getHNOString("PREV"));
+            ESM::RefId boundItemId = esm.getHNORefId("BOUN");
+            ESM::RefId prevItemId = esm.getHNORefId("PREV");
 
             if (!boundItemId.empty())
                 mPreviousItems[boundItemId] = prevItemId;
@@ -47,10 +47,11 @@ namespace ESM
                 checkPrevItems = false;
         }
 
-        if (esm.getFormat() < 19)
+        if (esm.getFormatVersion() <= MaxOldSkillsAndAttributesFormatVersion)
         {
-            bool intFallback = esm.getFormat() < 11;
-            bool clearModified = esm.getFormat() < 17 && !mObject.mNpcStats.mIsWerewolf;
+            const bool intFallback = esm.getFormatVersion() <= MaxIntFallbackFormatVersion;
+            const bool clearModified
+                = esm.getFormatVersion() <= MaxClearModifiersFormatVersion && !mObject.mNpcStats.mIsWerewolf;
             if (esm.hasMoreSubs())
             {
                 for (int i = 0; i < Attribute::Length; ++i)
@@ -72,7 +73,8 @@ namespace ESM
                     mSaveSkills[i] = skill.mBase + skill.mMod - skill.mDamage;
                     if (mObject.mNpcStats.mIsWerewolf)
                     {
-                        if (i == Skill::Acrobatics)
+                        constexpr int Acrobatics = 20;
+                        if (i == Acrobatics)
                             mSetWerewolfAcrobatics = mObject.mNpcStats.mSkills[i].mBase != skill.mBase;
                         mObject.mNpcStats.mSkills[i] = skill;
                     }
@@ -91,25 +93,25 @@ namespace ESM
     {
         mObject.save(esm);
 
-        mCellId.save(esm);
+        esm.writeCellId(mCellId);
 
         esm.writeHNT("LKEP", mLastKnownExteriorPosition);
 
         if (mHasMark)
         {
             esm.writeHNT("MARK", mMarkedPosition, 24);
-            mMarkedCell.save(esm);
+            esm.writeCellId(mMarkedCell);
         }
 
-        esm.writeHNString("SIGN", mBirthsign.getRefIdString());
+        esm.writeHNRefId("SIGN", mBirthsign);
 
         esm.writeHNT("CURD", mCurrentCrimeId);
         esm.writeHNT("PAYD", mPaidCrimeId);
 
         for (PreviousItems::const_iterator it = mPreviousItems.begin(); it != mPreviousItems.end(); ++it)
         {
-            esm.writeHNString("BOUN", it->first.getRefIdString());
-            esm.writeHNString("PREV", it->second.getRefIdString());
+            esm.writeHNRefId("BOUN", it->first);
+            esm.writeHNRefId("PREV", it->second);
         }
 
         esm.writeHNT("WWAT", mSaveAttributes);

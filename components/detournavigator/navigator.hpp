@@ -8,6 +8,7 @@
 #include "objecttransform.hpp"
 #include "recastmeshtiles.hpp"
 #include "sharednavmeshcacheitem.hpp"
+#include "updateguard.hpp"
 #include "waitconditiontype.hpp"
 
 #include <components/resource/bulletshape.hpp>
@@ -16,7 +17,7 @@ namespace ESM
 {
     struct Cell;
     struct Pathgrid;
-    struct RefId;
+    class RefId;
 }
 
 namespace Loading
@@ -58,8 +59,6 @@ namespace DetourNavigator
         }
     };
 
-    class UpdateGuard;
-
     /**
      * @brief Top level interface of detournavigator component. Navigator allows to build a scene with navmesh and find
      * a path for an agent there. Scene contains agents, geometry objects and water. Agent are distinguished only by
@@ -71,14 +70,15 @@ namespace DetourNavigator
     {
         virtual ~Navigator() = default;
 
-        virtual std::unique_ptr<const UpdateGuard> makeUpdateGuard() = 0;
+        virtual ScopedUpdateGuard makeUpdateGuard() = 0;
 
         /**
          * @brief addAgent should be called for each agent even if all of them has same half extents.
          * @param agentBounds allows to setup bounding cylinder for each agent, for each different half extents
          * there is different navmesh.
+         * @return true if agent is successfully added or false if agent bounds are not supported.
          */
-        virtual void addAgent(const AgentBounds& agentBounds) = 0;
+        virtual bool addAgent(const AgentBounds& agentBounds) = 0;
 
         /**
          * @brief removeAgent should be called for each agent even if all of them has same half extents
@@ -90,7 +90,7 @@ namespace DetourNavigator
          * @brief setWorldspace should be called before adding object from new worldspace
          * @param worldspace
          */
-        virtual void setWorldspace(const ESM::RefId& worldspace, const UpdateGuard* guard) = 0;
+        virtual void setWorldspace(std::string_view worldspace, const UpdateGuard* guard) = 0;
 
         /**
          * @brief updateBounds should be called before adding object from loading cell

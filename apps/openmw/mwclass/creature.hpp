@@ -80,7 +80,7 @@ namespace MWClass
 
         bool hasInventoryStore(const MWWorld::Ptr& ptr) const override;
 
-        const ESM::RefId& getScript(const MWWorld::ConstPtr& ptr) const override;
+        ESM::RefId getScript(const MWWorld::ConstPtr& ptr) const override;
         ///< Return name of the script attached to ptr
 
         float getCapacity(const MWWorld::Ptr& ptr) const override;
@@ -97,7 +97,7 @@ namespace MWClass
 
         bool isPersistent(const MWWorld::ConstPtr& ptr) const override;
 
-        const ESM::RefId& getSoundIdFromSndGen(const MWWorld::Ptr& ptr, std::string_view name) const override;
+        ESM::RefId getSoundIdFromSndGen(const MWWorld::Ptr& ptr, std::string_view name) const override;
 
         MWMechanics::Movement& getMovementSettings(const MWWorld::Ptr& ptr) const override;
         ///< Return desired movement.
@@ -115,7 +115,7 @@ namespace MWClass
         bool canSwim(const MWWorld::ConstPtr& ptr) const override;
         bool canWalk(const MWWorld::ConstPtr& ptr) const override;
 
-        float getSkill(const MWWorld::Ptr& ptr, int skill) const override;
+        float getSkill(const MWWorld::Ptr& ptr, ESM::RefId id) const override;
 
         /// Get a blood texture suitable for \a ptr (see Blood Texture 0-2 in Morrowind.ini)
         int getBloodTexture(const MWWorld::ConstPtr& ptr) const override;

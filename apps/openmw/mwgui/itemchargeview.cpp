@@ -10,7 +10,8 @@
 #include <components/esm3/loadench.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
+
+#include "../mwmechanics/spellutil.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -194,13 +195,13 @@ namespace MWGui
                 if (enchId.empty())
                     break;
                 const ESM::Enchantment* ench
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().search(enchId);
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().search(enchId);
                 if (!ench)
                     break;
 
                 line.mCharge->setVisible(true);
-                line.mCharge->setValue(
-                    static_cast<int>(line.mItemPtr.getCellRef().getEnchantmentCharge()), ench->mData.mCharge);
+                line.mCharge->setValue(static_cast<int>(line.mItemPtr.getCellRef().getEnchantmentCharge()),
+                    MWMechanics::getEnchantmentCharge(*ench));
                 break;
         }
     }

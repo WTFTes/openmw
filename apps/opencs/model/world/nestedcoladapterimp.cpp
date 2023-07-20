@@ -25,8 +25,6 @@
 
 namespace CSMWorld
 {
-    PathgridPointListAdapter::PathgridPointListAdapter() {}
-
     void PathgridPointListAdapter::addRow(Record<Pathgrid>& record, int position) const
     {
         Pathgrid pathgrid = record.get();
@@ -135,8 +133,6 @@ namespace CSMWorld
         return static_cast<int>(record.get().mPoints.size());
     }
 
-    PathgridEdgeListAdapter::PathgridEdgeListAdapter() {}
-
     void PathgridEdgeListAdapter::addRow(Record<Pathgrid>& record, int position) const
     {
         Pathgrid pathgrid = record.get();
@@ -200,9 +196,9 @@ namespace CSMWorld
             case 0:
                 return subRowIndex;
             case 1:
-                return edge.mV0;
+                return static_cast<uint>(edge.mV0);
             case 2:
-                return edge.mV1;
+                return static_cast<uint>(edge.mV1);
             default:
                 throw std::runtime_error("Pathgrid edge subcolumn index out of range");
         }
@@ -246,8 +242,6 @@ namespace CSMWorld
         return static_cast<int>(record.get().mEdges.size());
     }
 
-    FactionReactionsAdapter::FactionReactionsAdapter() {}
-
     void FactionReactionsAdapter::addRow(Record<ESM::Faction>& record, int position) const
     {
         ESM::Faction faction = record.get();
@@ -255,7 +249,7 @@ namespace CSMWorld
         std::map<ESM::RefId, int>& reactions = faction.mReactions;
 
         // blank row
-        reactions.insert(std::make_pair(ESM::RefId::sEmpty, 0));
+        reactions.insert(std::make_pair(ESM::RefId(), 0));
 
         record.setModified(faction);
     }
@@ -372,8 +366,6 @@ namespace CSMWorld
         return static_cast<int>(record.get().mReactions.size());
     }
 
-    RegionSoundListAdapter::RegionSoundListAdapter() {}
-
     void RegionSoundListAdapter::addRow(Record<ESM::Region>& record, int position) const
     {
         ESM::Region region = record.get();
@@ -382,7 +374,7 @@ namespace CSMWorld
 
         // blank row
         ESM::Region::SoundRef soundRef;
-        soundRef.mSound = ESM::RefId::sEmpty;
+        soundRef.mSound = ESM::RefId();
         soundRef.mChance = 0;
 
         soundList.insert(soundList.begin() + position, soundRef);
@@ -479,8 +471,6 @@ namespace CSMWorld
         return static_cast<int>(record.get().mSoundList.size());
     }
 
-    InfoListAdapter::InfoListAdapter() {}
-
     void InfoListAdapter::addRow(Record<Info>& record, int position) const
     {
         throw std::logic_error("cannot add a row to a fixed table");
@@ -532,8 +522,6 @@ namespace CSMWorld
     {
         return 1; // fixed at size 1
     }
-
-    InfoConditionAdapter::InfoConditionAdapter() {}
 
     void InfoConditionAdapter::addRow(Record<Info>& record, int position) const
     {
@@ -722,8 +710,6 @@ namespace CSMWorld
         return static_cast<int>(record.get().mSelects.size());
     }
 
-    RaceAttributeAdapter::RaceAttributeAdapter() {}
-
     void RaceAttributeAdapter::addRow(Record<ESM::Race>& record, int position) const
     {
         // Do nothing, this table cannot be changed by the user
@@ -807,8 +793,6 @@ namespace CSMWorld
         return ESM::Attribute::Length; // there are 8 attributes
     }
 
-    RaceSkillsBonusAdapter::RaceSkillsBonusAdapter() {}
-
     void RaceSkillsBonusAdapter::addRow(Record<ESM::Race>& record, int position) const
     {
         // Do nothing, this table cannot be changed by the user
@@ -841,8 +825,7 @@ namespace CSMWorld
     {
         ESM::Race race = record.get();
 
-        if (subRowIndex < 0
-            || subRowIndex >= static_cast<int>(sizeof(race.mData.mBonus) / sizeof(race.mData.mBonus[0])))
+        if (subRowIndex < 0 || static_cast<size_t>(subRowIndex) >= race.mData.mBonus.size())
             throw std::runtime_error("index out of range");
 
         switch (subColIndex)
@@ -861,8 +844,7 @@ namespace CSMWorld
     {
         ESM::Race race = record.get();
 
-        if (subRowIndex < 0
-            || subRowIndex >= static_cast<int>(sizeof(race.mData.mBonus) / sizeof(race.mData.mBonus[0])))
+        if (subRowIndex < 0 || static_cast<size_t>(subRowIndex) >= race.mData.mBonus.size())
             throw std::runtime_error("index out of range");
 
         switch (subColIndex)
@@ -887,11 +869,8 @@ namespace CSMWorld
 
     int RaceSkillsBonusAdapter::getRowsCount(const Record<ESM::Race>& record) const
     {
-        // there are 7 skill bonuses
-        return static_cast<int>(sizeof(record.get().mData.mBonus) / sizeof(record.get().mData.mBonus[0]));
+        return record.get().mData.mBonus.size();
     }
-
-    CellListAdapter::CellListAdapter() {}
 
     void CellListAdapter::addRow(Record<CSMWorld::Cell>& record, int position) const
     {
@@ -1064,8 +1043,6 @@ namespace CSMWorld
         return 1; // fixed at size 1
     }
 
-    RegionWeatherAdapter::RegionWeatherAdapter() {}
-
     void RegionWeatherAdapter::addRow(Record<ESM::Region>& record, int position) const
     {
         throw std::logic_error("cannot add a row to a fixed table");
@@ -1187,8 +1164,6 @@ namespace CSMWorld
         return 10;
     }
 
-    FactionRanksAdapter::FactionRanksAdapter() {}
-
     void FactionRanksAdapter::addRow(Record<ESM::Faction>& record, int position) const
     {
         throw std::logic_error("cannot add a row to a fixed table");
@@ -1211,13 +1186,9 @@ namespace CSMWorld
 
     QVariant FactionRanksAdapter::getData(const Record<ESM::Faction>& record, int subRowIndex, int subColIndex) const
     {
-        ESM::Faction faction = record.get();
+        const ESM::Faction& faction = record.get();
 
-        if (subRowIndex < 0
-            || subRowIndex >= static_cast<int>(sizeof(faction.mData.mRankData) / sizeof(faction.mData.mRankData[0])))
-            throw std::runtime_error("index out of range");
-
-        auto& rankData = faction.mData.mRankData[subRowIndex];
+        const auto& rankData = faction.mData.mRankData.at(subRowIndex);
 
         switch (subColIndex)
         {
@@ -1243,11 +1214,7 @@ namespace CSMWorld
     {
         ESM::Faction faction = record.get();
 
-        if (subRowIndex < 0
-            || subRowIndex >= static_cast<int>(sizeof(faction.mData.mRankData) / sizeof(faction.mData.mRankData[0])))
-            throw std::runtime_error("index out of range");
-
-        auto& rankData = faction.mData.mRankData[subRowIndex];
+        auto& rankData = faction.mData.mRankData.at(subRowIndex);
 
         switch (subColIndex)
         {

@@ -24,6 +24,30 @@ namespace MWMechanics
     class SpellList;
 }
 
+namespace ESM4
+{
+    class Reader;
+    struct Static;
+    struct Cell;
+    struct Light;
+    struct Reference;
+    struct Activator;
+    struct Potion;
+    struct Ammunition;
+    struct Armor;
+    struct Book;
+    struct Clothing;
+    struct Container;
+    struct Door;
+    struct Furniture;
+    struct Ingredient;
+    struct MiscItem;
+    struct Tree;
+    struct Weapon;
+    struct World;
+    struct Land;
+}
+
 namespace ESM
 {
     class ReadersCache;
@@ -78,7 +102,7 @@ namespace MWWorld
     class ESMStore
     {
         friend struct ESMStoreImp; // This allows StoreImp to extend esmstore without beeing included everywhere
-
+    public:
         using StoreTuple = std::tuple<Store<ESM::Activator>, Store<ESM::Potion>, Store<ESM::Apparatus>,
             Store<ESM::Armor>, Store<ESM::BodyPart>, Store<ESM::Book>, Store<ESM::BirthSign>, Store<ESM::Class>,
             Store<ESM::Clothing>, Store<ESM::Container>, Store<ESM::Creature>, Store<ESM::Dialogue>, Store<ESM::Door>,
@@ -95,8 +119,14 @@ namespace MWWorld
             Store<ESM::MagicEffect>, Store<ESM::Skill>,
 
             // Special entry which is hardcoded and not loaded from an ESM
-            Store<ESM::Attribute>>;
+            Store<ESM::Attribute>,
 
+            Store<ESM4::Static>, Store<ESM4::Cell>, Store<ESM4::Light>, Store<ESM4::Reference>, Store<ESM4::Activator>,
+            Store<ESM4::Potion>, Store<ESM4::Ammunition>, Store<ESM4::Armor>, Store<ESM4::Book>, Store<ESM4::Clothing>,
+            Store<ESM4::Container>, Store<ESM4::Door>, Store<ESM4::Ingredient>, Store<ESM4::MiscItem>,
+            Store<ESM4::Tree>, Store<ESM4::Weapon>, Store<ESM4::World>, Store<ESM4::Furniture>, Store<ESM4::Land>>;
+
+    private:
         template <typename T>
         static constexpr std::size_t getTypeIndex()
         {
@@ -135,6 +165,8 @@ namespace MWWorld
             std::filesystem::path>; // path to an omwscripts file
         std::vector<LuaContent> mLuaContent;
 
+        bool mIsSetUpDone = false;
+
     public:
         void addOMWScripts(std::filesystem::path filePath) { mLuaContent.push_back(std::move(filePath)); }
         ESM::LuaScriptsCfg getLuaScriptsCfg() const;
@@ -155,6 +187,7 @@ namespace MWWorld
         ~ESMStore();
 
         void clearDynamic();
+        void rebuildIdsIndex();
 
         void movePlayerRecord();
 
@@ -162,6 +195,7 @@ namespace MWWorld
         void validateDynamic();
 
         void load(ESM::ESMReader& esm, Loading::Listener* listener, ESM::Dialogue*& dialogue);
+        void loadESM4(ESM4::Reader& esm);
 
         template <class T>
         const Store<T>& get() const
@@ -170,17 +204,15 @@ namespace MWWorld
         }
 
         /// Insert a custom record (i.e. with a generated ID that will not clash will pre-existing records)
+        /// \return pointer to created record
         template <class T>
         const T* insert(const T& x)
         {
-            const ESM::RefId id = ESM::RefId::stringRefId("$dynamic" + std::to_string(mDynamicCount++));
+            const ESM::RefId id = ESM::RefId::generated(mDynamicCount++);
 
             Store<T>& store = getWritable<T>();
             if (store.search(id) != nullptr)
-            {
-                const std::string msg = "Try to override existing record '" + id.getRefIdString() + "'";
-                throw std::runtime_error(msg);
-            }
+                throw std::runtime_error("Try to override existing record: " + id.toDebugString());
             T record = x;
 
             record.mId = id;
@@ -212,10 +244,7 @@ namespace MWWorld
         {
             Store<T>& store = getWritable<T>();
             if (store.search(x.mId) != nullptr)
-            {
-                const std::string msg = "Try to override existing record '" + x.mId.getRefIdString() + "'";
-                throw std::runtime_error(msg);
-            }
+                throw std::runtime_error("Try to override existing record " + x.mId.toDebugString());
 
             T* ptr = store.insertStatic(x);
             if constexpr (std::is_convertible_v<Store<T>*, DynamicStore*>)
@@ -252,6 +281,16 @@ namespace MWWorld
 
     template <>
     const ESM::NPC* ESMStore::insert<ESM::NPC>(const ESM::NPC& npc);
+
+    template <class T, class = std::void_t<>>
+    struct HasRecordId : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasRecordId<T, std::void_t<decltype(T::sRecordId)>> : std::true_type
+    {
+    };
 }
 
 #endif

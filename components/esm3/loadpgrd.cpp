@@ -87,21 +87,23 @@ namespace ESM
                     else
                     {
                         int rawConnNum = size / sizeof(int);
-                        std::vector<int> rawConnections;
+                        std::vector<size_t> rawConnections;
                         rawConnections.reserve(rawConnNum);
                         for (int i = 0; i < rawConnNum; ++i)
                         {
                             int currentValue;
                             esm.getT(currentValue);
-                            rawConnections.push_back(currentValue);
+                            if (currentValue < 0)
+                                esm.fail("currentValue is less than 0");
+                            rawConnections.push_back(static_cast<size_t>(currentValue));
                         }
 
-                        std::vector<int>::const_iterator rawIt = rawConnections.begin();
-                        int pointIndex = 0;
+                        auto rawIt = rawConnections.begin();
+                        size_t pointIndex = 0;
                         mEdges.reserve(edgeCount);
-                        for (PointList::const_iterator it = mPoints.begin(); it != mPoints.end(); ++it, ++pointIndex)
+                        for (const auto& point : mPoints)
                         {
-                            unsigned char connectionNum = (*it).mConnectionNum;
+                            unsigned char connectionNum = point.mConnectionNum;
                             if (rawConnections.end() - rawIt < connectionNum)
                                 esm.fail("Not enough connections");
                             for (int i = 0; i < connectionNum; ++i)
@@ -112,6 +114,7 @@ namespace ESM
                                 ++rawIt;
                                 mEdges.push_back(edge);
                             }
+                            ++pointIndex;
                         }
                     }
                     break;
@@ -143,18 +146,18 @@ namespace ESM
         {
             correctedPoints[point].mConnectionNum = 0;
 
-            for (EdgeList::const_iterator it = mEdges.begin(); it != mEdges.end(); ++it)
+            for (const auto& edge : mEdges)
             {
-                if (static_cast<size_t>(it->mV0) == point)
+                if (edge.mV0 == point)
                 {
-                    sortedEdges.push_back(it->mV1);
+                    sortedEdges.push_back(static_cast<int>(edge.mV1));
                     ++correctedPoints[point].mConnectionNum;
                 }
             }
         }
 
         // Save
-        esm.writeHNCString("NAME", mCell.getRefIdString());
+        esm.writeHNCRefId("NAME", mCell);
         esm.writeHNT("DATA", mData, 12);
 
         if (isDeleted)
@@ -186,7 +189,7 @@ namespace ESM
 
     void Pathgrid::blank()
     {
-        mCell = ESM::RefId::sEmpty;
+        mCell = ESM::RefId();
         mData.mX = 0;
         mData.mY = 0;
         mData.mS1 = 0;

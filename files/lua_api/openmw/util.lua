@@ -4,6 +4,29 @@
 -- @usage local util = require('openmw.util')
 
 
+---
+-- Rounds the given value to the nearest whole number.
+-- @function [parent=#util] round
+-- @param #number value
+-- @return #number The rounded value.
+-- @usage
+-- local util = require('openmw.util')
+-- local roundedValue = util.round(3.141592)
+-- print(roundedValue) -- prints 3
+
+---
+-- Remaps the value from one range to another.
+-- @function [parent=#util] remap
+-- @param #number value
+-- @param #number min
+-- @param #number max
+-- @param #number newMin
+-- @param #number newMax
+-- @return #number The remapped value.
+-- @usage
+-- local util = require('openmw.util')
+-- local newValue = util.remap(3, 0, 10, 0, 100)
+-- print(newValue) -- prints 30
 
 ---
 -- Limits given value to the interval [`from`, `to`].
@@ -94,6 +117,30 @@
 -- @return #Vector2.
 
 ---
+-- @function [parent=#Vector2] __add
+-- @param self
+-- @param #Vector2 v
+-- @return #Vector2 sum of the vectors
+
+---
+-- @function [parent=#Vector2] __sub
+-- @param self
+-- @param #Vector2 v
+-- @return #Vector2 difference of the vectors
+
+---
+-- @function [parent=#Vector2] __mul
+-- @param self
+-- @param #number k
+-- @return #Vector2 vector multiplied by a number
+
+---
+-- @function [parent=#Vector2] __div
+-- @param self
+-- @param #number k
+-- @return #Vector2 vector divided by a number
+
+---
 -- Length of the vector.
 -- @function [parent=#Vector2] length
 -- @param self
@@ -107,11 +154,11 @@
 
 ---
 -- Normalizes vector.
--- Returns two values: normalized vector and the length of the original vector.
--- It doesn't change the original vector. 
+-- It doesn't change the original vector.
 -- @function [parent=#Vector2] normalize
 -- @param self
--- @return #Vector2, #number
+-- @return #Vector2 normalized vector
+-- @return #number the length of the original vector
 
 ---
 -- Rotates 2D vector clockwise.
@@ -173,6 +220,35 @@
 -- @return #Vector3.
 
 ---
+-- @function [parent=#Vector3] __add
+-- @param self
+-- @param #Vector3 v
+-- @return #Vector3 sum of the vectors
+
+---
+-- @function [parent=#Vector3] __sub
+-- @param self
+-- @param #Vector3 v
+-- @return #Vector3 difference of the vectors
+
+---
+-- @function [parent=#Vector3] __mul
+-- @param self
+-- @param #number k
+-- @return #Vector3 vector multiplied by a number
+
+---
+-- @function [parent=#Vector3] __div
+-- @param self
+-- @param #number k
+-- @return #Vector3 vector divided by a number
+
+---
+-- @function [parent=#Vector3] __tostring
+-- @param self
+-- @return #string
+
+---
 -- Length of the vector
 -- @function [parent=#Vector3] length
 -- @param self
@@ -186,11 +262,11 @@
 
 ---
 -- Normalizes vector.
--- Returns two values: normalized vector and the length of the original vector.
 -- It doesn't change the original vector.
 -- @function [parent=#Vector3] normalize
 -- @param self
--- @return #Vector3, #number
+-- @return #Vector3 normalized vector
+-- @return #number the length of the original vector
 
 ---
 -- Dot product.
@@ -252,6 +328,35 @@
 -- @return #Vector4.
 
 ---
+-- @function [parent=#Vector4] __add
+-- @param self
+-- @param #Vector4 v
+-- @return #Vector4 sum of the vectors
+
+---
+-- @function [parent=#Vector4] __sub
+-- @param self
+-- @param #Vector4 v
+-- @return #Vector4 difference of the vectors
+
+---
+-- @function [parent=#Vector4] __mul
+-- @param self
+-- @param #number k
+-- @return #Vector4 vector multiplied by a number
+
+---
+-- @function [parent=#Vector4] __div
+-- @param self
+-- @param #number k
+-- @return #Vector4 vector divided by a number
+
+---
+-- @function [parent=#Vector4] __tostring
+-- @param self
+-- @return #string
+
+---
 -- Length of the vector
 -- @function [parent=#Vector4] length
 -- @param self
@@ -265,11 +370,11 @@
 
 ---
 -- Normalizes vector.
--- Returns two values: normalized vector and the length of the original vector.
 -- It doesn't change the original vector.
 -- @function [parent=#Vector4] normalize
 -- @param self
--- @return #Vector4, #number
+-- @return #Vector4 normalized vector
+-- @return #number the length of the original vector
 
 ---
 -- Dot product.
@@ -292,6 +397,29 @@
 -- @param #Vector4 v
 -- @return #Vector4
 
+---
+-- Immutable box.
+-- @type Box
+-- @field #Vector3 center The center of the box
+-- @field #Vector3 halfSize The half sizes of the box along each axis
+-- @field #Transform transform A transformation which encapsulates the boxes center pointer (translation), half sizes (scale), and rotation.
+-- @field #table vertices Table of the 8 vertices which comprise the box, taking rotation into account
+
+---
+-- Creates a new Box with a given center and half sizes. Boxes are immutable and can not be changed after creation.
+-- @function [parent=#util] box
+-- @param #Vector3 center
+-- @param #Vector3 halfSize in each dimension (x, y, z)
+-- @return #Box
+
+---
+-- Creates a new Box from a given transformation. Boxes are immutable and can not be changed after creation.
+-- @function [parent=#util] box
+-- @param #Transform transform A transformation which encapsulates the boxes center pointer (translation), half sizes (scale), and rotation.
+-- @return #Box
+-- @usage
+-- -- Creates a 1x1x1 length box centered at the origin
+-- util.box(util.transform.scale(util.vector3(0.5, 0.5, 0.5)))
 
 ---
 -- Color in RGBA format. All of the component values are in the range [0, 1].
@@ -354,10 +482,51 @@
 -- @type Transform
 
 ---
+-- Combine transforms (will apply in reverse order)
+-- @function [parent=#Transform] __mul
+-- @param self
+-- @param #Transform t
+-- @return #Transform
+
+---
 -- Returns the inverse transform.
 -- @function [parent=#Transform] inverse
 -- @param self
--- @return #Transform.
+-- @return #Transform
+
+---
+-- Apply transform to a vector
+-- @function [parent=#Transform] apply
+-- @param self
+-- @param #Vector3 v
+-- @return #Vector3
+
+---
+-- Get yaw angle (radians)
+-- @function [parent=#Transform] getYaw
+-- @param self
+-- @return #number
+
+---
+-- Get pitch angle (radians)
+-- @function [parent=#Transform] getPitch
+-- @param self
+-- @return #number
+
+---
+-- Get Euler angles for XZ rotation order (pitch and yaw; radians)
+-- @function [parent=#Transform] getAnglesXZ
+-- @param self
+-- @return #number pitch (rotation around X axis)
+-- @return #number yaw (rotation around Z axis)
+
+---
+-- Get Euler angles for ZYX rotation order (radians)
+-- @function [parent=#Transform] getAnglesZYX
+-- @param self
+-- @return #number rotation around Z axis (first rotation)
+-- @return #number rotation around Y axis (second rotation)
+-- @return #number rotation around X axis (third rotation)
 
 ---
 -- @type TRANSFORM
@@ -366,8 +535,8 @@
 ---
 -- Movement by given vector.
 -- @function [parent=#TRANSFORM] move
--- @param #Vector3 offset.
--- @return #Transform.
+-- @param #Vector3 offset
+-- @return #Transform
 -- @usage
 -- -- Accepts either 3 numbers or a 3D vector
 -- util.transform.move(x, y, z)
@@ -419,15 +588,14 @@
 -- @usage
 -- local util = require('openmw.util')
 -- local trans = util.transform
--- local fromActorSpace = trans.move(actor.position) * trans.rotateZ(actor.rotation.z)
+-- local fromActorSpace = trans.move(actor.position) * trans.rotateZ(actor.rotation:getYaw())
 --
 -- -- rotation is applied first, movement is second
 -- local posBehindActor = fromActorSpace * util.vector3(0, -100, 0)
 --
--- -- equivalent to trans.rotateZ(-actor.rotation.z) * trans.move(-actor.position)
+-- -- equivalent to trans.rotateZ(-actor.rotation:getYaw()) * trans.move(-actor.position)
 -- local toActorSpace = fromActorSpace:inverse()
 -- local relativeTargetPos = toActorSpace * target.position
 -- local deltaAngle = math.atan2(relativeTargetPos.y, relativeTargetPos.x)
 
 return nil
-

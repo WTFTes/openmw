@@ -1,5 +1,3 @@
-#include <cassert>
-
 #include "npcstats.hpp"
 
 #include "esmreader.hpp"
@@ -33,25 +31,25 @@ namespace ESM
 
             esm.getHNOT(faction.mReputation, "FARE");
 
-            mFactions.insert(std::make_pair(id, faction));
+            mFactions.emplace(id, faction);
         }
 
         mDisposition = 0;
         esm.getHNOT(mDisposition, "DISP");
 
-        bool intFallback = esm.getFormat() < 11;
-        for (int i = 0; i < 27; ++i)
-            mSkills[i].load(esm, intFallback);
+        const bool intFallback = esm.getFormatVersion() <= MaxIntFallbackFormatVersion;
+        for (auto& skill : mSkills)
+            skill.load(esm, intFallback);
 
         mWerewolfDeprecatedData = false;
-        if (esm.getFormat() < 8 && esm.peekNextSub("STBA"))
+        if (esm.getFormatVersion() <= MaxWerewolfDeprecatedDataFormatVersion && esm.peekNextSub("STBA"))
         {
             // we have deprecated werewolf skills, stored interleaved
             // Load into one big vector, then remove every 2nd value
             mWerewolfDeprecatedData = true;
-            std::vector<StatState<float>> skills(mSkills, mSkills + sizeof(mSkills) / sizeof(mSkills[0]));
+            std::vector<StatState<float>> skills(mSkills.begin(), mSkills.end());
 
-            for (int i = 0; i < 27; ++i)
+            for (int i = 0; i < ESM::Skill::Length; ++i)
             {
                 StatState<float> skill;
                 skill.load(esm, intFallback);
@@ -66,8 +64,10 @@ namespace ESM
                 else
                     ++it;
             }
-            assert(skills.size() == 27);
-            std::copy(skills.begin(), skills.end(), mSkills);
+            if (skills.size() != std::size(mSkills))
+                throw std::runtime_error(
+                    "Invalid number of skill for werewolf deprecated data: " + std::to_string(skills.size()));
+            std::copy(skills.begin(), skills.end(), mSkills.begin());
         }
 
         // No longer used
@@ -76,7 +76,7 @@ namespace ESM
         if (hasWerewolfAttributes)
         {
             StatState<int> dummy;
-            for (int i = 0; i < 8; ++i)
+            for (int i = 0; i < ESM::Attribute::Length; ++i)
                 dummy.load(esm, intFallback);
             mWerewolfDeprecatedData = true;
         }
@@ -104,12 +104,10 @@ namespace ESM
         mLevelProgress = 0;
         esm.getHNOT(mLevelProgress, "LPRO");
 
-        for (int i = 0; i < 8; ++i)
-            mSkillIncrease[i] = 0;
+        mSkillIncrease.fill(0);
         esm.getHNOT(mSkillIncrease, "INCR");
 
-        for (int i = 0; i < 3; ++i)
-            mSpecIncreases[i] = 0;
+        mSpecIncreases.fill(0);
         esm.getHNOT(mSpecIncreases, "SPEC");
 
         while (esm.isNextSub("USED"))
@@ -134,7 +132,7 @@ namespace ESM
     {
         for (auto iter(mFactions.begin()); iter != mFactions.end(); ++iter)
         {
-            esm.writeHNString("FACT", iter->first.getRefIdString());
+            esm.writeHNRefId("FACT", iter->first);
 
             if (iter->second.mExpelled)
             {
@@ -152,8 +150,8 @@ namespace ESM
         if (mDisposition)
             esm.writeHNT("DISP", mDisposition);
 
-        for (int i = 0; i < 27; ++i)
-            mSkills[i].save(esm);
+        for (const auto& skill : mSkills)
+            skill.save(esm);
 
         if (mIsWerewolf)
             esm.writeHNT("WOLF", mIsWerewolf);
@@ -171,9 +169,9 @@ namespace ESM
             esm.writeHNT("LPRO", mLevelProgress);
 
         bool saveSkillIncreases = false;
-        for (int i = 0; i < 8; ++i)
+        for (int increase : mSkillIncrease)
         {
-            if (mSkillIncrease[i] != 0)
+            if (increase != 0)
             {
                 saveSkillIncreases = true;
                 break;
@@ -186,7 +184,7 @@ namespace ESM
             esm.writeHNT("SPEC", mSpecIncreases);
 
         for (auto iter(mUsedIds.begin()); iter != mUsedIds.end(); ++iter)
-            esm.writeHNString("USED", iter->getRefIdString());
+            esm.writeHNRefId("USED", *iter);
 
         if (mTimeToStartDrowning)
             esm.writeHNT("DRTI", mTimeToStartDrowning);
@@ -204,10 +202,8 @@ namespace ESM
         mReputation = 0;
         mWerewolfKills = 0;
         mLevelProgress = 0;
-        for (int i = 0; i < 8; ++i)
-            mSkillIncrease[i] = 0;
-        for (int i = 0; i < 3; ++i)
-            mSpecIncreases[i] = 0;
+        mSkillIncrease.fill(0);
+        mSpecIncreases.fill(0);
         mTimeToStartDrowning = 20;
         mCrimeId = -1;
     }

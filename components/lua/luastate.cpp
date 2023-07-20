@@ -5,6 +5,7 @@
 #endif // NO_LUAJIT
 
 #include <filesystem>
+#include <fstream>
 
 #include <components/debug/debuglog.hpp>
 #include <components/files/conversion.hpp>
@@ -125,11 +126,14 @@ namespace LuaUtil
                     id = self->mActiveScriptIdStack.back();
                 bigAllocDelta = nsize;
             }
-            if (id.mContainer)
+            if (id.mIndex >= 0)
             {
                 if (static_cast<size_t>(id.mIndex) >= self->mMemoryUsage.size())
                     self->mMemoryUsage.resize(id.mIndex + 1);
                 self->mMemoryUsage[id.mIndex] += bigAllocDelta;
+            }
+            if (id.mContainer)
+            {
                 id.mContainer->addMemoryUsage(id.mIndex, bigAllocDelta);
                 if (newPtr && nsize > smallAllocSize)
                     self->mBigAllocOwners.emplace(newPtr, AllocOwner{ id.mContainer->mThis, id.mIndex });
@@ -179,6 +183,13 @@ namespace LuaUtil
 
         mSol["writeToLog"] = [](std::string_view s) { Log(Debug::Level::Info) << s; };
 
+        mSol["setEnvironment"]
+            = [](const sol::environment& env, const sol::function& fn) { sol::set_environment(env, fn); };
+        mSol["loadFromVFS"] = [this](std::string_view packageName) {
+            return loadScriptAndCache(packageNameToVfsPath(packageName, mVFS));
+        };
+        mSol["loadInternalLib"] = [this](std::string_view packageName) { return loadInternalLib(packageName); };
+
         // Some fixes for compatibility between different Lua versions
         if (mSol["unpack"] == sol::nil)
             mSol["unpack"] = mSol["table"]["unpack"];
@@ -203,6 +214,19 @@ namespace LuaUtil
                 return writeToLog(table.concat(strs, '\t'))
             end
             printGen = function(name) return function(...) return printToLog(name, ...) end end
+
+            function requireGen(env, loaded, loadFn)
+                return function(packageName)
+                    local p = loaded[packageName]
+                    if p == nil then
+                        local loader = loadFn(packageName)
+                        setEnvironment(env, loader)
+                        p = loader(packageName)
+                        loaded[packageName] = p
+                    end
+                    return p
+                end
+            end
 
             function createStrictIndexFn(tbl)
                 return function(_, key)
@@ -292,7 +316,7 @@ namespace LuaUtil
     {
         if (!package.is<sol::function>())
             package = makeReadOnly(std::move(package));
-        mCommonPackages.emplace(std::move(packageName), std::move(package));
+        mCommonPackages.insert_or_assign(std::move(packageName), std::move(package));
     }
 
     sol::protected_function_result LuaState::runInNewSandbox(const std::string& path, const std::string& namePrefix,
@@ -323,16 +347,7 @@ namespace LuaUtil
             loaded[key] = maybeRunLoader(value);
         for (const auto& [key, value] : packages)
             loaded[key] = maybeRunLoader(value);
-        env["require"] = [this, env, loaded, hiddenData](std::string_view packageName) mutable {
-            sol::object package = loaded[packageName];
-            if (package != sol::nil)
-                return package;
-            sol::protected_function packageLoader = loadScriptAndCache(packageNameToVfsPath(packageName, mVFS));
-            sol::set_environment(env, packageLoader);
-            package = call(packageLoader, packageName);
-            loaded[packageName] = package;
-            return package;
-        };
+        env["require"] = mSol["requireGen"](env, loaded, mSol["loadFromVFS"]);
 
         sol::set_environment(env, script);
         return call(scriptId, script);
@@ -344,14 +359,7 @@ namespace LuaUtil
         sol::table loaded(mSol, sol::create);
         for (const std::string& s : safePackages)
             loaded[s] = static_cast<sol::object>(mSandboxEnv[s]);
-        env["require"] = [this, loaded, env](const std::string& module) mutable {
-            if (loaded[module] != sol::nil)
-                return loaded[module];
-            sol::protected_function initializer = loadInternalLib(module);
-            sol::set_environment(env, initializer);
-            loaded[module] = call({}, initializer, module);
-            return loaded[module];
-        };
+        env["require"] = mSol["requireGen"](env, loaded, mSol["loadInternalLib"]);
         return env;
     }
 
@@ -385,7 +393,9 @@ namespace LuaUtil
     sol::function LuaState::loadInternalLib(std::string_view libName)
     {
         const auto path = packageNameToPath(libName, mLibSearchPaths);
-        sol::load_result res = mSol.load_file(Files::pathToUnicodeString(path), sol::load_mode::text);
+        std::ifstream stream(path);
+        std::string fileContent(std::istreambuf_iterator<char>(stream), {});
+        sol::load_result res = mSol.load(fileContent, Files::pathToUnicodeString(path), sol::load_mode::text);
         if (!res.valid())
             throw std::runtime_error("Lua error: " + res.get<std::string>());
         return res;
@@ -410,4 +420,25 @@ namespace LuaUtil
             return call(sol::state_view(obj.lua_state())["tostring"], obj);
     }
 
+    std::string internal::formatCastingError(const sol::object& obj, const std::type_info& t)
+    {
+        const char* typeName = t.name();
+        if (t == typeid(int))
+            typeName = "int";
+        else if (t == typeid(unsigned))
+            typeName = "uint32";
+        else if (t == typeid(size_t))
+            typeName = "size_t";
+        else if (t == typeid(float))
+            typeName = "float";
+        else if (t == typeid(double))
+            typeName = "double";
+        else if (t == typeid(sol::table))
+            typeName = "sol::table";
+        else if (t == typeid(sol::function) || t == typeid(sol::protected_function))
+            typeName = "sol::function";
+        else if (t == typeid(std::string) || t == typeid(std::string_view))
+            typeName = "string";
+        return std::string("Value \"") + toString(obj) + std::string("\" can not be casted to ") + typeName;
+    }
 }

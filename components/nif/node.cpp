@@ -1,6 +1,7 @@
 #include "node.hpp"
 
 #include <components/misc/strings/algorithm.hpp>
+#include <cstdint>
 
 #include "data.hpp"
 #include "exception.hpp"
@@ -18,8 +19,7 @@ namespace Nif
                 break;
             case SPHERE_BV:
             {
-                sphere.center = nif->getVector3();
-                sphere.radius = nif->getFloat();
+                sphere.read(nif);
                 break;
             }
             case BOX_BV:
@@ -118,10 +118,16 @@ namespace Nif
         if (nif->getBethVersion() < NIFFile::BethVersion::BETHVER_FO4)
             readRecordList(nif, effects);
 
+        // FIXME: stopgap solution until we figure out what Oblivion does if it does anything
+        if (nif->getVersion() > NIFFile::NIFVersion::VER_MW && nif->getVersion() < NIFFile::NIFVersion::VER_BGS)
+            return;
+
         // Discard transformations for the root node, otherwise some meshes
         // occasionally get wrong orientation. Only for NiNode-s for now, but
         // can be expanded if needed.
         // FIXME: if node 0 is *not* the only root node, this must not happen.
+        // FIXME: doing this here is awful.
+        // We want to do this on world scene graph level rather than local scene graph level.
         if (0 == recIndex && !Misc::StringUtils::ciEqual(name, "bip01"))
         {
             trafo = Nif::Transformation::getIdentity();
@@ -144,7 +150,7 @@ namespace Nif
 
     void NiGeometry::MaterialData::read(NIFStream* nif)
     {
-        if (nif->getVersion() <= NIFStream::generateVersion(10, 0, 1, 0))
+        if (nif->getVersion() < NIFStream::generateVersion(10, 0, 1, 0))
             return;
         unsigned int num = 0;
         if (nif->getVersion() <= NIFStream::generateVersion(20, 1, 0, 3))
@@ -284,5 +290,211 @@ namespace Nif
             mMode = nif->getUShort() & 0x7;
         else
             mMode = (flags >> 5) & 0x3;
+    }
+
+    void NiDefaultAVObjectPalette::read(NIFStream* nif)
+    {
+        mScene.read(nif);
+        size_t numObjects = nif->getUInt();
+        for (size_t i = 0; i < numObjects; i++)
+            mObjects[nif->getSizedString()].read(nif);
+    }
+
+    void NiDefaultAVObjectPalette::post(Reader& nif)
+    {
+        mScene.post(nif);
+        for (auto& object : mObjects)
+            object.second.post(nif);
+    }
+
+    void BSTreeNode::read(NIFStream* nif)
+    {
+        NiNode::read(nif);
+        readRecordList(nif, mBones1);
+        readRecordList(nif, mBones2);
+    }
+
+    void BSTreeNode::post(Reader& nif)
+    {
+        NiNode::post(nif);
+        postRecordList(nif, mBones1);
+        postRecordList(nif, mBones2);
+    }
+
+    void BSMultiBoundNode::read(NIFStream* nif)
+    {
+        NiNode::read(nif);
+        mMultiBound.read(nif);
+        if (nif->getBethVersion() >= NIFFile::BethVersion::BETHVER_SKY)
+            mType = nif->getUInt();
+    }
+
+    void BSMultiBoundNode::post(Reader& nif)
+    {
+        NiNode::post(nif);
+        mMultiBound.post(nif);
+    }
+
+    void BSTriShape::read(NIFStream* nif)
+    {
+        Node::read(nif);
+        mBoundingSphere.read(nif);
+
+        if (nif->getBethVersion() == NIFFile::BethVersion::BETHVER_F76)
+        {
+            nif->readVector(mBoundMinMax, 6);
+        }
+
+        mSkin.read(nif);
+        mShaderProperty.read(nif);
+        mAlphaProperty.read(nif);
+
+        mVertDesc.read(nif);
+
+        unsigned int triNum;
+        if (nif->getBethVersion() < NIFFile::BethVersion::BETHVER_FO4)
+        {
+            triNum = nif->get<unsigned short>();
+        }
+        else
+        {
+            nif->read(triNum);
+        }
+
+        unsigned short vertNum;
+        nif->read(vertNum);
+        nif->read(mDataSize);
+
+        if (nif->getBethVersion() == NIFFile::BethVersion::BETHVER_SSE)
+        {
+            mVertData.resize(vertNum);
+            for (auto& vertex : mVertData)
+                vertex.read(nif, mVertDesc.mFlags);
+        }
+        else if (nif->getBethVersion() >= NIFFile::BethVersion::BETHVER_FO4)
+        {
+            throw Nif::Exception("FO4 BSTriShape is not supported yet: ", nif->getFile().getFilename());
+        }
+
+        if (mDataSize > 0)
+        {
+            mTriangles.resize(triNum * 3);
+            nif->readVector(mTriangles, triNum * 3);
+        }
+
+        if (nif->getBethVersion() == NIFFile::BethVersion::BETHVER_SSE)
+        {
+            nif->read(mParticleDataSize);
+            if (mParticleDataSize > 0)
+            {
+                throw Nif::Exception("Unhandled Particle Data in BSTriShape: ", nif->getFile().getFilename());
+            }
+        }
+    }
+
+    void BSTriShape::post(Reader& nif)
+    {
+        Node::post(nif);
+        mSkin.post(nif);
+        mShaderProperty.post(nif);
+        mAlphaProperty.post(nif);
+    }
+
+    void BSVertexDesc::read(NIFStream* nif)
+    {
+        uint64_t data;
+        nif->read(data);
+        mVertexDataSize = (data & 0xF) >> 0x00;
+        mDynamicVertexSize = (data & 0xF0) >> 0x04;
+        mUV1Offset = (data & 0xF00) >> 0x08;
+        mUV2Offset = (data & 0xF000) >> 0x0C;
+        mNormalOffset = (data & 0xF0000) >> 0x10;
+        mTangentOffset = (data & 0xF00000) >> 0x14;
+        mColorOffset = (data & 0xF000000) >> 0x18;
+        mSkinningDataOffset = (data & 0xF0000000) >> 0x1C;
+        mLandscapeDataOffset = (data & 0xF00000000) >> 0x20;
+        mEyeDataOffset = (data & 0xF000000000) >> 0x24;
+        mFlags = (data & 0xFFF00000000000) >> 0x2C;
+    }
+
+    void NiBoundingVolume::NiSphereBV::read(NIFStream* nif)
+    {
+        nif->read(center);
+        nif->read(radius);
+    }
+
+    void BSVertexData::read(NIFStream* nif, uint16_t flags)
+    {
+        uint16_t vertexFlag = flags & BSVertexDesc::VertexAttribute::Vertex;
+        uint16_t tangentsFlag = flags & BSVertexDesc::VertexAttribute::Tangents;
+        uint16_t UVsFlag = flags & BSVertexDesc::VertexAttribute::UVs;
+        uint16_t normalsFlag = flags & BSVertexDesc::VertexAttribute::Normals;
+
+        if (vertexFlag == BSVertexDesc::VertexAttribute::Vertex)
+        {
+            nif->read(mVertex);
+        }
+
+        if ((vertexFlag | tangentsFlag)
+            == (BSVertexDesc::VertexAttribute::Vertex | BSVertexDesc::VertexAttribute::Tangents))
+        {
+            nif->read(mBitangentX);
+        }
+
+        if ((vertexFlag | tangentsFlag) == BSVertexDesc::VertexAttribute::Vertex)
+        {
+            nif->read(mUnusedW);
+        }
+
+        if (UVsFlag == BSVertexDesc::VertexAttribute::UVs)
+        {
+            nif->readArray(mUV);
+        }
+
+        if (normalsFlag)
+        {
+            nif->readArray(mNormal);
+
+            nif->read(mBitangentY);
+        }
+
+        if ((normalsFlag | tangentsFlag)
+            == (BSVertexDesc::VertexAttribute::Normals | BSVertexDesc::VertexAttribute::Tangents))
+        {
+            nif->readArray(mTangent);
+
+            nif->read(mBitangentZ);
+        }
+
+        if (flags & BSVertexDesc::VertexAttribute::Vertex_Colors)
+        {
+            nif->readArray(mVertColors);
+        }
+
+        if (flags & BSVertexDesc::VertexAttribute::Skinned)
+        {
+            nif->readArray(mBoneWeights);
+            nif->readArray(mBoneIndices);
+        }
+
+        if (flags & BSVertexDesc::VertexAttribute::Eye_Data)
+        {
+            throw Nif::Exception("Unhandled Eye Data in BSTriShape: ", nif->getFile().getFilename());
+            nif->read(mEyeData);
+        }
+    }
+
+    void BSValueNode::read(NIFStream* nif)
+    {
+        NiNode::read(nif);
+        nif->read(mValue);
+        nif->read(mValueFlags);
+    }
+
+    void BSOrderedNode::read(NIFStream* nif)
+    {
+        NiNode::read(nif);
+        nif->read(mAlphaSortBound);
+        nif->read(mStaticBound);
     }
 }

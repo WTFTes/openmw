@@ -5,15 +5,15 @@
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadland.hpp>
 #include <components/misc/coordinateconverter.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 
-#include "../mwworld/action.hpp"
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
-#include "../mwworld/inventorystore.hpp"
+#include "../mwworld/containerstore.hpp"
+#include "../mwworld/esmstore.hpp"
 
 #include "../mwphysics/raycasting.hpp"
 
@@ -49,7 +49,6 @@ MWMechanics::AiPackage::AiPackage(AiPackageTypeId typeId, const Options& options
     : mTypeId(typeId)
     , mOptions(options)
     , mReaction(MWBase::Environment::get().getWorld()->getPrng())
-    , mTargetActorRefId(ESM::RefId::sEmpty)
     , mTargetActorId(-1)
     , mCachedTarget()
     , mRotateOnTheRunChecks(0)
@@ -154,7 +153,9 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
         {
             if (wasShortcutting || doesPathNeedRecalc(dest, actor)) // if need to rebuild path
             {
-                mPathFinder.buildLimitedPath(actor, position, dest, actor.getCell(), getPathGridGraph(actor.getCell()),
+                const ESM::Pathgrid* pathgrid
+                    = world->getStore().get<ESM::Pathgrid>().search(*actor.getCell()->getCell());
+                mPathFinder.buildLimitedPath(actor, position, dest, actor.getCell(), getPathGridGraph(pathgrid),
                     agentBounds, getNavigatorFlags(actor), getAreaCosts(actor), endTolerance, pathType);
                 mRotateOnTheRunChecks = 3;
 
@@ -188,9 +189,18 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
     const float pointTolerance
         = getPointTolerance(actor.getClass().getMaxSpeed(actor), duration, world->getHalfExtents(actor));
 
-    static const bool smoothMovement = Settings::Manager::getBool("smooth movement", "Game");
-    mPathFinder.update(position, pointTolerance, DEFAULT_TOLERANCE,
-        /*shortenIfAlmostStraight=*/smoothMovement, actorCanMoveByZ, agentBounds, getNavigatorFlags(actor));
+    const bool smoothMovement = Settings::game().mSmoothMovement;
+
+    PathFinder::UpdateFlags updateFlags{};
+
+    if (actorCanMoveByZ)
+        updateFlags |= PathFinder::UpdateFlag_CanMoveByZ;
+    if (timerStatus == Misc::TimerStatus::Elapsed && smoothMovement)
+        updateFlags |= PathFinder::UpdateFlag_ShortenIfAlmostStraight;
+    if (timerStatus == Misc::TimerStatus::Elapsed)
+        updateFlags |= PathFinder::UpdateFlag_RemoveLoops;
+
+    mPathFinder.update(position, pointTolerance, DEFAULT_TOLERANCE, updateFlags, agentBounds, getNavigatorFlags(actor));
 
     if (isDestReached || mPathFinder.checkPathCompleted()) // if path is finished
     {
@@ -302,7 +312,7 @@ void MWMechanics::AiPackage::openDoors(const MWWorld::Ptr& actor)
         if (!isDoorOnTheWay(actor, door, mPathFinder.getPath().front()))
             return;
 
-        if ((door.getCellRef().getTrap().empty() && door.getCellRef().getLockLevel() <= 0))
+        if (door.getCellRef().getTrap().empty() && !door.getCellRef().isLocked())
         {
             world->activate(door, actor);
             return;
@@ -320,19 +330,16 @@ void MWMechanics::AiPackage::openDoors(const MWWorld::Ptr& actor)
     }
 }
 
-const MWMechanics::PathgridGraph& MWMechanics::AiPackage::getPathGridGraph(const MWWorld::CellStore* cell)
+const MWMechanics::PathgridGraph& MWMechanics::AiPackage::getPathGridGraph(const ESM::Pathgrid* pathgrid) const
 {
-    const ESM::CellId& id = cell->getCell()->getCellId();
+    if (!pathgrid || pathgrid->mPoints.empty())
+        return PathgridGraph::sEmpty;
     // static cache is OK for now, pathgrids can never change during runtime
-    typedef std::map<ESM::CellId, std::unique_ptr<MWMechanics::PathgridGraph>> CacheMap;
-    static CacheMap cache;
-    CacheMap::iterator found = cache.find(id);
+    static std::map<const ESM::Pathgrid*, std::unique_ptr<MWMechanics::PathgridGraph>> cache;
+    auto found = cache.find(pathgrid);
     if (found == cache.end())
-    {
-        cache.insert(
-            std::make_pair(id, std::make_unique<MWMechanics::PathgridGraph>(MWMechanics::PathgridGraph(cell))));
-    }
-    return *cache[id].get();
+        found = cache.emplace(pathgrid, std::make_unique<MWMechanics::PathgridGraph>(*pathgrid)).first;
+    return *found->second.get();
 }
 
 bool MWMechanics::AiPackage::shortcutPath(const osg::Vec3f& startPoint, const osg::Vec3f& endPoint,
@@ -411,11 +418,11 @@ bool MWMechanics::AiPackage::doesPathNeedRecalc(const osg::Vec3f& newDest, const
 
 bool MWMechanics::AiPackage::isNearInactiveCell(osg::Vec3f position)
 {
-    const ESM::Cell* playerCell(getPlayer().getCell()->getCell());
+    const MWWorld::Cell* playerCell = getPlayer().getCell()->getCell();
     if (playerCell->isExterior())
     {
         // get actor's distance from origin of center cell
-        Misc::CoordinateConverter(playerCell).toLocal(position);
+        Misc::CoordinateConverter(*playerCell).toLocal(position);
 
         // currently assumes 3 x 3 grid for exterior cells, with player at center cell.
         // AI shuts down actors before they reach edges of 3 x 3 grid.
@@ -461,15 +468,12 @@ bool MWMechanics::AiPackage::isReachableRotatingOnTheRun(const MWWorld::Ptr& act
 
 DetourNavigator::Flags MWMechanics::AiPackage::getNavigatorFlags(const MWWorld::Ptr& actor) const
 {
-    static const bool allowToFollowOverWaterSurface
-        = Settings::Manager::getBool("allow actors to follow over water surface", "Game");
-
     const MWWorld::Class& actorClass = actor.getClass();
     DetourNavigator::Flags result = DetourNavigator::Flag_none;
 
     if ((actorClass.isPureWaterCreature(actor)
             || (getTypeId() != AiPackageTypeId::Wander
-                && ((allowToFollowOverWaterSurface && getTypeId() == AiPackageTypeId::Follow)
+                && ((Settings::game().mAllowActorsToFollowOverWaterSurface && getTypeId() == AiPackageTypeId::Follow)
                     || actorClass.canSwim(actor) || hasWaterWalking(actor))))
         && actorClass.getSwimSpeed(actor) > 0)
         result |= DetourNavigator::Flag_swim;

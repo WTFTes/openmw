@@ -2,14 +2,13 @@
 
 #include <QDebug>
 #include <QFile>
-#include <QRegExp>
+#include <QRegularExpression>
 #include <QString>
 #include <QStringList>
-#include <QTextStream>
 
-Wizard::IniSettings::IniSettings() {}
+#include <fstream>
 
-Wizard::IniSettings::~IniSettings() {}
+#include <components/files/qtconversion.hpp>
 
 QStringList Wizard::IniSettings::findKeys(const QString& text)
 {
@@ -25,35 +24,49 @@ QStringList Wizard::IniSettings::findKeys(const QString& text)
     return result;
 }
 
-bool Wizard::IniSettings::readFile(QTextStream& stream)
+bool Wizard::IniSettings::readFile(std::ifstream& stream, ToUTF8::FromType encoding)
 {
     // Look for a square bracket, "'\\["
     // that has one or more "not nothing" in it, "([^]]+)"
     // and is closed with a square bracket, "\\]"
-    QRegExp sectionRe(QLatin1String("^\\[([^]]+)\\]"));
+    QRegularExpression sectionRe("^\\[([^]]+)\\]$");
 
     // Find any character(s) that is/are not equal sign(s), "[^=]+"
     // followed by an optional whitespace, an equal sign, and another optional whitespace, "\\s*=\\s*"
     // and one or more periods, "(.+)"
-    QRegExp keyRe(QLatin1String("^([^=]+)\\s*=\\s*(.+)$"));
+    QRegularExpression keyRe(QLatin1String("^([^=]+)\\s*=\\s*(.+)$"));
 
     QString currentSection;
 
-    while (!stream.atEnd())
-    {
-        const QString line(stream.readLine());
+    ToUTF8::Utf8Encoder encoder(encoding);
 
+    std::string legacyEncLine;
+    while (std::getline(stream, legacyEncLine))
+    {
+        std::string_view lineBuffer = encoder.getUtf8(legacyEncLine);
+
+        // unify Unix-style and Windows file ending
+        if (!(lineBuffer.empty()) && (lineBuffer[lineBuffer.length() - 1]) == '\r')
+        {
+            lineBuffer = lineBuffer.substr(0, lineBuffer.length() - 1);
+        }
+
+        const QString line = QString::fromStdString(std::string(lineBuffer));
         if (line.isEmpty() || line.startsWith(QLatin1Char(';')))
             continue;
 
-        if (sectionRe.exactMatch(line))
+        QRegularExpressionMatch sectionMatch = sectionRe.match(line);
+        if (sectionMatch.hasMatch())
         {
-            currentSection = sectionRe.cap(1);
+            currentSection = sectionMatch.captured(1);
+            continue;
         }
-        else if (keyRe.indexIn(line) != -1)
+
+        QRegularExpressionMatch match = keyRe.match(line);
+        if (match.hasMatch())
         {
-            QString key = keyRe.cap(1).trimmed();
-            QString value = keyRe.cap(2).trimmed();
+            QString key = match.captured(1).trimmed();
+            QString value = match.captured(2).trimmed();
 
             // Append the section, but only if there is one
             if (!currentSection.isEmpty())
@@ -66,42 +79,54 @@ bool Wizard::IniSettings::readFile(QTextStream& stream)
     return true;
 }
 
-bool Wizard::IniSettings::writeFile(const QString& path, QTextStream& stream)
+bool Wizard::IniSettings::writeFile(const QString& path, std::ifstream& stream, ToUTF8::FromType encoding)
 {
     // Look for a square bracket, "'\\["
     // that has one or more "not nothing" in it, "([^]]+)"
     // and is closed with a square bracket, "\\]"
-    QRegExp sectionRe(QLatin1String("^\\[([^]]+)\\]"));
+    QRegularExpression sectionRe("^\\[([^]]+)\\]$");
 
     // Find any character(s) that is/are not equal sign(s), "[^=]+"
     // followed by an optional whitespace, an equal sign, and another optional whitespace, "\\s*=\\s*"
     // and one or more periods, "(.+)"
-    QRegExp keyRe(QLatin1String("^([^=]+)\\s*=\\s*(.+)$"));
+    QRegularExpression keyRe(QLatin1String("^([^=]+)\\s*=\\s*(.+)$"));
 
     const QStringList keys(mSettings.keys());
 
     QString currentSection;
     QString buffer;
 
-    while (!stream.atEnd())
+    ToUTF8::Utf8Encoder encoder(encoding);
+
+    std::string legacyEncLine;
+    while (std::getline(stream, legacyEncLine))
     {
+        std::string_view lineBuffer = encoder.getUtf8(legacyEncLine);
+        // unify Unix-style and Windows file ending
+        if (!(lineBuffer.empty()) && (lineBuffer[lineBuffer.length() - 1]) == '\r')
+        {
+            lineBuffer = lineBuffer.substr(0, lineBuffer.length() - 1);
+        }
 
-        const QString line(stream.readLine());
-
+        const QString line = QString::fromStdString(std::string(lineBuffer));
         if (line.isEmpty() || line.startsWith(QLatin1Char(';')))
         {
             buffer.append(line + QLatin1String("\n"));
             continue;
         }
 
-        if (sectionRe.exactMatch(line))
+        QRegularExpressionMatch sectionMatch = sectionRe.match(line);
+        if (sectionMatch.hasMatch())
         {
             buffer.append(line + QLatin1String("\n"));
-            currentSection = sectionRe.cap(1);
+            currentSection = sectionMatch.captured(1);
+            continue;
         }
-        else if (keyRe.indexIn(line) != -1)
+
+        QRegularExpressionMatch match = keyRe.match(line);
+        if (match.hasMatch())
         {
-            QString key(keyRe.cap(1).trimmed());
+            QString key(match.captured(1).trimmed());
             QString lookupKey(key);
 
             // Append the section, but only if there is one
@@ -151,23 +176,13 @@ bool Wizard::IniSettings::writeFile(const QString& path, QTextStream& stream)
         }
     }
 
-    // Now we reopen the file, this time we write
-    QFile file(path);
-
-    if (file.open(QIODevice::ReadWrite | QIODevice::Truncate | QIODevice::Text))
-    {
-        QTextStream in(&file);
-        in.setCodec(stream.codec());
-
-        // Write the updated buffer to an empty file
-        in << buffer;
-        file.flush();
-        file.close();
-    }
-    else
-    {
+    const auto iniPath = Files::pathFromQString(path);
+    std::ofstream file(iniPath, std::ios::out);
+    if (file.fail())
         return false;
-    }
+
+    file << encoder.getLegacyEnc(buffer.toStdString());
+    file.close();
 
     return true;
 }

@@ -4,7 +4,7 @@
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_TextBox.h>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/widgets/imagebutton.hpp>
 
@@ -12,6 +12,8 @@
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+
+#include "../mwworld/globals.hpp"
 
 #include "backgroundimage.hpp"
 #include "confirmationdialog.hpp"
@@ -105,7 +107,7 @@ namespace MWGui
             else
             {
                 ConfirmationDialog* dialog = winMgr->getConfirmationDialog();
-                dialog->askForConfirmation("#{sMessage2}");
+                dialog->askForConfirmation("#{OMWEngine:QuitGameConfirmation}");
                 dialog->eventOkClicked.clear();
                 dialog->eventOkClicked += MyGUI::newDelegate(this, &MainMenu::onExitConfirmed);
                 dialog->eventCancelClicked.clear();
@@ -118,7 +120,7 @@ namespace MWGui
             else
             {
                 ConfirmationDialog* dialog = winMgr->getConfirmationDialog();
-                dialog->askForConfirmation("#{sNotifyMessage54}");
+                dialog->askForConfirmation("#{OMWEngine:NewGameConfirmation}");
                 dialog->eventOkClicked.clear();
                 dialog->eventOkClicked += MyGUI::newDelegate(this, &MainMenu::onNewGameConfirmed);
                 dialog->eventCancelClicked.clear();
@@ -154,7 +156,7 @@ namespace MWGui
         if (!show)
             return;
 
-        bool stretch = Settings::Manager::getBool("stretch menu background", "GUI");
+        const bool stretch = Settings::gui().mStretchMenuBackground;
 
         if (mHasAnimatedMenu)
         {
@@ -216,7 +218,7 @@ namespace MWGui
 
         if (!mButtonBox)
             mButtonBox
-                = mMainWidget->createWidget<MyGUI::Widget>("", MyGUI::IntCoord(0, 0, 0, 0), MyGUI::Align::Default);
+                = mMainWidget->createWidget<MyGUI::Widget>({}, MyGUI::IntCoord(0, 0, 0, 0), MyGUI::Align::Default);
 
         int curH = 0;
 
@@ -232,7 +234,7 @@ namespace MWGui
         buttons.emplace_back("newgame");
 
         if (state == MWBase::StateManager::State_Running
-            && MWBase::Environment::get().getWorld()->getGlobalInt("chargenstate") == -1
+            && MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sCharGenState) == -1
             && MWBase::Environment::get().getWindowManager()->isSavingAllowed())
             buttons.emplace_back("savegame");
 
@@ -248,26 +250,24 @@ namespace MWGui
         buttons.emplace_back("exitgame");
 
         // Create new buttons if needed
-        std::vector<std::string> allButtons{ "return", "newgame", "savegame", "loadgame", "options", "credits",
-            "exitgame" };
-        for (std::string& buttonId : allButtons)
+        for (std::string_view id : { "return", "newgame", "savegame", "loadgame", "options", "credits", "exitgame" })
         {
-            if (mButtons.find(buttonId) == mButtons.end())
+            if (mButtons.find(id) == mButtons.end())
             {
                 Gui::ImageButton* button = mButtonBox->createWidget<Gui::ImageButton>(
                     "ImageBox", MyGUI::IntCoord(0, curH, 0, 0), MyGUI::Align::Default);
+                const std::string& buttonId = mButtons.emplace(id, button).first->first;
                 button->setProperty("ImageHighlighted", "textures\\menu_" + buttonId + "_over.dds");
                 button->setProperty("ImageNormal", "textures\\menu_" + buttonId + ".dds");
                 button->setProperty("ImagePushed", "textures\\menu_" + buttonId + "_pressed.dds");
                 button->eventMouseButtonClick += MyGUI::newDelegate(this, &MainMenu::onButtonClicked);
-                button->setUserData(std::string(buttonId));
-                mButtons[buttonId] = button;
+                button->setUserData(buttonId);
             }
         }
 
         // Start by hiding all buttons
         int maxwidth = 0;
-        for (auto& buttonPair : mButtons)
+        for (const auto& buttonPair : mButtons)
         {
             buttonPair.second->setVisible(false);
             MyGUI::IntSize requested = buttonPair.second->getRequestedSize();
@@ -276,10 +276,11 @@ namespace MWGui
         }
 
         // Now show and position the ones we want
-        for (std::string& buttonId : buttons)
+        for (const std::string& buttonId : buttons)
         {
-            assert(mButtons.find(buttonId) != mButtons.end());
-            Gui::ImageButton* button = mButtons[buttonId];
+            auto it = mButtons.find(buttonId);
+            assert(it != mButtons.end());
+            Gui::ImageButton* button = it->second;
             button->setVisible(true);
 
             // By default, assume that all menu buttons textures should have 64 height.

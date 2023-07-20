@@ -6,7 +6,7 @@
 
 #include <LinearMath/btQuickprof.h>
 #include <components/debug/debugging.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/luamanager.hpp"
@@ -104,20 +104,20 @@ namespace MWGui
         // - Shader editor
 
         MyGUI::TabItem* itemLV = mTabControl->addItem("Log Viewer");
-        itemLV->setCaptionWithReplacing(" #{DebugMenu:LogViewer} ");
+        itemLV->setCaptionWithReplacing(" #{OMWEngine:LogViewer} ");
         mLogView
             = itemLV->createWidgetReal<MyGUI::EditBox>("LogEdit", MyGUI::FloatCoord(0, 0, 1, 1), MyGUI::Align::Stretch);
         mLogView->setEditReadOnly(true);
 
         MyGUI::TabItem* itemLuaProfiler = mTabControl->addItem("Lua Profiler");
-        itemLuaProfiler->setCaptionWithReplacing(" #{DebugMenu:LuaProfiler} ");
+        itemLuaProfiler->setCaptionWithReplacing(" #{OMWEngine:LuaProfiler} ");
         mLuaProfiler = itemLuaProfiler->createWidgetReal<MyGUI::EditBox>(
             "LogEdit", MyGUI::FloatCoord(0, 0, 1, 1), MyGUI::Align::Stretch);
         mLuaProfiler->setEditReadOnly(true);
 
 #ifndef BT_NO_PROFILE
         MyGUI::TabItem* item = mTabControl->addItem("Physics Profiler");
-        item->setCaptionWithReplacing(" #{DebugMenu:PhysicsProfiler} ");
+        item->setCaptionWithReplacing(" #{OMWEngine:PhysicsProfiler} ");
         mBulletProfilerEdit
             = item->createWidgetReal<MyGUI::EditBox>("LogEdit", MyGUI::FloatCoord(0, 0, 1, 1), MyGUI::Align::Stretch);
 #else
@@ -132,7 +132,7 @@ namespace MWGui
 
     void DebugWindow::startLogRecording()
     {
-        sLogCircularBuffer.resize(Settings::Manager::getSize("log buffer size", "General"));
+        sLogCircularBuffer.resize(Settings::general().mLogBufferSize);
         Debug::setLogListener([](Debug::Level level, std::string_view prefix, std::string_view msg) {
             if (sLogCircularBuffer.empty())
                 return; // Log viewer is disabled.

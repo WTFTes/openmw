@@ -150,7 +150,7 @@ Sets the internal handling of light sources.
 pipeline compatible lighting.
 
 'shaders compatibility' removes the light limit controllable through :ref:`max
-lights` and follows a modifed attenuation formula which can drastically reduce
+lights` and follows a modified attenuation formula which can drastically reduce
 light popping and seams. This mode also enables lighting on groundcover and a
 configurable light fade. It is recommended to use this with older hardware and a
 light limit closer to 8. Because of its wide range of compatibility it is set as
@@ -287,3 +287,18 @@ the look of some particle systems.
 
 Note that the rendering will act as if you have 'force shaders' option enabled.
 This means that shaders will be used to render all objects and the terrain.
+
+weather particle occlusion
+--------------------------
+
+:Type:		boolean
+:Range:		True/False
+:Default:	False
+
+Enables particle occlusion for rain and snow particle effects.
+When enabled, rain and snow will not clip through ceilings and overhangs.
+Currently this relies on an additional render pass, which may lead to a performance hit.
+
+.. warning::
+    This is an experimental feature that may cause visual oddities, especially when using default rain settings.
+    It is recommended to at least double the rain diameter through `openmw.cfg`.`

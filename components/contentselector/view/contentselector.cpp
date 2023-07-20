@@ -13,6 +13,12 @@ ContentSelectorView::ContentSelector::ContentSelector(QWidget* parent, bool show
     ui.setupUi(parent);
     ui.addonView->setDragDropMode(QAbstractItemView::InternalMove);
 
+    if (!showOMWScripts)
+    {
+        ui.languageComboBox->setHidden(true);
+        ui.refreshButton->setHidden(true);
+    }
+
     buildContentModel(showOMWScripts);
     buildGameFileView();
     buildAddonView();
@@ -59,7 +65,7 @@ void ContentSelectorView::ContentSelector::buildAddonView()
     ui.addonView->setVisible(true);
 
     mAddonProxyModel = new AddOnProxyModel(this);
-    mAddonProxyModel->setFilterRegExp(searchFilter()->text());
+    mAddonProxyModel->setFilterRegularExpression(searchFilter()->text());
     mAddonProxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
     mAddonProxyModel->setDynamicSortFilter(true);
     mAddonProxyModel->setSourceModel(mContentModel);

@@ -55,8 +55,6 @@ QVariant CSVWorld::NastyTableModelHack::getData() const
     return mData;
 }
 
-CSVWorld::CommandDelegateFactory::~CommandDelegateFactory() {}
-
 CSVWorld::CommandDelegateFactoryCollection* CSVWorld::CommandDelegateFactoryCollection::sThis = nullptr;
 
 CSVWorld::CommandDelegateFactoryCollection::CommandDelegateFactoryCollection()
@@ -364,7 +362,11 @@ void CSVWorld::CommandDelegate::setEditorData(QWidget* editor, const QModelIndex
     if (!n.isEmpty())
     {
         if (!variant.isValid())
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+            variant = QVariant(editor->property(n).metaType(), (const void*)nullptr);
+#else
             variant = QVariant(editor->property(n).userType(), (const void*)nullptr);
+#endif
         editor->setProperty(n, variant);
     }
 }

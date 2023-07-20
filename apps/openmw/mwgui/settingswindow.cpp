@@ -26,7 +26,7 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/lightmanager.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/widgets/sharedstatebutton.hpp>
 
@@ -45,14 +45,14 @@ namespace
     std::string textureMipmappingToStr(const std::string& val)
     {
         if (val == "linear")
-            return "#{SettingsMenu:TextureFilteringTrilinear}";
+            return "#{OMWEngine:TextureFilteringTrilinear}";
         if (val == "nearest")
-            return "#{SettingsMenu:TextureFilteringBilinear}";
+            return "#{OMWEngine:TextureFilteringBilinear}";
         if (val == "none")
-            return "#{SettingsMenu:TextureFilteringDisabled}";
+            return "#{OMWEngine:TextureFilteringDisabled}";
 
         Log(Debug::Warning) << "Warning: Invalid texture mipmap option: " << val;
-        return "#{SettingsMenu:TextureFilteringOther}";
+        return "#{OMWEngine:TextureFilteringOther}";
     }
 
     std::string lightingMethodToStr(SceneUtil::LightingMethod method)
@@ -61,14 +61,14 @@ namespace
         switch (method)
         {
             case SceneUtil::LightingMethod::FFP:
-                result = "#{SettingsMenu:LightingMethodLegacy}";
+                result = "#{OMWEngine:LightingMethodLegacy}";
                 break;
             case SceneUtil::LightingMethod::PerObjectUniform:
-                result = "#{SettingsMenu:LightingMethodShadersCompatibility}";
+                result = "#{OMWEngine:LightingMethodShadersCompatibility}";
                 break;
             case SceneUtil::LightingMethod::SingleUBO:
             default:
-                result = "#{SettingsMenu:LightingMethodShaders}";
+                result = "#{OMWEngine:LightingMethodShaders}";
                 break;
         }
 
@@ -107,25 +107,25 @@ namespace
         return MyGUI::utility::toString(xaspect) + " : " + MyGUI::utility::toString(yaspect);
     }
 
-    const char* checkButtonType = "CheckButton";
-    const char* sliderType = "Slider";
+    const std::string_view checkButtonType = "CheckButton";
+    const std::string_view sliderType = "Slider";
 
-    std::string getSettingType(MyGUI::Widget* widget)
+    std::string_view getSettingType(MyGUI::Widget* widget)
     {
         return widget->getUserString("SettingType");
     }
 
-    std::string getSettingName(MyGUI::Widget* widget)
+    std::string_view getSettingName(MyGUI::Widget* widget)
     {
         return widget->getUserString("SettingName");
     }
 
-    std::string getSettingCategory(MyGUI::Widget* widget)
+    std::string_view getSettingCategory(MyGUI::Widget* widget)
     {
         return widget->getUserString("SettingCategory");
     }
 
-    std::string getSettingValueType(MyGUI::Widget* widget)
+    std::string_view getSettingValueType(MyGUI::Widget* widget)
     {
         return widget->getUserString("SettingValueType");
     }
@@ -165,12 +165,12 @@ namespace MWGui
         {
             MyGUI::Widget* current = widgets.current();
 
-            std::string type = getSettingType(current);
+            std::string_view type = getSettingType(current);
             if (type == checkButtonType)
             {
-                std::string initialValue
-                    = Settings::Manager::getBool(getSettingName(current), getSettingCategory(current)) ? "#{sOn}"
-                                                                                                       : "#{sOff}";
+                const std::string initialValue
+                    = Settings::get<bool>(getSettingCategory(current), getSettingName(current)) ? "#{Interface:On}"
+                                                                                                : "#{Interface:Off}";
                 current->castType<MyGUI::Button>()->setCaptionWithReplacing(initialValue);
                 if (init)
                     current->eventMouseButtonClick += MyGUI::newDelegate(this, &SettingsWindow::onButtonToggled);
@@ -179,28 +179,34 @@ namespace MWGui
             {
                 MyGUI::ScrollBar* scroll = current->castType<MyGUI::ScrollBar>();
                 std::string valueStr;
-                std::string valueType = getSettingValueType(current);
+                std::string_view valueType = getSettingValueType(current);
                 if (valueType == "Float" || valueType == "Integer" || valueType == "Cell")
                 {
                     // TODO: ScrollBar isn't meant for this. should probably use a dedicated FloatSlider widget
                     float min, max;
                     getSettingMinMax(scroll, min, max);
-                    float value = Settings::Manager::getFloat(getSettingName(current), getSettingCategory(current));
+                    float value;
 
                     if (valueType == "Cell")
                     {
+                        value = Settings::get<float>(getSettingCategory(current), getSettingName(current));
                         std::stringstream ss;
                         ss << std::fixed << std::setprecision(2) << value / Constants::CellSizeInUnits;
                         valueStr = ss.str();
                     }
                     else if (valueType == "Float")
                     {
+                        value = Settings::get<float>(getSettingCategory(current), getSettingName(current));
                         std::stringstream ss;
                         ss << std::fixed << std::setprecision(2) << value;
                         valueStr = ss.str();
                     }
                     else
-                        valueStr = MyGUI::utility::toString(int(value));
+                    {
+                        const int intValue = Settings::get<int>(getSettingCategory(current), getSettingName(current));
+                        valueStr = MyGUI::utility::toString(intValue);
+                        value = static_cast<float>(intValue);
+                    }
 
                     value = std::clamp(value, min, max);
                     value = (value - min) / (max - min);
@@ -209,7 +215,7 @@ namespace MWGui
                 }
                 else
                 {
-                    int value = Settings::Manager::getInt(getSettingName(current), getSettingCategory(current));
+                    const int value = Settings::get<int>(getSettingCategory(current), getSettingName(current));
                     valueStr = MyGUI::utility::toString(value);
                     scroll->setScrollPosition(value);
                 }
@@ -250,12 +256,13 @@ namespace MWGui
 
         configureWidgets(mMainWidget, true);
 
-        setTitle("#{sOptions}");
+        setTitle("#{OMWEngine:SettingsWindow}");
 
         getWidget(mSettingsTab, "SettingsTab");
         getWidget(mOkButton, "OkButton");
         getWidget(mResolutionList, "ResolutionList");
         getWidget(mWindowModeList, "WindowModeList");
+        getWidget(mVSyncModeList, "VSyncModeList");
         getWidget(mWindowBorderButton, "WindowBorderButton");
         getWidget(mTextureFilteringButton, "TextureFilteringButton");
         getWidget(mControlsBox, "ControlsBox");
@@ -267,6 +274,7 @@ namespace MWGui
         getWidget(mWaterRainRippleDetail, "WaterRainRippleDetail");
         getWidget(mPrimaryLanguage, "PrimaryLanguage");
         getWidget(mSecondaryLanguage, "SecondaryLanguage");
+        getWidget(mGmstOverridesL10n, "GmstOverridesL10nButton");
         getWidget(mWindowModeHint, "WindowModeHint");
         getWidget(mLightingMethodButton, "LightingMethodButton");
         getWidget(mLightsResetButton, "LightsResetButton");
@@ -315,6 +323,7 @@ namespace MWGui
         mMaxLights->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onMaxLightsChanged);
 
         mWindowModeList->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onWindowModeChanged);
+        mVSyncModeList->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onVSyncModeChanged);
 
         mKeyboardSwitch->eventMouseButtonClick += MyGUI::newDelegate(this, &SettingsWindow::onKeyboardSwitchClicked);
         mControllerSwitch->eventMouseButtonClick
@@ -324,6 +333,8 @@ namespace MWGui
             += MyGUI::newDelegate(this, &SettingsWindow::onPrimaryLanguageChanged);
         mSecondaryLanguage->eventComboChangePosition
             += MyGUI::newDelegate(this, &SettingsWindow::onSecondaryLanguageChanged);
+        mGmstOverridesL10n->eventMouseButtonClick
+            += MyGUI::newDelegate(this, &SettingsWindow::onGmstOverridesL10nChanged);
 
         computeMinimumWindowSize();
 
@@ -356,7 +367,7 @@ namespace MWGui
         }
         highlightCurrentResolution();
 
-        const std::string& tmip = Settings::Manager::getString("texture mipmap", "General");
+        const std::string& tmip = Settings::general().mTextureMipmap;
         mTextureFilteringButton->setCaptionWithReplacing(textureMipmappingToStr(tmip));
 
         int waterTextureSize = Settings::Manager::getInt("rtt size", "Water");
@@ -395,6 +406,8 @@ namespace MWGui
             if (Misc::getFileExtension(path) == "yaml")
             {
                 std::string localeName(Misc::stemFile(path));
+                if (localeName == "gmst")
+                    continue; // fake locale to get gmst strings from content files
                 if (std::find(availableLanguages.begin(), availableLanguages.end(), localeName)
                     == availableLanguages.end())
                     availableLanguages.push_back(localeName);
@@ -403,7 +416,7 @@ namespace MWGui
 
         std::sort(availableLanguages.begin(), availableLanguages.end());
 
-        std::vector<std::string> currentLocales = Settings::Manager::getStringArray("preferred locales", "General");
+        std::vector<std::string> currentLocales = Settings::general().mPreferredLocales;
         if (currentLocales.empty())
             currentLocales.push_back("en");
 
@@ -413,7 +426,8 @@ namespace MWGui
         mPrimaryLanguage->setIndexSelected(MyGUI::ITEM_NONE);
 
         mSecondaryLanguage->removeAllItems();
-        mSecondaryLanguage->addItem(MyGUI::LanguageManager::getInstance().replaceTags("#{sNone}"), std::string());
+        mSecondaryLanguage->addItem(
+            MyGUI::LanguageManager::getInstance().replaceTags("#{Interface:None}"), std::string());
         mSecondaryLanguage->setIndexSelected(0);
 
         size_t i = 0;
@@ -454,7 +468,7 @@ namespace MWGui
             return;
 
         ConfirmationDialog* dialog = MWBase::Environment::get().getWindowManager()->getConfirmationDialog();
-        dialog->askForConfirmation("#{sNotifyMessage67}");
+        dialog->askForConfirmation("#{OMWEngine:ConfirmResolution}");
         dialog->eventOkClicked.clear();
         dialog->eventOkClicked += MyGUI::newDelegate(this, &SettingsWindow::onResolutionAccept);
         dialog->eventCancelClicked.clear();
@@ -463,7 +477,7 @@ namespace MWGui
 
     void SettingsWindow::onResolutionAccept()
     {
-        std::string resStr = mResolutionList->getItemNameAt(mResolutionList->getIndexSelected());
+        const std::string& resStr = mResolutionList->getItemNameAt(mResolutionList->getIndexSelected());
         int resX, resY;
         parseResolution(resX, resY, resStr);
 
@@ -533,7 +547,7 @@ namespace MWGui
         _sender->setCaptionWithReplacing(_sender->getItemNameAt(_sender->getIndexSelected()));
 
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
-            "#{SettingsMenu:ChangeRequiresRestart}", { "#{sOK}" }, true);
+            "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
 
         Settings::Manager::setString("lighting method", "Shaders", *_sender->getItemDataAt<std::string>(pos));
         apply();
@@ -547,9 +561,9 @@ namespace MWGui
         _sender->setCaptionWithReplacing(_sender->getItemNameAt(_sender->getIndexSelected()));
 
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
-            "#{SettingsMenu:ChangeRequiresRestart}", { "#{sOK}" }, true);
+            "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
 
-        std::vector<std::string> currentLocales = Settings::Manager::getStringArray("preferred locales", "General");
+        std::vector<std::string> currentLocales = Settings::general().mPreferredLocales;
         if (currentLocales.size() <= langPriority)
             currentLocales.resize(langPriority + 1, "en");
 
@@ -559,7 +573,23 @@ namespace MWGui
         else
             currentLocales.resize(1);
 
-        Settings::Manager::setStringArray("preferred locales", "General", currentLocales);
+        Settings::general().mPreferredLocales.set(currentLocales);
+    }
+
+    void SettingsWindow::onGmstOverridesL10nChanged(MyGUI::Widget*)
+    {
+        MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
+            "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
+    }
+
+    void SettingsWindow::onVSyncModeChanged(MyGUI::ComboBox* _sender, size_t pos)
+    {
+        if (pos == MyGUI::ITEM_NONE)
+            return;
+
+        int index = static_cast<int>(_sender->getIndexSelected());
+        Settings::Manager::setInt("vsync mode", "Video", index);
+        apply();
     }
 
     void SettingsWindow::onWindowModeChanged(MyGUI::ComboBox* _sender, size_t pos)
@@ -599,28 +629,23 @@ namespace MWGui
 
     void SettingsWindow::onLightsResetButtonClicked(MyGUI::Widget* _sender)
     {
-        std::vector<std::string> buttons = { "#{sYes}", "#{sNo}" };
+        std::vector<std::string> buttons = { "#{Interface:Yes}", "#{Interface:No}" };
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
-            "#{SettingsMenu:LightingResetToDefaults}", buttons, true);
+            "#{OMWEngine:LightingResetToDefaults}", buttons, true);
         int selectedButton = MWBase::Environment::get().getWindowManager()->readPressedButton();
         if (selectedButton == 1 || selectedButton == -1)
             return;
 
-        constexpr std::array<const char*, 6> settings = {
-            "light bounds multiplier",
-            "maximum light distance",
-            "light fade start",
-            "minimum interior brightness",
-            "max lights",
-            "lighting method",
-        };
-        for (const auto& setting : settings)
-            Settings::Manager::setString(
-                setting, "Shaders", Settings::Manager::mDefaultSettings[{ "Shaders", setting }]);
+        Settings::shaders().mLightBoundsMultiplier.reset();
+        Settings::shaders().mMaximumLightDistance.reset();
+        Settings::shaders().mLightFadeStart.reset();
+        Settings::shaders().mMinimumInteriorBrightness.reset();
+        Settings::shaders().mMaxLights.reset();
+        Settings::shaders().mLightingMethod.reset();
 
-        auto lightingMethod = SceneUtil::LightManager::getLightingMethodFromString(
-            Settings::Manager::mDefaultSettings[{ "Shaders", "lighting method" }]);
-        auto lightIndex = mLightingMethodButton->findItemIndexWith(lightingMethodToStr(lightingMethod));
+        const SceneUtil::LightingMethod lightingMethod
+            = SceneUtil::LightManager::getLightingMethodFromString(Settings::shaders().mLightingMethod);
+        const std::size_t lightIndex = mLightingMethodButton->findItemIndexWith(lightingMethodToStr(lightingMethod));
         mLightingMethodButton->setIndexSelected(lightIndex);
         updateMaxLightsComboBox(mMaxLights);
 
@@ -647,7 +672,7 @@ namespace MWGui
 
         if (getSettingType(_sender) == checkButtonType)
         {
-            Settings::Manager::setBool(getSettingName(_sender), getSettingCategory(_sender), newState);
+            Settings::get<bool>(getSettingCategory(_sender), getSettingName(_sender)).set(newState);
             apply();
             return;
         }
@@ -656,9 +681,9 @@ namespace MWGui
     void SettingsWindow::onTextureFilteringChanged(MyGUI::ComboBox* _sender, size_t pos)
     {
         if (pos == 0)
-            Settings::Manager::setString("texture mipmap", "General", "nearest");
+            Settings::general().mTextureMipmap.set("nearest");
         else if (pos == 1)
-            Settings::Manager::setString("texture mipmap", "General", "linear");
+            Settings::general().mTextureMipmap.set("linear");
         else
             Log(Debug::Warning) << "Unexpected option pos " << pos;
         apply();
@@ -675,7 +700,7 @@ namespace MWGui
         if (getSettingType(scroller) == "Slider")
         {
             std::string valueStr;
-            std::string valueType = getSettingValueType(scroller);
+            std::string_view valueType = getSettingValueType(scroller);
             if (valueType == "Float" || valueType == "Integer" || valueType == "Cell")
             {
                 float value = pos / float(scroller->getScrollRange() - 1);
@@ -683,29 +708,31 @@ namespace MWGui
                 float min, max;
                 getSettingMinMax(scroller, min, max);
                 value = min + (max - min) * value;
-                if (valueType == "Float")
-                    Settings::Manager::setFloat(getSettingName(scroller), getSettingCategory(scroller), value);
-                else
-                    Settings::Manager::setInt(getSettingName(scroller), getSettingCategory(scroller), (int)value);
 
                 if (valueType == "Cell")
                 {
+                    Settings::get<float>(getSettingCategory(scroller), getSettingName(scroller)).set(value);
                     std::stringstream ss;
                     ss << std::fixed << std::setprecision(2) << value / Constants::CellSizeInUnits;
                     valueStr = ss.str();
                 }
                 else if (valueType == "Float")
                 {
+                    Settings::get<float>(getSettingCategory(scroller), getSettingName(scroller)).set(value);
                     std::stringstream ss;
                     ss << std::fixed << std::setprecision(2) << value;
                     valueStr = ss.str();
                 }
                 else
+                {
+                    Settings::get<int>(getSettingCategory(scroller), getSettingName(scroller))
+                        .set(static_cast<int>(value));
                     valueStr = MyGUI::utility::toString(int(value));
+                }
             }
             else
             {
-                Settings::Manager::setInt(getSettingName(scroller), getSettingCategory(scroller), pos);
+                Settings::get<int>(getSettingCategory(scroller), getSettingName(scroller)).set(pos);
                 valueStr = MyGUI::utility::toString(pos);
             }
             updateSliderLabel(scroller, valueStr);
@@ -828,7 +855,7 @@ namespace MWGui
             // check if this resolution is supported in fullscreen
             if (mResolutionList->getIndexSelected() != MyGUI::ITEM_NONE)
             {
-                std::string resStr = mResolutionList->getItemNameAt(mResolutionList->getIndexSelected());
+                const std::string& resStr = mResolutionList->getItemNameAt(mResolutionList->getIndexSelected());
                 int resX, resY;
                 parseResolution(resX, resY, resStr);
                 Settings::Manager::setInt("resolution x", "Video", resX);
@@ -837,9 +864,9 @@ namespace MWGui
 
             bool supported = false;
             int fallbackX = 0, fallbackY = 0;
-            for (unsigned int i = 0; i < mResolutionList->getItemCount(); ++i)
+            for (size_t i = 0; i < mResolutionList->getItemCount(); ++i)
             {
-                std::string resStr = mResolutionList->getItemNameAt(i);
+                const std::string& resStr = mResolutionList->getItemNameAt(i);
                 int resX, resY;
                 parseResolution(resX, resY, resStr);
 
@@ -870,9 +897,19 @@ namespace MWGui
             mResolutionList->setEnabled(false);
     }
 
+    void SettingsWindow::updateVSyncModeSettings()
+    {
+        int index = static_cast<size_t>(Settings::Manager::getInt("vsync mode", "Video"));
+
+        if (index < 0 || index > 2)
+            index = 0;
+
+        mVSyncModeList->setIndexSelected(index);
+    }
+
     void SettingsWindow::layoutControlsBox()
     {
-        const int h = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int h = Settings::gui().mFontSize + 2;
         const int w = mControlsBox->getWidth() - 28;
         const int noWidgetsInRow = 2;
         const int totalH = mControlsBox->getChildCount() / noWidgetsInRow * h;
@@ -992,9 +1029,9 @@ namespace MWGui
     {
         int actionId = *_sender->getUserData<int>();
 
-        _sender->castType<MyGUI::Button>()->setCaptionWithReplacing("#{sNone}");
+        _sender->castType<MyGUI::Button>()->setCaptionWithReplacing("#{Interface:None}");
 
-        MWBase::Environment::get().getWindowManager()->staticMessageBox("#{sControlsMenu3}");
+        MWBase::Environment::get().getWindowManager()->staticMessageBox("#{OMWEngine:RebindAction}");
         MWBase::Environment::get().getWindowManager()->disallowMouse();
 
         MWBase::Environment::get().getInputManager()->enableDetectingBindingMode(actionId, mKeyboardMode);
@@ -1012,7 +1049,7 @@ namespace MWGui
     void SettingsWindow::onResetDefaultBindings(MyGUI::Widget* _sender)
     {
         ConfirmationDialog* dialog = MWBase::Environment::get().getWindowManager()->getConfirmationDialog();
-        dialog->askForConfirmation("#{sNotifyMessage66}");
+        dialog->askForConfirmation("#{OMWEngine:ConfirmResetBindings}");
         dialog->eventOkClicked.clear();
         dialog->eventOkClicked += MyGUI::newDelegate(this, &SettingsWindow::onResetDefaultBindingsAccept);
         dialog->eventCancelClicked.clear();
@@ -1033,6 +1070,7 @@ namespace MWGui
         updateControlsBox();
         updateLightSettings();
         updateWindowModeSettings();
+        updateVSyncModeSettings();
         resetScrollbars();
         renderScriptSettings();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mOkButton);

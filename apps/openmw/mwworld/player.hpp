@@ -1,6 +1,7 @@
 #ifndef GAME_MWWORLD_PLAYER_H
 #define GAME_MWWORLD_PLAYER_H
 
+#include <array>
 #include <map>
 
 #include "../mwworld/livecellref.hpp"
@@ -50,8 +51,8 @@ namespace MWWorld
         PreviousItems mPreviousItems;
 
         // Saved stats prior to becoming a werewolf
-        float mSaveSkills[ESM::Skill::Length];
-        float mSaveAttributes[ESM::Attribute::Length];
+        std::array<float, ESM::Skill::Length> mSaveSkills;
+        std::array<float, ESM::Attribute::Length> mSaveAttributes;
 
         bool mJumping;
 

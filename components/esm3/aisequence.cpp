@@ -50,14 +50,14 @@ namespace ESM
         void AiEscort::load(ESMReader& esm)
         {
             esm.getHNT(mData, "DATA");
-            mTargetId = ESM::RefId::stringRefId(esm.getHNString("TARG"));
+            mTargetId = esm.getHNRefId("TARG");
             mTargetActorId = -1;
             esm.getHNOT(mTargetActorId, "TAID");
             esm.getHNT(mRemainingDuration, "DURA");
-            mCellId = ESM::RefId::stringRefId(esm.getHNOString("CELL"));
+            mCellId = esm.getHNOString("CELL");
             mRepeat = false;
             esm.getHNOT(mRepeat, "REPT");
-            if (esm.getFormat() < 18)
+            if (esm.getFormatVersion() <= MaxOldAiPackageFormatVersion)
             {
                 // mDuration isn't saved in the save file, so just giving it "1" for now if the package has a duration.
                 // The exact value of mDuration only matters for repeating packages.
@@ -70,11 +70,11 @@ namespace ESM
         void AiEscort::save(ESMWriter& esm) const
         {
             esm.writeHNT("DATA", mData);
-            esm.writeHNString("TARG", mTargetId.getRefIdString());
+            esm.writeHNRefId("TARG", mTargetId);
             esm.writeHNT("TAID", mTargetActorId);
             esm.writeHNT("DURA", mRemainingDuration);
             if (!mCellId.empty())
-                esm.writeHNString("CELL", mCellId.getRefIdString());
+                esm.writeHNString("CELL", mCellId);
             if (mRepeat)
                 esm.writeHNT("REPT", mRepeat);
         }
@@ -82,11 +82,11 @@ namespace ESM
         void AiFollow::load(ESMReader& esm)
         {
             esm.getHNT(mData, "DATA");
-            mTargetId = ESM::RefId::stringRefId(esm.getHNString("TARG"));
+            mTargetId = esm.getHNRefId("TARG");
             mTargetActorId = -1;
             esm.getHNOT(mTargetActorId, "TAID");
             esm.getHNT(mRemainingDuration, "DURA");
-            mCellId = ESM::RefId::stringRefId(esm.getHNOString("CELL"));
+            mCellId = esm.getHNOString("CELL");
             esm.getHNT(mAlwaysFollow, "ALWY");
             mCommanded = false;
             esm.getHNOT(mCommanded, "CMND");
@@ -94,7 +94,7 @@ namespace ESM
             esm.getHNOT(mActive, "ACTV");
             mRepeat = false;
             esm.getHNOT(mRepeat, "REPT");
-            if (esm.getFormat() < 18)
+            if (esm.getFormatVersion() <= MaxOldAiPackageFormatVersion)
             {
                 // mDuration isn't saved in the save file, so just giving it "1" for now if the package has a duration.
                 // The exact value of mDuration only matters for repeating packages.
@@ -107,11 +107,11 @@ namespace ESM
         void AiFollow::save(ESMWriter& esm) const
         {
             esm.writeHNT("DATA", mData);
-            esm.writeHNString("TARG", mTargetId.getRefIdString());
+            esm.writeHNRefId("TARG", mTargetId);
             esm.writeHNT("TAID", mTargetActorId);
             esm.writeHNT("DURA", mRemainingDuration);
             if (!mCellId.empty())
-                esm.writeHNString("CELL", mCellId.getRefIdString());
+                esm.writeHNString("CELL", mCellId);
             esm.writeHNT("ALWY", mAlwaysFollow);
             esm.writeHNT("CMND", mCommanded);
             if (mActive)
@@ -122,14 +122,14 @@ namespace ESM
 
         void AiActivate::load(ESMReader& esm)
         {
-            mTargetId = ESM::RefId::stringRefId(esm.getHNString("TARG"));
+            mTargetId = esm.getHNRefId("TARG");
             mRepeat = false;
             esm.getHNOT(mRepeat, "REPT");
         }
 
         void AiActivate::save(ESMWriter& esm) const
         {
-            esm.writeHNString("TARG", mTargetId.getRefIdString());
+            esm.writeHNRefId("TARG", mTargetId);
             if (mRepeat)
                 esm.writeHNT("REPT", mRepeat);
         }
@@ -265,7 +265,7 @@ namespace ESM
 
             esm.getHNOT(mLastAiPackage, "LAST");
 
-            if (count > 1 && esm.getFormat() < 18)
+            if (count > 1 && esm.getFormatVersion() <= MaxOldAiPackageFormatVersion)
             {
                 for (auto& pkg : mPackages)
                 {

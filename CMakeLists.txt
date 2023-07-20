@@ -54,13 +54,14 @@ option(BUILD_UNITTESTS          "Enable Unittests with Google C++ Unittest" OFF)
 option(BUILD_BENCHMARKS         "Build benchmarks with Google Benchmark" OFF)
 option(BUILD_NAVMESHTOOL        "Build navmesh tool" ON)
 option(BUILD_BULLETOBJECTTOOL   "Build Bullet object tool" ON)
+option(BUILD_OPENCS_TESTS       "Build OpenMW Construction Set tests" OFF)
 
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
 
-if (NOT BUILD_LAUNCHER AND NOT BUILD_OPENCS AND NOT BUILD_WIZARD)
-   set(USE_QT FALSE)
+if (BUILD_LAUNCHER OR BUILD_OPENCS OR BUILD_WIZARD OR BUILD_OPENCS_TESTS)
+    set(USE_QT TRUE)
 else()
-   set(USE_QT TRUE)
+    set(USE_QT FALSE)
 endif()
 
 # If the user doesn't supply a CMAKE_BUILD_TYPE via command line, choose one for them.
@@ -131,7 +132,7 @@ configure_file ("${OpenMW_SOURCE_DIR}/docs/mainpage.hpp.cmake" "${OpenMW_BINARY_
 
 option(BOOST_STATIC "Link static build of Boost into the binaries" FALSE)
 option(SDL2_STATIC "Link static build of SDL into the binaries" FALSE)
-option(QT_STATIC "Link static build of QT into the binaries" FALSE)
+option(QT_STATIC "Link static build of Qt into the binaries" FALSE)
 
 option(OPENMW_USE_SYSTEM_BULLET "Use system provided bullet physics library" ON)
 if(OPENMW_USE_SYSTEM_BULLET)
@@ -227,7 +228,7 @@ if (WIN32)
 endif()
 
 if(MSVC)
-  add_compile_options("/utf-8")
+    add_compile_options("/utf-8")
 endif()
 
 # Dependencies
@@ -236,10 +237,13 @@ find_package(OpenGL REQUIRED)
 find_package(LZ4 REQUIRED)
 
 if (USE_QT)
-    find_package(Qt5Core 5.12 REQUIRED)
-    find_package(Qt5Widgets REQUIRED)
-    find_package(Qt5Network REQUIRED)
-    find_package(Qt5OpenGL REQUIRED)
+    find_package(QT REQUIRED COMPONENTS Core NAMES Qt6 Qt5)
+    if (QT_VERSION_MAJOR VERSION_EQUAL 5)
+        find_package(Qt5 5.15 COMPONENTS Core Widgets Network OpenGL REQUIRED)
+    else()
+        find_package(Qt6 COMPONENTS Core Widgets Network OpenGL OpenGLWidgets REQUIRED)
+    endif()
+    message(STATUS "Using Qt${QT_VERSION}")
 endif()
 
 set(USED_OSG_COMPONENTS
@@ -289,6 +293,11 @@ endif()
 option(YAML_CPP_STATIC "Link static build of yaml-cpp into the binaries" ${_yaml_cpp_static_default})
 if (OPENMW_USE_SYSTEM_YAML_CPP)
     find_package(yaml-cpp REQUIRED)
+endif()
+
+if ((BUILD_UNITTESTS OR BUILD_OPENCS_TESTS) AND OPENMW_USE_SYSTEM_GOOGLETEST)
+    find_package(GTest 1.10 REQUIRED)
+    find_package(GMock 1.10 REQUIRED)
 endif()
 
 add_subdirectory(extern)
@@ -443,7 +452,7 @@ if(HAVE_MULTIVIEW)
     add_definitions(-DOSG_HAS_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
-set(BOOST_COMPONENTS system filesystem program_options iostreams)
+set(BOOST_COMPONENTS system program_options iostreams)
 if(WIN32)
     set(BOOST_COMPONENTS ${BOOST_COMPONENTS} locale)
     if(MSVC)
@@ -470,6 +479,7 @@ if(OPENMW_USE_SYSTEM_MYGUI)
 endif()
 find_package(SDL2 2.0.9 REQUIRED)
 find_package(OpenAL REQUIRED)
+find_package(ZLIB REQUIRED)
 
 option(USE_LUAJIT "Switch Lua/LuaJit (TRUE is highly recommended)" TRUE)
 if(USE_LUAJIT)
@@ -506,7 +516,7 @@ include_directories(
 link_directories(${SDL2_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS} ${COLLADA_DOM_LIBRARY_DIRS})
 
 if(MYGUI_STATIC)
-   add_definitions(-DMYGUI_STATIC)
+    add_definitions(-DMYGUI_STATIC)
 endif (MYGUI_STATIC)
 
 if (APPLE)
@@ -594,7 +604,7 @@ endif()
 
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
-    set(OPENMW_CXX_FLAGS "-Wall -Wextra -Wundef -Wextra-semi -Wno-unused-parameter -pedantic -Wno-long-long ${OPENMW_CXX_FLAGS}")
+    set(OPENMW_CXX_FLAGS "-Wall -Wextra -Wundef -Wextra-semi -Wno-unused-parameter -pedantic -Wno-long-long -Wnon-virtual-dtor -Wunused ${OPENMW_CXX_FLAGS}")
     add_definitions( -DBOOST_NO_CXX11_SCOPED_ENUMS=ON )
 
     if (APPLE)
@@ -604,12 +614,12 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 
     if (CMAKE_CXX_COMPILER_ID STREQUAL Clang AND NOT APPLE)
         if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 3.6 OR CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 3.6)
-            set(${OPENMW_CXX_FLAGS} "${OPENMW_CXX_FLAGS} -Wno-potentially-evaluated-expression")
+            set(OPENMW_CXX_FLAGS "${OPENMW_CXX_FLAGS} -Wno-potentially-evaluated-expression")
         endif ()
     endif()
 
-    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 4.6 OR CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 4.6)
-        set(${OPENMW_CXX_FLAGS} "${OPENMW_CXX_FLAGS} -Wno-unused-but-set-parameter")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+        set(OPENMW_CXX_FLAGS "${OPENMW_CXX_FLAGS} -Wno-unused-but-set-parameter -Wduplicated-branches -Wduplicated-cond -Wlogical-op")
     endif()
 endif (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 
@@ -618,7 +628,7 @@ endif (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clan
 add_subdirectory (extern/osg-ffmpeg-videoplayer)
 add_subdirectory (extern/oics)
 add_subdirectory (extern/Base64)
-if (BUILD_OPENCS)
+if (BUILD_OPENCS OR BUILD_OPENCS_TESTS)
     add_subdirectory (extern/osgQt)
 endif()
 
@@ -635,31 +645,31 @@ if (BUILD_OPENMW)
 endif()
 
 if (BUILD_BSATOOL)
-  add_subdirectory( apps/bsatool )
+    add_subdirectory( apps/bsatool )
 endif()
 
 if (BUILD_ESMTOOL)
-  add_subdirectory( apps/esmtool )
+    add_subdirectory( apps/esmtool )
 endif()
 
 if (BUILD_LAUNCHER)
-   add_subdirectory( apps/launcher )
+    add_subdirectory( apps/launcher )
 endif()
 
 if (BUILD_MWINIIMPORTER)
-   add_subdirectory( apps/mwiniimporter )
+    add_subdirectory( apps/mwiniimporter )
 endif()
 
 if (BUILD_ESSIMPORTER)
-   add_subdirectory (apps/essimporter )
+    add_subdirectory (apps/essimporter )
 endif()
 
-if (BUILD_OPENCS)
-   add_subdirectory (apps/opencs)
+if (BUILD_OPENCS OR BUILD_OPENCS_TESTS)
+    add_subdirectory (apps/opencs)
 endif()
 
 if (BUILD_WIZARD)
-   add_subdirectory(apps/wizard)
+    add_subdirectory(apps/wizard)
 endif()
 
 if (BUILD_NIFTEST)
@@ -668,143 +678,143 @@ endif(BUILD_NIFTEST)
 
 # UnitTests
 if (BUILD_UNITTESTS)
-  add_subdirectory( apps/openmw_test_suite )
+    add_subdirectory( apps/openmw_test_suite )
 endif()
 
 if (BUILD_BENCHMARKS)
-  add_subdirectory(apps/benchmarks)
+    add_subdirectory(apps/benchmarks)
 endif()
 
 if (BUILD_NAVMESHTOOL)
-  add_subdirectory(apps/navmeshtool)
+    add_subdirectory(apps/navmeshtool)
 endif()
 
 if (BUILD_BULLETOBJECTTOOL)
-  add_subdirectory( apps/bulletobjecttool )
+    add_subdirectory( apps/bulletobjecttool )
+endif()
+
+if (BUILD_OPENCS_TESTS)
+    add_subdirectory(apps/opencs_tests)
 endif()
 
 if (WIN32)
-  if (MSVC)
-    foreach( OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES} )
-        string( TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG )
-        set( CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "$(SolutionDir)$(Configuration)" )
-        set( CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "$(ProjectDir)$(Configuration)" )
-    endforeach( OUTPUTCONFIG )
+    if (MSVC)
+        foreach( OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES} )
+            string( TOUPPER ${OUTPUTCONFIG} OUTPUTCONFIG )
+            set( CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "$(SolutionDir)$(Configuration)" )
+            set( CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "$(ProjectDir)$(Configuration)" )
+        endforeach( OUTPUTCONFIG )
 
-    if (USE_DEBUG_CONSOLE AND BUILD_OPENMW)
-      set_target_properties(openmw PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE")
-      set_target_properties(openmw PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:CONSOLE")
-      set_target_properties(openmw PROPERTIES COMPILE_DEFINITIONS $<$<CONFIG:Debug>:_CONSOLE>)
-    elseif (BUILD_OPENMW)
-      # Turn off debug console, debug output will be written to visual studio output instead
-      set_target_properties(openmw PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:WINDOWS")
-      set_target_properties(openmw PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:WINDOWS")
-    endif()
+        if (USE_DEBUG_CONSOLE AND BUILD_OPENMW)
+            set_target_properties(openmw PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE")
+            set_target_properties(openmw PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:CONSOLE")
+            set_target_properties(openmw PROPERTIES COMPILE_DEFINITIONS $<$<CONFIG:Debug>:_CONSOLE>)
+        elseif (BUILD_OPENMW)
+            # Turn off debug console, debug output will be written to visual studio output instead
+            set_target_properties(openmw PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:WINDOWS")
+            set_target_properties(openmw PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:WINDOWS")
+        endif()
 
-    if (BUILD_OPENMW)
-        # Release builds don't use the debug console
-        set_target_properties(openmw PROPERTIES LINK_FLAGS_RELEASE "/SUBSYSTEM:WINDOWS")
-        set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
-    endif()
+        if (BUILD_OPENMW)
+            # Release builds don't use the debug console
+            set_target_properties(openmw PROPERTIES LINK_FLAGS_RELEASE "/SUBSYSTEM:WINDOWS")
+            set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
+        endif()
 
-    # Play a bit with the warning levels
+        # Play a bit with the warning levels
 
-    set(WARNINGS "/W4")
+        set(WARNINGS "/W4")
 
-    set(WARNINGS_DISABLE
-        4100 # Unreferenced formal parameter (-Wunused-parameter)
-        4127 # Conditional expression is constant
-        4996 # Function was declared deprecated
-        5054 # Deprecated operations between enumerations of different types caused by Qt headers
-        )
-    
-    if( "${MyGUI_VERSION}" VERSION_LESS_EQUAL "3.4.0" )
-        set(WARNINGS_DISABLE ${WARNINGS_DISABLE}
-        4866 # compiler may not enforce left-to-right evaluation order for call
-        )
-    endif()
+        set(WARNINGS_DISABLE
+            4100 # Unreferenced formal parameter (-Wunused-parameter)
+            4127 # Conditional expression is constant
+            4996 # Function was declared deprecated
+            5054 # Deprecated operations between enumerations of different types caused by Qt headers
+            )
 
-    if( "${MyGUI_VERSION}" VERSION_LESS_EQUAL "3.4.1" )
-        set(WARNINGS_DISABLE ${WARNINGS_DISABLE}
-        4275 # non dll-interface class 'MyGUI::delegates::IDelegateUnlink' used as base for dll-interface class 'MyGUI::Widget'
-        )
-    endif()
+        if( "${MyGUI_VERSION}" VERSION_LESS_EQUAL "3.4.0" )
+            set(WARNINGS_DISABLE ${WARNINGS_DISABLE}
+            4866 # compiler may not enforce left-to-right evaluation order for call
+            )
+        endif()
 
-    foreach(d ${WARNINGS_DISABLE})
-        set(WARNINGS "${WARNINGS} /wd${d}")
-    endforeach(d)
+        if( "${MyGUI_VERSION}" VERSION_LESS_EQUAL "3.4.1" )
+            set(WARNINGS_DISABLE ${WARNINGS_DISABLE}
+            4275 # non dll-interface class 'MyGUI::delegates::IDelegateUnlink' used as base for dll-interface class 'MyGUI::Widget'
+            )
+        endif()
 
-    if(OPENMW_MSVC_WERROR)
-        set(WARNINGS "${WARNINGS} /WX")
-    endif()
+        foreach(d ${WARNINGS_DISABLE})
+            set(WARNINGS "${WARNINGS} /wd${d}")
+        endforeach(d)
 
-    set_target_properties(components PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    set_target_properties(osg-ffmpeg-videoplayer PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    
-    if (MSVC_VERSION GREATER_EQUAL 1915 AND MSVC_VERSION LESS 1920)
-        target_compile_definitions(components INTERFACE _ENABLE_EXTENDED_ALIGNED_STORAGE)
-    endif()
+        if(OPENMW_MSVC_WERROR)
+            set(WARNINGS "${WARNINGS} /WX")
+        endif()
 
-    if (BUILD_BSATOOL)
-        set_target_properties(bsatool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        set_target_properties(components PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        set_target_properties(osg-ffmpeg-videoplayer PROPERTIES COMPILE_FLAGS "${WARNINGS}")
 
-    if (BUILD_ESMTOOL)
-        set_target_properties(esmtool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (MSVC_VERSION GREATER_EQUAL 1915 AND MSVC_VERSION LESS 1920)
+            target_compile_definitions(components INTERFACE _ENABLE_EXTENDED_ALIGNED_STORAGE)
+        endif()
 
-    if (BUILD_ESSIMPORTER)
-        set_target_properties(openmw-essimporter PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_BSATOOL)
+            set_target_properties(bsatool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_LAUNCHER)
-        set_target_properties(openmw-launcher PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_ESMTOOL)
+            set_target_properties(esmtool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_MWINIIMPORTER)
-        set_target_properties(openmw-iniimporter PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_ESSIMPORTER)
+            set_target_properties(openmw-essimporter PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_OPENCS)
-        set_target_properties(openmw-cs PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_LAUNCHER)
+            set_target_properties(openmw-launcher PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_OPENMW)
-        set_target_properties(openmw PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_MWINIIMPORTER)
+            set_target_properties(openmw-iniimporter PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_WIZARD)
-        set_target_properties(openmw-wizard PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_OPENCS)
+            set_target_properties(openmw-cs PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_UNITTESTS)
-        set_target_properties(openmw_test_suite PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_OPENMW)
+            set_target_properties(openmw PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_BENCHMARKS)
-        set_target_properties(openmw_detournavigator_navmeshtilescache_benchmark PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_WIZARD)
+            set_target_properties(openmw-wizard PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_NAVMESHTOOL)
-        set_target_properties(openmw-navmeshtool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
+        if (BUILD_UNITTESTS)
+            set_target_properties(openmw_test_suite PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-    if (BUILD_BULLETOBJECTTOOL)
-        set(WARNINGS "${WARNINGS} ${MT_BUILD}")
-        set_target_properties(openmw-bulletobjecttool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-    endif()
-  endif(MSVC)
+        if (BUILD_BENCHMARKS)
+            set_target_properties(openmw_detournavigator_navmeshtilescache_benchmark PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
 
-  # TODO: At some point release builds should not use the console but rather write to a log file
-  #set_target_properties(openmw PROPERTIES LINK_FLAGS_RELEASE "/SUBSYSTEM:WINDOWS")
-  #set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
+        if (BUILD_NAVMESHTOOL)
+            set_target_properties(openmw-navmeshtool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
+
+        if (BUILD_BULLETOBJECTTOOL)
+            set(WARNINGS "${WARNINGS} ${MT_BUILD}")
+            set_target_properties(openmw-bulletobjecttool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        endif()
+    endif(MSVC)
+
+    # TODO: At some point release builds should not use the console but rather write to a log file
+    #set_target_properties(openmw PROPERTIES LINK_FLAGS_RELEASE "/SUBSYSTEM:WINDOWS")
+    #set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
 endif()
 
 if (BUILD_OPENMW AND APPLE)
-    if (USE_LUAJIT)
-        # Without these flags LuaJit crashes on startup on OSX
-        set_target_properties(openmw PROPERTIES LINK_FLAGS "-pagezero_size 10000 -image_base 100000000")
-    endif(USE_LUAJIT)
     target_compile_definitions(components PRIVATE GL_SILENCE_DEPRECATION=1)
     target_compile_definitions(openmw PRIVATE GL_SILENCE_DEPRECATION=1)
 endif()
@@ -815,18 +825,26 @@ if (OPENMW_OSX_DEPLOYMENT AND APPLE)
         message(FATAL_ERROR "macOS packaging requires CMake 3.19 or higher to sign macOS app bundles.")
     endif ()
 
-    get_property(QT_COCOA_PLUGIN_PATH TARGET Qt5::QCocoaIntegrationPlugin PROPERTY LOCATION_RELEASE)
+    get_property(QT_COCOA_PLUGIN_PATH TARGET Qt${QT_VERSION_MAJOR}::QCocoaIntegrationPlugin PROPERTY LOCATION_RELEASE)
     get_filename_component(QT_COCOA_PLUGIN_DIR "${QT_COCOA_PLUGIN_PATH}" DIRECTORY)
     get_filename_component(QT_COCOA_PLUGIN_GROUP "${QT_COCOA_PLUGIN_DIR}" NAME)
     get_filename_component(QT_COCOA_PLUGIN_NAME "${QT_COCOA_PLUGIN_PATH}" NAME)
     configure_file("${QT_COCOA_PLUGIN_PATH}" "${APP_BUNDLE_DIR}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}" COPYONLY)
+
+    get_property(QT_QMACSTYLE_PLUGIN_PATH TARGET Qt${QT_VERSION_MAJOR}::QMacStylePlugin PROPERTY LOCATION_RELEASE)
+    get_filename_component(QT_QMACSTYLE_PLUGIN_DIR "${QT_QMACSTYLE_PLUGIN_PATH}" DIRECTORY)
+    get_filename_component(QT_QMACSTYLE_PLUGIN_GROUP "${QT_QMACSTYLE_PLUGIN_DIR}" NAME)
+    get_filename_component(QT_QMACSTYLE_PLUGIN_NAME "${QT_QMACSTYLE_PLUGIN_PATH}" NAME)
+    configure_file("${QT_QMACSTYLE_PLUGIN_PATH}" "${APP_BUNDLE_DIR}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}" COPYONLY)
+
     configure_file("${OpenMW_SOURCE_DIR}/files/mac/qt.conf" "${APP_BUNDLE_DIR}/Contents/Resources/qt.conf" COPYONLY)
 
     if (BUILD_OPENCS)
-      get_property(OPENCS_BUNDLE_NAME_TMP TARGET openmw-cs PROPERTY OUTPUT_NAME)
-      set(OPENCS_BUNDLE_NAME "${OPENCS_BUNDLE_NAME_TMP}.app")
-      configure_file("${QT_COCOA_PLUGIN_PATH}" "${OPENCS_BUNDLE_NAME}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}" COPYONLY)
-      configure_file("${OpenMW_SOURCE_DIR}/files/mac/qt.conf" "${OPENCS_BUNDLE_NAME}/Contents/Resources/qt.conf" COPYONLY)
+        get_property(OPENCS_BUNDLE_NAME_TMP TARGET openmw-cs PROPERTY OUTPUT_NAME)
+        set(OPENCS_BUNDLE_NAME "${OPENCS_BUNDLE_NAME_TMP}.app")
+        configure_file("${QT_COCOA_PLUGIN_PATH}" "${OPENCS_BUNDLE_NAME}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}" COPYONLY)
+        configure_file("${QT_QMACSTYLE_PLUGIN_PATH}" "${OPENCS_BUNDLE_NAME}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}" COPYONLY)
+        configure_file("${OpenMW_SOURCE_DIR}/files/mac/qt.conf" "${OPENCS_BUNDLE_NAME}/Contents/Resources/qt.conf" COPYONLY)
     endif ()
 
     install(DIRECTORY "${APP_BUNDLE_DIR}" USE_SOURCE_PERMISSIONS DESTINATION "." COMPONENT Runtime)
@@ -895,7 +913,9 @@ if (OPENMW_OSX_DEPLOYMENT AND APPLE)
     install_plugins_for_bundle("${OPENCS_BUNDLE_NAME}" OPENCS_PLUGINS)
 
     set(PLUGINS ${PLUGINS} "${INSTALLED_OPENMW_APP}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}")
+    set(PLUGINS ${PLUGINS} "${INSTALLED_OPENMW_APP}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}")
     set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}")
+    set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}")
 
     install(CODE "
         function(gp_item_default_embedded_path_override item  default_embedded_path_var)

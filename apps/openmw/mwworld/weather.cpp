@@ -211,7 +211,7 @@ namespace MWWorld
                 = ESM::RefId::stringRefId(Fallback::Map::getString("Weather_" + name + "_Ambient_Loop_Sound_ID"));
 
         if (mAmbientLoopSoundID == "None")
-            mAmbientLoopSoundID = ESM::RefId::sEmpty;
+            mAmbientLoopSoundID = ESM::RefId();
     }
 
     float Weather::transitionDelta() const
@@ -704,7 +704,7 @@ namespace MWWorld
         if (!paused || mFastForward)
         {
             // Add new transitions when either the player's current external region changes.
-            if (updateWeatherTime() || updateWeatherRegion(player.getCell()->getCell()->mRegion))
+            if (updateWeatherTime() || updateWeatherRegion(player.getCell()->getCell()->getRegion()))
             {
                 auto it = mRegions.find(mCurrentRegion);
                 if (it != mRegions.end())
@@ -834,7 +834,7 @@ namespace MWWorld
         if (mAmbientSound)
             MWBase::Environment::get().getSoundManager()->stopSound(mAmbientSound);
         mAmbientSound = nullptr;
-        mPlayingSoundID = ESM::RefId::sEmpty;
+        mPlayingSoundID = ESM::RefId();
     }
 
     float WeatherManager::getWindSpeed() const
@@ -921,8 +921,7 @@ namespace MWWorld
     {
         if (ESM::REC_WTHR == type)
         {
-            static const int oldestCompatibleSaveFormat = 2;
-            if (reader.getFormat() < oldestCompatibleSaveFormat)
+            if (reader.getFormatVersion() <= ESM::MaxOldWeatherFormatVersion)
             {
                 // Weather state isn't really all that important, so to preserve older save games, we'll just discard
                 // the older weather records, rather than fail to handle the record.
@@ -965,7 +964,7 @@ namespace MWWorld
     {
         stopSounds();
 
-        mCurrentRegion = ESM::RefId::sEmpty;
+        mCurrentRegion = ESM::RefId();
         mTimePassed = 0.0f;
         mWeatherUpdateTime = 0.0f;
         forceWeather(0);

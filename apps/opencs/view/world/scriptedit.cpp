@@ -55,7 +55,7 @@ CSVWorld::ScriptEdit::ScriptEdit(const CSMDoc::Document& document, ScriptHighlig
     , mTabCharCount(4)
     , mMarkOccurrences(true)
     , mDocument(document)
-    , mWhiteListQoutes("^[a-z|_]{1}[a-z|0-9|_]{0,}$", Qt::CaseInsensitive)
+    , mWhiteListQuotes("^[a-zA-Z_][a-zA-Z0-9_]*$")
 {
     wrapLines(false);
     setTabWidth();
@@ -186,9 +186,9 @@ void CSVWorld::ScriptEdit::dropEvent(QDropEvent* event)
 
 bool CSVWorld::ScriptEdit::stringNeedsQuote(const std::string& id) const
 {
-    const QString string(QString::fromUtf8(id.c_str())); //<regex> is only for c++11, so let's use qregexp for now.
+    const QString string(QString::fromUtf8(id.c_str()));
     // I'm not quite sure when do we need to put quotes. To be safe we will use quotes for anything other than…
-    return !(string.contains(mWhiteListQoutes));
+    return !(string.contains(mWhiteListQuotes));
 }
 
 void CSVWorld::ScriptEdit::setTabWidth()

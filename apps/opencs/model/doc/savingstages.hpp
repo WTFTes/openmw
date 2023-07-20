@@ -4,8 +4,10 @@
 #include "stage.hpp"
 
 #include <deque>
+#include <unordered_map>
 
 #include "../world/idcollection.hpp"
+#include "../world/infocollection.hpp"
 #include "../world/record.hpp"
 #include "../world/scope.hpp"
 
@@ -97,7 +99,7 @@ namespace CSMDoc
     template <class CollectionT>
     void WriteCollectionStage<CollectionT>::perform(int stage, Messages& messages)
     {
-        if (CSMWorld::getScopeFromId(mCollection.getRecord(stage).get().mId.getRefIdString()) != mScope)
+        if (CSMWorld::getScopeFromId(mCollection.getRecord(stage).get().mId) != mScope)
             return;
 
         ESM::ESMWriter& writer = mState.getWriter();
@@ -118,6 +120,7 @@ namespace CSMDoc
         SavingState& mState;
         const CSMWorld::IdCollection<ESM::Dialogue>& mTopics;
         CSMWorld::InfoCollection& mInfos;
+        CSMWorld::InfosRecordPtrByTopic mInfosByTopic;
 
     public:
         WriteDialogueCollectionStage(Document& document, SavingState& state, bool journal);

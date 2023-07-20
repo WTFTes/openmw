@@ -14,6 +14,7 @@
 
 #include "../mwmechanics/aisetting.hpp"
 #include <components/esm/refid.hpp>
+#include <components/esm3/loadskil.hpp>
 
 namespace ESM
 {
@@ -179,7 +180,7 @@ namespace MWWorld
         ///< Returns the remaining duration of the object, such as an equippable light
         /// source. (default implementation: -1, i.e. infinite)
 
-        virtual const ESM::RefId& getScript(const ConstPtr& ptr) const;
+        virtual ESM::RefId getScript(const ConstPtr& ptr) const;
         ///< Return name of the script attached to ptr (default implementation: return an empty
         /// string).
 
@@ -208,10 +209,9 @@ namespace MWWorld
         ///
         /// Default implementation: return (empty vector, false).
 
-        virtual int getEquipmentSkill(const ConstPtr& ptr) const;
-        /// Return the index of the skill this item corresponds to when equipped or -1, if there is
-        /// no such skill.
-        /// (default implementation: return -1)
+        virtual ESM::RefId getEquipmentSkill(const ConstPtr& ptr) const;
+        /// Return the index of the skill this item corresponds to when equipped.
+        /// (default implementation: return empty ref id)
 
         virtual int getValue(const ConstPtr& ptr) const;
         ///< Return trade value of the object. Throws an exception, if the object can't be traded.
@@ -234,7 +234,7 @@ namespace MWWorld
         ///< Consume an item, e. g. a potion.
 
         virtual void skillUsageSucceeded(
-            const MWWorld::Ptr& ptr, int skill, int usageType, float extraFactor = 1.f) const;
+            const MWWorld::Ptr& ptr, ESM::RefId skill, int usageType, float extraFactor = 1.f) const;
         ///< Inform actor \a ptr that a skill use has succeeded.
         ///
         /// (default implementations: throws an exception)
@@ -252,7 +252,7 @@ namespace MWWorld
         ///< Return the down sound ID of \a ptr or throw an exception, if class does not support ID retrieval
         /// (default implementation: throw an exception)
 
-        virtual const ESM::RefId& getSoundIdFromSndGen(const Ptr& ptr, std::string_view type) const;
+        virtual ESM::RefId getSoundIdFromSndGen(const Ptr& ptr, std::string_view type) const;
         ///< Returns the sound ID for \a ptr of the given soundgen \a type.
 
         virtual float getArmorRating(const MWWorld::Ptr& ptr) const;
@@ -261,7 +261,7 @@ namespace MWWorld
         virtual const std::string& getInventoryIcon(const MWWorld::ConstPtr& ptr) const;
         ///< Return name of inventory icon.
 
-        virtual const ESM::RefId& getEnchantment(const MWWorld::ConstPtr& ptr) const;
+        virtual ESM::RefId getEnchantment(const MWWorld::ConstPtr& ptr) const;
         ///< @return the enchantment ID if the object is enchanted, otherwise an empty string
         /// (default implementation: return empty string)
 
@@ -313,7 +313,13 @@ namespace MWWorld
 
         virtual Ptr copyToCell(const ConstPtr& ptr, CellStore& cell, int count) const;
 
-        virtual Ptr copyToCell(const ConstPtr& ptr, CellStore& cell, const ESM::Position& pos, int count) const;
+        // Similar to `copyToCell`, but preserves RefNum and moves LuaScripts.
+        // The original is expected to be removed after calling this function,
+        // but this function itself doesn't remove the original.
+        virtual Ptr moveToCell(const Ptr& ptr, CellStore& cell) const;
+        Ptr moveToCell(const Ptr& ptr, CellStore& cell, const ESM::Position& pos, int count) const;
+
+        Ptr copyToCell(const ConstPtr& ptr, CellStore& cell, const ESM::Position& pos, int count) const;
 
         virtual bool isActivator() const { return false; }
 
@@ -322,6 +328,9 @@ namespace MWWorld
         virtual bool isNpc() const { return false; }
 
         virtual bool isDoor() const { return false; }
+
+        // True if it is an item that can be picked up.
+        virtual bool isItem(const MWWorld::ConstPtr& ptr) const { return false; }
 
         virtual bool isBipedal(const MWWorld::ConstPtr& ptr) const;
         virtual bool canFly(const MWWorld::ConstPtr& ptr) const;
@@ -332,7 +341,7 @@ namespace MWWorld
         bool isPureLandCreature(const MWWorld::Ptr& ptr) const;
         bool isMobile(const MWWorld::Ptr& ptr) const;
 
-        virtual float getSkill(const MWWorld::Ptr& ptr, int skill) const;
+        virtual float getSkill(const MWWorld::Ptr& ptr, ESM::RefId id) const;
 
         virtual void readAdditionalState(const MWWorld::Ptr& ptr, const ESM::ObjectState& state) const;
         ///< Read additional state from \a state into \a ptr.
@@ -356,11 +365,11 @@ namespace MWWorld
         virtual void respawn(const MWWorld::Ptr& ptr) const {}
 
         /// Returns sound id
-        virtual const ESM::RefId& getSound(const MWWorld::ConstPtr& ptr) const;
+        virtual ESM::RefId getSound(const MWWorld::ConstPtr& ptr) const;
 
         virtual int getBaseFightRating(const MWWorld::ConstPtr& ptr) const;
 
-        virtual const ESM::RefId& getPrimaryFaction(const MWWorld::ConstPtr& ptr) const;
+        virtual ESM::RefId getPrimaryFaction(const MWWorld::ConstPtr& ptr) const;
         virtual int getPrimaryFactionRank(const MWWorld::ConstPtr& ptr) const;
 
         /// Get the effective armor rating, factoring in the actor's skills, for the given armor.

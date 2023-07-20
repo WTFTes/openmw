@@ -8,6 +8,7 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/inventorystore.hpp"
+#include "../mwworld/manualref.hpp"
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -46,11 +47,19 @@ namespace MWGui
         return -1;
     }
 
+    MWWorld::Ptr InventoryItemModel::addItem(const ItemStack& item, size_t count, bool allowAutoEquip)
+    {
+        if (item.mBase.getContainerStore() == &mActor.getClass().getContainerStore(mActor))
+            throw std::runtime_error("Item to add needs to be from a different container!");
+        return *mActor.getClass().getContainerStore(mActor).add(item.mBase, count, allowAutoEquip);
+    }
+
     MWWorld::Ptr InventoryItemModel::copyItem(const ItemStack& item, size_t count, bool allowAutoEquip)
     {
         if (item.mBase.getContainerStore() == &mActor.getClass().getContainerStore(mActor))
             throw std::runtime_error("Item to copy needs to be from a different container!");
-        return *mActor.getClass().getContainerStore(mActor).add(item.mBase, count, mActor, allowAutoEquip);
+        return *mActor.getClass().getContainerStore(mActor).add(
+            item.mBase.getCellRef().getRefId(), count, allowAutoEquip);
     }
 
     void InventoryItemModel::removeItem(const ItemStack& item, size_t count)
@@ -60,12 +69,12 @@ namespace MWGui
         if (mActor.getClass().hasInventoryStore(mActor))
         {
             MWWorld::InventoryStore& store = mActor.getClass().getInventoryStore(mActor);
-            removed = store.remove(item.mBase, count, mActor, true);
+            removed = store.remove(item.mBase, count, true);
         }
         else
         {
             MWWorld::ContainerStore& store = mActor.getClass().getContainerStore(mActor);
-            removed = store.remove(item.mBase, count, mActor);
+            removed = store.remove(item.mBase, count);
         }
 
         std::stringstream error;
@@ -83,16 +92,15 @@ namespace MWGui
         }
     }
 
-    MWWorld::Ptr InventoryItemModel::moveItem(const ItemStack& item, size_t count, ItemModel* otherModel)
+    MWWorld::Ptr InventoryItemModel::moveItem(
+        const ItemStack& item, size_t count, ItemModel* otherModel, bool allowAutoEquip)
     {
         // Can't move conjured items: This is a general fix that also takes care of issues with taking conjured items
         // via the 'Take All' button.
         if (item.mFlags & ItemStack::Flag_Bound)
             return MWWorld::Ptr();
 
-        MWWorld::Ptr ret = otherModel->copyItem(item, count);
-        removeItem(item, count);
-        return ret;
+        return ItemModel::moveItem(item, count, otherModel, allowAutoEquip);
     }
 
     void InventoryItemModel::update()

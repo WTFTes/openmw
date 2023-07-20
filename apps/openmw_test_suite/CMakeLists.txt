@@ -1,8 +1,3 @@
-if (OPENMW_USE_SYSTEM_GOOGLETEST)
-    find_package(GTest 1.10 REQUIRED)
-    find_package(GMock 1.10 REQUIRED)
-endif()
-
 include_directories(SYSTEM ${GTEST_INCLUDE_DIRS})
 include_directories(SYSTEM ${GMOCK_INCLUDE_DIRS})
 
@@ -23,6 +18,7 @@ file(GLOB UNITTEST_SRC_FILES
 
     esm/test_fixed_string.cpp
     esm/variant.cpp
+    esm/testrefid.cpp
 
     lua/test_lua.cpp
     lua/test_scriptscontainer.cpp
@@ -61,6 +57,7 @@ file(GLOB UNITTEST_SRC_FILES
 
     settings/parser.cpp
     settings/shadermanager.cpp
+    settings/testvalues.cpp
 
     shader/parsedefines.cpp
     shader/parsefors.cpp
@@ -90,6 +87,8 @@ file(GLOB UNITTEST_SRC_FILES
     fx/technique.cpp
 
     esm3/readerscache.cpp
+    esm3/testsaveload.cpp
+    esm3/testesmwriter.cpp
 
     nifosg/testnifloader.cpp
 )
@@ -105,7 +104,7 @@ if (UNIX AND NOT APPLE)
 endif()
 
 if (BUILD_WITH_CODE_COVERAGE)
-    add_definitions(--coverage)
+    target_compile_options(openmw_test_suite PRIVATE --coverage)
     target_link_libraries(openmw_test_suite gcov)
 endif()
 
@@ -117,7 +116,7 @@ file(DOWNLOAD
 
 target_compile_definitions(openmw_test_suite
     PRIVATE OPENMW_DATA_DIR=u8"${CMAKE_CURRENT_BINARY_DIR}/data"
-            OPENMW_TEST_SUITE_SOURCE_DIR=u8"${CMAKE_CURRENT_SOURCE_DIR}")
+            OPENMW_PROJECT_SOURCE_DIR=u8"${PROJECT_SOURCE_DIR}")
 
 if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16 AND MSVC)
     target_precompile_headers(openmw_test_suite PRIVATE

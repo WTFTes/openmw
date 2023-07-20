@@ -21,6 +21,8 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 
+#include <components/sceneutil/positionattitudetransform.hpp>
+
 #include <components/esm3/loadacti.hpp>
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadappa.hpp>
@@ -43,6 +45,7 @@
 #include <components/esm3/loadweap.hpp>
 
 #include <components/files/conversion.hpp>
+#include <components/misc/strings/conversion.hpp>
 #include <components/vfs/manager.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -74,6 +77,41 @@
 
 namespace
 {
+
+    struct TextureFetchVisitor : osg::NodeVisitor
+    {
+        std::vector<std::pair<std::string, std::string>> mTextures;
+
+        TextureFetchVisitor(osg::NodeVisitor::TraversalMode mode = TRAVERSE_ALL_CHILDREN)
+            : osg::NodeVisitor(mode)
+        {
+        }
+
+        void apply(osg::Node& node) override
+        {
+            const osg::StateSet* stateset = node.getStateSet();
+            if (stateset)
+            {
+                const osg::StateSet::TextureAttributeList& texAttributes = stateset->getTextureAttributeList();
+                for (size_t i = 0; i < texAttributes.size(); i++)
+                {
+                    const osg::StateAttribute* attr = stateset->getTextureAttribute(i, osg::StateAttribute::TEXTURE);
+                    if (!attr)
+                        continue;
+                    const osg::Texture* texture = attr->asTexture();
+                    if (!texture)
+                        continue;
+                    const osg::Image* image = texture->getImage(0);
+                    std::string fileName;
+                    if (image)
+                        fileName = image->getFileName();
+                    mTextures.emplace_back(texture->getName(), fileName);
+                }
+            }
+
+            traverse(node);
+        }
+    };
 
     void addToLevList(ESM::LevelledListBase* list, const ESM::RefId& itemId, int level)
     {
@@ -328,8 +366,8 @@ namespace MWScript
             void execute(Interpreter::Runtime& runtime) override
             {
                 MWWorld::Ptr ptr = R()(runtime);
-
-                ptr.getCellRef().unlock();
+                if (ptr.getCellRef().isLocked())
+                    ptr.getCellRef().unlock();
             }
         };
 
@@ -517,7 +555,7 @@ namespace MWScript
             {
                 MWWorld::Ptr ptr = R()(runtime);
 
-                runtime.push(ptr.getCellRef().getLockLevel() > 0);
+                runtime.push(ptr.getCellRef().isLocked());
             }
         };
 
@@ -538,10 +576,13 @@ namespace MWScript
                     return;
                 }
 
-                char* end;
-                long key = strtol(effect.data(), &end, 10);
-                if (key < 0 || key > 32767 || *end != '\0')
-                    key = ESM::MagicEffect::effectStringToId({ effect });
+                long key;
+
+                if (const auto k = ::Misc::StringUtils::toNumeric<long>(effect.data());
+                    k.has_value() && *k >= 0 && *k <= 32767)
+                    key = *k;
+                else
+                    key = ESM::MagicEffect::effectGmstIdToIndex(effect);
 
                 const MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
 
@@ -576,14 +617,14 @@ namespace MWScript
                 if (!ptr.getClass().hasInventoryStore(ptr))
                     return;
 
-                const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+                const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
                 store.get<ESM::Creature>().find(
                     creature); // This line throws an exception if it can't find the creature
 
-                MWWorld::Ptr item = *ptr.getClass().getContainerStore(ptr).add(gem, 1, ptr);
+                MWWorld::Ptr item = *ptr.getClass().getContainerStore(ptr).add(gem, 1);
 
                 // Set the soul on just one of the gems, not the whole stack
-                item.getContainerStore()->unstack(item, ptr);
+                item.getContainerStore()->unstack(item);
                 item.getCellRef().setSoul(creature);
 
                 // Restack the gem with other gems with the same soul
@@ -614,7 +655,7 @@ namespace MWScript
                 {
                     if (it->getCellRef().getSoul() == soul)
                     {
-                        store.remove(*it, 1, ptr);
+                        store.remove(*it, 1);
                         return;
                     }
                 }
@@ -667,7 +708,7 @@ namespace MWScript
                         if (it != store.end() && it->getCellRef().getRefId() == item)
                         {
                             int numToRemove = std::min(amount - numNotEquipped, it->getRefData().getCount());
-                            store.unequipItemQuantity(*it, ptr, numToRemove);
+                            store.unequipItemQuantity(*it, numToRemove);
                             numNotEquipped += numToRemove;
                         }
                     }
@@ -676,10 +717,10 @@ namespace MWScript
                     {
                         if (iter->getCellRef().getRefId() == item && !store.isEquipped(*iter))
                         {
-                            int removed = store.remove(*iter, amount, ptr);
+                            int removed = store.remove(*iter, amount);
                             MWWorld::Ptr dropped
                                 = MWBase::Environment::get().getWorld()->dropObjectOnGround(ptr, *iter, removed);
-                            dropped.getCellRef().setOwner(ESM::RefId::sEmpty);
+                            dropped.getCellRef().setOwner(ESM::RefId());
 
                             amount -= removed;
 
@@ -689,7 +730,7 @@ namespace MWScript
                     }
                 }
 
-                MWWorld::ManualRef ref(MWBase::Environment::get().getWorld()->getStore(), item, 1);
+                MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), item, 1);
                 MWWorld::Ptr itemPtr(ref.getPtr());
                 if (amount > 0)
                 {
@@ -732,7 +773,7 @@ namespace MWScript
                     if (iter->getCellRef().getSoul() == soul)
                     {
                         MWBase::Environment::get().getWorld()->dropObjectOnGround(ptr, *iter, 1);
-                        store.remove(*iter, 1, ptr);
+                        store.remove(*iter, 1);
                         break;
                     }
                 }
@@ -1193,8 +1234,7 @@ namespace MWScript
                 ESM::RefId targetId = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
 
-                const ESM::Spell* spell
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(spellId);
+                const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spellId);
                 if (!spell)
                 {
                     runtime.getContext().report(
@@ -1241,8 +1281,7 @@ namespace MWScript
                 ESM::RefId spellId = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
 
-                const ESM::Spell* spell
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(spellId);
+                const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spellId);
                 if (!spell)
                 {
                     runtime.getContext().report(
@@ -1384,6 +1423,52 @@ namespace MWScript
                         const std::string archive = vfs->getArchive(model);
                         if (!archive.empty())
                             msg << "(" << archive << ")" << std::endl;
+                        TextureFetchVisitor visitor;
+                        SceneUtil::PositionAttitudeTransform* baseNode = ptr.getRefData().getBaseNode();
+                        if (baseNode)
+                            baseNode->accept(visitor);
+                        // The instance might not have a physical model due to paging or scripting.
+                        // If this is the case, fall back to the template
+                        if (visitor.mTextures.empty())
+                        {
+                            Resource::SceneManager* sceneManager
+                                = MWBase::Environment::get().getResourceSystem()->getSceneManager();
+                            const_cast<osg::Node*>(sceneManager->getTemplate(model).get())->accept(visitor);
+                            msg << "Bound textures: [None]" << std::endl;
+                            if (!visitor.mTextures.empty())
+                                msg << "Model textures: ";
+                        }
+                        else
+                        {
+                            msg << "Bound textures: ";
+                        }
+                        if (!visitor.mTextures.empty())
+                        {
+                            msg << std::endl;
+                            std::string lastTextureSrc;
+                            for (auto& [textureName, fileName] : visitor.mTextures)
+                            {
+                                std::string textureSrc;
+                                if (!fileName.empty())
+                                    textureSrc = vfs->getArchive(fileName);
+
+                                if (lastTextureSrc.empty() || textureSrc != lastTextureSrc)
+                                {
+                                    lastTextureSrc = textureSrc;
+                                    if (lastTextureSrc.empty())
+                                        lastTextureSrc = "[No Source]";
+
+                                    msg << "  " << lastTextureSrc << std::endl;
+                                }
+                                msg << "    ";
+                                msg << (textureName.empty() ? "[Anonymous]: " : textureName) << ": ";
+                                msg << (fileName.empty() ? "[No File]" : fileName) << std::endl;
+                            }
+                        }
+                        else
+                        {
+                            msg << "[None]" << std::endl;
+                        }
                     }
                     if (!ptr.getClass().getScript(ptr).empty())
                         msg << "Script: " << ptr.getClass().getScript(ptr) << std::endl;
@@ -1417,9 +1502,9 @@ namespace MWScript
                 runtime.pop();
 
                 ESM::CreatureLevList listCopy
-                    = *MWBase::Environment::get().getWorld()->getStore().get<ESM::CreatureLevList>().find(levId);
+                    = *MWBase::Environment::get().getESMStore()->get<ESM::CreatureLevList>().find(levId);
                 addToLevList(&listCopy, creatureId, level);
-                MWBase::Environment::get().getWorld()->createOverrideRecord(listCopy);
+                MWBase::Environment::get().getESMStore()->overrideRecord(listCopy);
             }
         };
 
@@ -1436,9 +1521,9 @@ namespace MWScript
                 runtime.pop();
 
                 ESM::CreatureLevList listCopy
-                    = *MWBase::Environment::get().getWorld()->getStore().get<ESM::CreatureLevList>().find(levId);
+                    = *MWBase::Environment::get().getESMStore()->get<ESM::CreatureLevList>().find(levId);
                 removeFromLevList(&listCopy, creatureId, level);
-                MWBase::Environment::get().getWorld()->createOverrideRecord(listCopy);
+                MWBase::Environment::get().getESMStore()->overrideRecord(listCopy);
             }
         };
 
@@ -1455,9 +1540,9 @@ namespace MWScript
                 runtime.pop();
 
                 ESM::ItemLevList listCopy
-                    = *MWBase::Environment::get().getWorld()->getStore().get<ESM::ItemLevList>().find(levId);
+                    = *MWBase::Environment::get().getESMStore()->get<ESM::ItemLevList>().find(levId);
                 addToLevList(&listCopy, itemId, level);
-                MWBase::Environment::get().getWorld()->createOverrideRecord(listCopy);
+                MWBase::Environment::get().getESMStore()->overrideRecord(listCopy);
             }
         };
 
@@ -1474,9 +1559,9 @@ namespace MWScript
                 runtime.pop();
 
                 ESM::ItemLevList listCopy
-                    = *MWBase::Environment::get().getWorld()->getStore().get<ESM::ItemLevList>().find(levId);
+                    = *MWBase::Environment::get().getESMStore()->get<ESM::ItemLevList>().find(levId);
                 removeFromLevList(&listCopy, itemId, level);
-                MWBase::Environment::get().getWorld()->createOverrideRecord(listCopy);
+                MWBase::Environment::get().getESMStore()->overrideRecord(listCopy);
             }
         };
 
@@ -1603,7 +1688,7 @@ namespace MWScript
             {
                 Resource::SceneManager* sceneManager
                     = MWBase::Environment::get().getResourceSystem()->getSceneManager();
-                const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+                const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
                 for (const T& record : store.get<T>())
                 {
                     MWWorld::ManualRef ref(store, record.mId);

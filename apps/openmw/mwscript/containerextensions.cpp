@@ -35,23 +35,21 @@
 
 namespace
 {
-    void addToStore(
-        const MWWorld::Ptr& itemPtr, int count, MWWorld::Ptr& ptr, MWWorld::ContainerStore& store, bool resolve = true)
+    void addToStore(const MWWorld::Ptr& itemPtr, int count, MWWorld::ContainerStore& store, bool resolve = true)
     {
         if (itemPtr.getClass().getScript(itemPtr).empty())
         {
-            store.add(itemPtr, count, ptr, true, resolve);
+            store.add(itemPtr, count, true, resolve);
         }
         else
         {
             // Adding just one item per time to make sure there isn't a stack of scripted items
             for (int i = 0; i < count; i++)
-                store.add(itemPtr, 1, ptr, true, resolve);
+                store.add(itemPtr, 1, true, resolve);
         }
     }
 
-    void addRandomToStore(const MWWorld::Ptr& itemPtr, int count, MWWorld::Ptr& owner, MWWorld::ContainerStore& store,
-        bool topLevel = true)
+    void addRandomToStore(const MWWorld::Ptr& itemPtr, int count, MWWorld::ContainerStore& store, bool topLevel = true)
     {
         if (itemPtr.getType() == ESM::ItemLevList::sRecordId)
         {
@@ -60,7 +58,7 @@ namespace
             if (topLevel && count > 1 && levItemList->mFlags & ESM::ItemLevList::Each)
             {
                 for (int i = 0; i < count; i++)
-                    addRandomToStore(itemPtr, 1, owner, store, true);
+                    addRandomToStore(itemPtr, 1, store, true);
             }
             else
             {
@@ -69,12 +67,12 @@ namespace
                     = MWMechanics::getLevelledItem(itemPtr.get<ESM::ItemLevList>()->mBase, false, prng);
                 if (itemId.empty())
                     return;
-                MWWorld::ManualRef manualRef(MWBase::Environment::get().getWorld()->getStore(), itemId, 1);
-                addRandomToStore(manualRef.getPtr(), count, owner, store, false);
+                MWWorld::ManualRef manualRef(*MWBase::Environment::get().getESMStore(), itemId, 1);
+                addRandomToStore(manualRef.getPtr(), count, store, false);
             }
         }
         else
-            addToStore(itemPtr, count, owner, store);
+            addToStore(itemPtr, count, store);
     }
 }
 
@@ -107,7 +105,7 @@ namespace MWScript
                     item = ESM::RefId::stringRefId("gold_001");
 
                 // Check if "item" can be placed in a container
-                MWWorld::ManualRef manualRef(MWBase::Environment::get().getWorld()->getStore(), item, 1);
+                MWWorld::ManualRef manualRef(*MWBase::Environment::get().getESMStore(), item, 1);
                 MWWorld::Ptr itemPtr = manualRef.getPtr();
                 bool isLevelledList = itemPtr.getClass().getType() == ESM::ItemLevList::sRecordId;
                 if (!isLevelledList)
@@ -115,7 +113,7 @@ namespace MWScript
 
                 // Explicit calls to non-unique actors affect the base record
                 if (!R::implicit && ptr.getClass().isActor()
-                    && MWBase::Environment::get().getWorld()->getStore().getRefCount(ptr.getCellRef().getRefId()) > 1)
+                    && MWBase::Environment::get().getESMStore()->getRefCount(ptr.getCellRef().getRefId()) > 1)
                 {
                     ptr.getClass().modifyBaseInventory(ptr.getCellRef().getRefId(), item, count);
                     return;
@@ -127,7 +125,7 @@ namespace MWScript
                 {
                     ptr.getClass().modifyBaseInventory(ptr.getCellRef().getRefId(), item, count);
                     const ESM::Container* baseRecord
-                        = MWBase::Environment::get().getWorld()->getStore().get<ESM::Container>().find(
+                        = MWBase::Environment::get().getESMStore()->get<ESM::Container>().find(
                             ptr.getCellRef().getRefId());
                     const auto& ptrs = MWBase::Environment::get().getWorld()->getAll(ptr.getCellRef().getRefId());
                     for (const auto& container : ptrs)
@@ -141,20 +139,20 @@ namespace MWScript
                             {
                                 if (store.isResolved())
                                 {
-                                    addRandomToStore(itemPtr, count, ptr, store);
+                                    addRandomToStore(itemPtr, count, store);
                                 }
                             }
                             else
-                                addToStore(itemPtr, count, ptr, store, store.isResolved());
+                                addToStore(itemPtr, count, store, store.isResolved());
                         }
                     }
                     return;
                 }
                 MWWorld::ContainerStore& store = ptr.getClass().getContainerStore(ptr);
                 if (isLevelledList)
-                    addRandomToStore(itemPtr, count, ptr, store);
+                    addRandomToStore(itemPtr, count, store);
                 else
-                    addToStore(itemPtr, count, ptr, store);
+                    addToStore(itemPtr, count, store);
 
                 // Spawn a messagebox (only for items added to player's inventory and if player is talking to someone)
                 if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
@@ -224,7 +222,7 @@ namespace MWScript
 
                 // Explicit calls to non-unique actors affect the base record
                 if (!R::implicit && ptr.getClass().isActor()
-                    && MWBase::Environment::get().getWorld()->getStore().getRefCount(ptr.getCellRef().getRefId()) > 1)
+                    && MWBase::Environment::get().getESMStore()->getRefCount(ptr.getCellRef().getRefId()) > 1)
                 {
                     ptr.getClass().modifyBaseInventory(ptr.getCellRef().getRefId(), item, -count);
                     return;
@@ -235,7 +233,7 @@ namespace MWScript
                 {
                     ptr.getClass().modifyBaseInventory(ptr.getCellRef().getRefId(), item, -count);
                     const ESM::Container* baseRecord
-                        = MWBase::Environment::get().getWorld()->getStore().get<ESM::Container>().find(
+                        = MWBase::Environment::get().getESMStore()->get<ESM::Container>().find(
                             ptr.getCellRef().getRefId());
                     const auto& ptrs = MWBase::Environment::get().getWorld()->getAll(ptr.getCellRef().getRefId());
                     for (const auto& container : ptrs)
@@ -246,7 +244,7 @@ namespace MWScript
                             auto& store = container.getClass().getContainerStore(container);
                             // Note that unlike AddItem, RemoveItem only removes from unresolved containers
                             if (!store.isResolved())
-                                store.remove(item, count, ptr, false, false);
+                                store.remove(item, count, false, false);
                         }
                     }
                     return;
@@ -263,7 +261,7 @@ namespace MWScript
                     }
                 }
 
-                int numRemoved = store.remove(item, count, ptr);
+                int numRemoved = store.remove(item, count);
 
                 // Spawn a messagebox (only for items removed from player's inventory)
                 if ((numRemoved > 0) && (ptr == MWMechanics::getPlayer()))
@@ -300,7 +298,7 @@ namespace MWScript
 
                 MWWorld::InventoryStore& invStore = ptr.getClass().getInventoryStore(ptr);
                 auto found = invStore.end();
-                const auto& store = MWBase::Environment::get().getWorld()->getStore();
+                const auto& store = *MWBase::Environment::get().getESMStore();
 
                 // With soul gems we prefer filled ones.
                 for (auto it = invStore.begin(); it != invStore.end(); ++it)
@@ -318,7 +316,7 @@ namespace MWScript
                 if (found == invStore.end())
                 {
                     MWWorld::ManualRef ref(store, item, 1);
-                    found = ptr.getClass().getContainerStore(ptr).add(ref.getPtr(), 1, ptr, false);
+                    found = ptr.getClass().getContainerStore(ptr).add(ref.getPtr(), 1, false);
                     Log(Debug::Warning) << "Implicitly adding one " << item << " to the inventory store of "
                                         << ptr.getCellRef().getRefId()
                                         << " to fulfill the requirements of Equip instruction";
@@ -394,7 +392,7 @@ namespace MWScript
                     return;
                 }
 
-                int skill = it->getClass().getEquipmentSkill(*it);
+                ESM::RefId skill = it->getClass().getEquipmentSkill(*it);
                 if (skill == ESM::Skill::HeavyArmor)
                     runtime.push(2);
                 else if (skill == ESM::Skill::MediumArmor)

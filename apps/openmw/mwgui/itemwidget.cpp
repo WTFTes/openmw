@@ -6,13 +6,12 @@
 #include <MyGUI_TextBox.h>
 
 #include <components/debug/debuglog.hpp>
-// correctIconPath
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/windowmanager.hpp"
 
 #include "../mwworld/class.hpp"
 
@@ -20,13 +19,11 @@ namespace
 {
     std::string getCountString(int count)
     {
-        static const int fontHeight = MWBase::Environment::get().getWindowManager()->getFontHeight();
-
         if (count == 1)
-            return "";
+            return {};
 
         // With small text size we can use up to 4 characters, while with large ones - only up to 3.
-        if (fontHeight > 16)
+        if (Settings::gui().mFontSize > 16)
         {
             if (count > 999999999)
                 return MyGUI::utility::toString(count / 1000000000) + "b";
@@ -148,11 +145,11 @@ namespace MWGui
         if (ptr.isEmpty())
         {
             if (mFrame)
-                mFrame->setImageTexture("");
+                mFrame->setImageTexture({});
             if (mItemShadow)
-                mItemShadow->setImageTexture("");
-            mItem->setImageTexture("");
-            mText->setCaption("");
+                mItemShadow->setImageTexture({});
+            mItem->setImageTexture({});
+            mText->setCaption({});
             mCurrentIcon.clear();
             mCurrentFrame.clear();
             return;
@@ -175,7 +172,7 @@ namespace MWGui
         else if (state == Barter)
             backgroundTex += "_barter";
 
-        if (backgroundTex != "")
+        if (!backgroundTex.empty())
             backgroundTex += ".dds";
 
         float scale = 1.f;
@@ -210,7 +207,7 @@ namespace MWGui
         if (mFrame && !mCurrentFrame.empty())
         {
             mCurrentFrame.clear();
-            mFrame->setImageTexture("");
+            mFrame->setImageTexture({});
         }
         if (mCurrentIcon != icon)
         {

@@ -5,7 +5,8 @@
 #include <components/esm3/loadligh.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/objectstate.hpp>
-#include <components/settings/settings.hpp>
+#include <components/esm4/loadligh.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -40,8 +41,7 @@ namespace MWClass
         MWWorld::LiveCellRef<ESM::Light>* ref = ptr.get<ESM::Light>();
 
         // Insert even if model is empty, so that the light is added
-        renderingInterface.getObjects().insertModel(
-            ptr, model, true, !(ref->mBase->mData.mFlags & ESM::Light::OffDefault));
+        renderingInterface.getObjects().insertModel(ptr, model, !(ref->mBase->mData.mFlags & ESM::Light::OffDefault));
     }
 
     void Light::insertObject(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
@@ -86,6 +86,11 @@ namespace MWClass
         return !name.empty() ? name : ref->mBase->mId.getRefIdString();
     }
 
+    bool Light::isItem(const MWWorld::ConstPtr& ptr) const
+    {
+        return ptr.get<ESM::Light>()->mBase->mData.mFlags & ESM::Light::Carry;
+    }
+
     std::unique_ptr<MWWorld::Action> Light::activate(const MWWorld::Ptr& ptr, const MWWorld::Ptr& actor) const
     {
         if (!MWBase::Environment::get().getWindowManager()->isAllowed(MWGui::GW_Inventory))
@@ -98,7 +103,7 @@ namespace MWClass
         return defaultItemActivate(ptr, actor);
     }
 
-    const ESM::RefId& Light::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Light::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Light>* ref = ptr.get<ESM::Light>();
 
@@ -161,8 +166,7 @@ namespace MWClass
         std::string text;
 
         // Don't show duration for infinite light sources.
-        if (Settings::Manager::getBool("show effect duration", "Game")
-            && ptr.getClass().getRemainingUsageTime(ptr) != -1)
+        if (Settings::game().mShowEffectDuration && ptr.getClass().getRemainingUsageTime(ptr) != -1)
             text += MWGui::ToolTips::getDurationString(ptr.getClass().getRemainingUsageTime(ptr), "\n#{sDuration}");
 
         text += MWGui::ToolTips::getWeightString(ref->mBase->mData.mWeight, "#{sWeight}");
@@ -239,8 +243,9 @@ namespace MWClass
         return { 1, {} };
     }
 
-    const ESM::RefId& Light::getSound(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Light::getSound(const MWWorld::ConstPtr& ptr) const
     {
         return ptr.get<ESM::Light>()->mBase->mSound;
     }
+
 }

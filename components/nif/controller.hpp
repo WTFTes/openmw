@@ -25,9 +25,63 @@
 #define OPENMW_COMPONENTS_NIF_CONTROLLER_HPP
 
 #include "base.hpp"
+#include "property.hpp"
 
 namespace Nif
 {
+
+    struct ControlledBlock
+    {
+        std::string mTargetName;
+        NiInterpolatorPtr mInterpolator;
+        ControllerPtr mController;
+        NiBlendInterpolatorPtr mBlendInterpolator;
+        unsigned short mBlendIndex;
+        unsigned char mPriority;
+        NiStringPalettePtr mStringPalette;
+        size_t mNodeNameOffset;
+        size_t mPropertyTypeOffset;
+        size_t mControllerTypeOffset;
+        size_t mControllerIdOffset;
+        size_t mInterpolatorIdOffset;
+        std::string mNodeName;
+        std::string mPropertyType;
+        std::string mControllerType;
+        std::string mControllerId;
+        std::string mInterpolatorId;
+
+        void read(NIFStream* nif);
+        void post(Reader& nif);
+    };
+
+    // Gamebryo KF root node record type (pre-10.0)
+    struct NiSequence : public Record
+    {
+        std::string mName;
+        std::string mAccumRootName;
+        ExtraPtr mTextKeys;
+        unsigned int mArrayGrowBy;
+        std::vector<ControlledBlock> mControlledBlocks;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    // Gamebryo KF root node record type (10.0+)
+    struct NiControllerSequence : public NiSequence
+    {
+        float mWeight{ 1.f };
+        Controller::ExtrapolationMode mExtrapolationMode{ Controller::ExtrapolationMode::Constant };
+        float mFrequency{ 1.f };
+        float mPhase{ 1.f };
+        float mStartTime, mStopTime;
+        bool mPlayBackwards{ false };
+        NiControllerManagerPtr mManager;
+        NiStringPalettePtr mStringPalette;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
 
     // Base class for controllers that use NiInterpolators to animate objects.
     struct NiInterpController : public Controller
@@ -235,15 +289,43 @@ namespace Nif
         void post(Reader& nif) override;
     };
 
+    struct NiTextureTransformController : public NiFloatInterpController
+    {
+        bool mShaderMap;
+        int mTexSlot; // NiTexturingProperty::TextureType
+        unsigned int mTransformMember;
+        NiFloatDataPtr mData;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
     struct bhkBlendController : public Controller
     {
+        void read(NIFStream* nif) override;
+    };
+
+    struct BSEffectShaderPropertyFloatController : public NiFloatInterpController
+    {
+        unsigned int mControlledVariable;
+
+        void read(NIFStream* nif) override;
+    };
+
+    struct BSEffectShaderPropertyColorController : public NiPoint3InterpController
+    {
+        unsigned int mControlledColor;
+
         void read(NIFStream* nif) override;
     };
 
     struct NiControllerManager : public Controller
     {
         bool mCumulative;
+        NiControllerSequenceList mSequences;
+        NiDefaultAVObjectPalettePtr mObjectPalette;
         void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
     };
 
     struct NiInterpolator : public Record
@@ -291,6 +373,63 @@ namespace Nif
         NiColorDataPtr data;
         void read(NIFStream* nif) override;
         void post(Reader& nif) override;
+    };
+
+    // Abstract
+    struct NiBlendInterpolator : public NiInterpolator
+    {
+        struct Item
+        {
+            NiInterpolatorPtr mInterpolator;
+            float mWeight, mNormalizedWeight;
+            int mPriority;
+            float mEaseSpinner;
+
+            void read(NIFStream* nif);
+            void post(Reader& nif);
+        };
+
+        bool mManagerControlled{ false };
+        bool mOnlyUseHighestWeight{ false };
+        unsigned short mArrayGrowBy{ 0 };
+        float mWeightThreshold;
+        unsigned short mInterpCount;
+        unsigned short mSingleIndex;
+        int mHighPriority, mNextHighPriority;
+        float mSingleTime;
+        float mHighWeightsSum, mNextHighWeightsSum;
+        float mHighEaseSpinner;
+        std::vector<Item> mItems;
+        NiInterpolatorPtr mSingleInterpolator;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    struct NiBlendBoolInterpolator : public NiBlendInterpolator
+    {
+        char mValue;
+        void read(NIFStream* nif) override;
+    };
+
+    struct NiBlendFloatInterpolator : public NiBlendInterpolator
+    {
+        float mValue;
+        void read(NIFStream* nif) override;
+    };
+
+    struct NiBlendPoint3Interpolator : public NiBlendInterpolator
+    {
+        osg::Vec3f mValue;
+        void read(NIFStream* nif) override;
+    };
+
+    struct NiBlendTransformInterpolator : public NiBlendInterpolator
+    {
+        osg::Vec3f mPosValue;
+        osg::Quat mRotValue;
+        float mScaleValue;
+        void read(NIFStream* nif) override;
     };
 
 } // Namespace

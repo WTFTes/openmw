@@ -10,9 +10,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/format.hpp>
-
 #include <osgDB/Registry>
 
 #include <array>
@@ -30,7 +27,7 @@ namespace
 
     struct BaseNifOsgLoaderTest
     {
-        VFS::Manager mVfs{ false };
+        VFS::Manager mVfs;
         Resource::ImageManager mImageManager{ &mVfs };
         const osgDB::ReaderWriter* mReaderWriter = osgDB::Registry::instance()->getReaderWriterForExtension("osgt");
         osg::ref_ptr<osgDB::Options> mOptions = new osgDB::Options;
@@ -55,7 +52,7 @@ namespace
             {
                 if (line.starts_with('#'))
                     continue;
-                boost::trim_right(line);
+                line.erase(line.find_last_not_of(" \t\n\r\f\v") + 1);
                 result += line;
                 result += '\n';
             }
@@ -113,7 +110,8 @@ osg::Group {
 
     std::string formatOsgNodeForShaderProperty(std::string_view shaderPrefix)
     {
-        static constexpr const char format[] = R"(
+        std::ostringstream oss;
+        oss << R"(
 osg::Group {
   UniqueID 1
   DataVariance STATIC
@@ -144,7 +142,8 @@ osg::Group {
             osg::StringValueObject {
               UniqueID 7
               Name "shaderPrefix"
-              Value "%s"
+              Value ")"
+            << shaderPrefix << R"("
             }
             osg::BoolValueObject {
               UniqueID 8
@@ -163,7 +162,7 @@ osg::Group {
   }
 }
 )";
-        return (boost::format(format) % shaderPrefix).str();
+        return oss.str();
     }
 
     struct ShaderPrefixParams
@@ -175,10 +174,10 @@ osg::Group {
     struct NifOsgLoaderBSShaderPrefixTest : TestWithParam<ShaderPrefixParams>, BaseNifOsgLoaderTest
     {
         static constexpr std::array sParams = {
-            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSShaderType::ShaderType_Default), "nv_default" },
-            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSShaderType::ShaderType_NoLighting), "nv_nolighting" },
-            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSShaderType::ShaderType_Tile), "nv_default" },
-            ShaderPrefixParams{ std::numeric_limits<unsigned int>::max(), "nv_default" },
+            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSShaderType::ShaderType_Default), "bs/default" },
+            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSShaderType::ShaderType_NoLighting), "bs/nolighting" },
+            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSShaderType::ShaderType_Tile), "bs/default" },
+            ShaderPrefixParams{ std::numeric_limits<unsigned int>::max(), "bs/default" },
         };
     };
 
@@ -204,9 +203,9 @@ osg::Group {
     {
         static constexpr std::array sParams = {
             ShaderPrefixParams{
-                static_cast<unsigned int>(Nif::BSLightingShaderType::ShaderType_Default), "nv_default" },
-            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSLightingShaderType::ShaderType_Cloud), "nv_default" },
-            ShaderPrefixParams{ std::numeric_limits<unsigned int>::max(), "nv_default" },
+                static_cast<unsigned int>(Nif::BSLightingShaderType::ShaderType_Default), "bs/default" },
+            ShaderPrefixParams{ static_cast<unsigned int>(Nif::BSLightingShaderType::ShaderType_Cloud), "bs/default" },
+            ShaderPrefixParams{ std::numeric_limits<unsigned int>::max(), "bs/default" },
         };
     };
 

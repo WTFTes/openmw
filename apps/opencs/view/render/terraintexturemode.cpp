@@ -14,7 +14,6 @@
 
 #include <osg/Vec2f>
 #include <osg/Vec3d>
-#include <osg/ref_ptr>
 
 #include <apps/opencs/model/prefs/category.hpp>
 #include <apps/opencs/model/prefs/setting.hpp>
@@ -26,6 +25,8 @@
 #include <apps/opencs/model/world/record.hpp>
 #include <apps/opencs/view/render/terrainselection.hpp>
 #include <apps/opencs/view/widget/scenetool.hpp>
+
+#include <components/misc/strings/conversion.hpp>
 
 #include "../widget/scenetoolbar.hpp"
 #include "../widget/scenetooltexturebrush.hpp"
@@ -39,7 +40,6 @@
 #include "../../model/world/landtexture.hpp"
 #include "../../model/world/tablemimedata.hpp"
 #include "../../model/world/universalid.hpp"
-#include "../widget/brushshapes.hpp"
 
 #include "brushdraw.hpp"
 #include "editmode.hpp"
@@ -137,7 +137,7 @@ void CSVRender::TerrainTextureMode::primaryEditPressed(const WorldspaceHitResult
 
     QUndoStack& undoStack = document.getUndoStack();
     CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
-    int index = landtexturesCollection.searchId(mBrushTexture);
+    int index = landtexturesCollection.searchId(ESM::RefId::stringRefId(mBrushTexture));
 
     if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == nullptr)
     {
@@ -186,7 +186,7 @@ bool CSVRender::TerrainTextureMode::primaryEditStartDrag(const QPoint& pos)
     mDragMode = InteractionType_PrimaryEdit;
 
     CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
-    int index = landtexturesCollection.searchId(mBrushTexture);
+    const int index = landtexturesCollection.searchId(ESM::RefId::stringRefId(mBrushTexture));
 
     if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == nullptr)
     {
@@ -242,7 +242,7 @@ void CSVRender::TerrainTextureMode::drag(const QPoint& pos, int diffX, int diffY
         CSMDoc::Document& document = getWorldspaceWidget().getDocument();
 
         CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
-        int index = landtexturesCollection.searchId(mBrushTexture);
+        const int index = landtexturesCollection.searchId(ESM::RefId::stringRefId(mBrushTexture));
 
         if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == nullptr)
         {
@@ -273,7 +273,7 @@ void CSVRender::TerrainTextureMode::dragCompleted(const QPoint& pos)
         QUndoStack& undoStack = document.getUndoStack();
 
         CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
-        int index = landtexturesCollection.searchId(mBrushTexture);
+        const int index = landtexturesCollection.searchId(ESM::RefId::stringRefId(mBrushTexture));
 
         if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted())
         {
@@ -360,7 +360,9 @@ void CSVRender::TerrainTextureMode::editTerrainTextureGrid(const WorldspaceHitRe
 
     std::size_t hashlocation = mBrushTexture.find('#');
     std::string mBrushTextureInt = mBrushTexture.substr(hashlocation + 1);
-    int brushInt = stoi(mBrushTexture.substr(hashlocation + 1)) + 1; // All indices are offset by +1
+
+    // All indices are offset by +1
+    int brushInt = Misc::StringUtils::toNumeric<int>(mBrushTexture.substr(hashlocation + 1), 0) + 1;
 
     int r = static_cast<float>(mBrushSize) / 2;
 
@@ -718,8 +720,9 @@ bool CSVRender::TerrainTextureMode::allowLandTextureEditing(std::string cellId)
     CSMWorld::IdTree& cellTable
         = dynamic_cast<CSMWorld::IdTree&>(*document.getData().getTableModel(CSMWorld::UniversalId::Type_Cells));
 
-    bool noCell = document.getData().getCells().searchId(cellId) == -1;
-    bool noLand = document.getData().getLand().searchId(cellId) == -1;
+    const ESM::RefId cellRefId = ESM::RefId::stringRefId(cellId);
+    const bool noCell = document.getData().getCells().searchId(cellRefId) == -1;
+    const bool noLand = document.getData().getLand().searchId(cellRefId) == -1;
 
     if (noCell)
     {

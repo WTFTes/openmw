@@ -17,14 +17,15 @@ namespace ESM
             int mY;
         };
 
-        ESM::RefId mWorldspace;
+        std::string mWorldspace;
         CellIndex mIndex;
         bool mPaged;
 
-        static const ESM::RefId sDefaultWorldspace;
-
         void load(ESMReader& esm);
         void save(ESMWriter& esm) const;
+
+        // TODO tetramir: this probably shouldn't exist, needs it because some CellIds are saved on disk
+        static CellId extractFromRefId(const ESM::RefId& id);
     };
 
     bool operator==(const CellId& left, const CellId& right);

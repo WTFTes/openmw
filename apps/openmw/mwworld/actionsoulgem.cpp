@@ -5,7 +5,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 
@@ -39,7 +38,7 @@ namespace MWWorld
             return;
         }
 
-        if (!MWBase::Environment::get().getWorld()->getStore().get<ESM::Creature>().search(targetSoul))
+        if (!MWBase::Environment::get().getESMStore()->get<ESM::Creature>().search(targetSoul))
         {
             Log(Debug::Warning) << "Soul '" << targetSoul << "' not found (item: '" << target.getCellRef().getRefId()
                                 << "')";

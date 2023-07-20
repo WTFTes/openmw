@@ -26,18 +26,17 @@
 */
 #include "loadcell.hpp"
 
-#ifdef NDEBUG // FIXME: debuggigng only
-#undef NDEBUG
-#endif
-
-#include <cassert>
 #include <cfloat> // FLT_MAX for gcc
+#include <limits>
 #include <stdexcept>
 
-#include <iostream> // FIXME: debug only
-
+#include "grouptype.hpp"
 #include "reader.hpp"
-//#include "writer.hpp"
+// #include "writer.hpp"
+
+#include <components/esm/refid.hpp>
+
+float ESM4::Cell::sInvalidWaterLevel = -200000.f;
 
 // TODO: Try loading only EDID and XCLC (along with mFormId, mFlags and mParent)
 //
@@ -48,11 +47,12 @@
 // longer/shorter/same as loading the subrecords.
 void ESM4::Cell::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
+    mId = ESM::RefId::formIdRefId(mFormId);
     mFlags = reader.hdr().record.flags;
-    mParent = reader.currWorld();
-
+    mParent = ESM::RefId::formIdRefId(reader.currWorld());
+    mWaterHeight = sInvalidWaterLevel;
     reader.clearCellGrid(); // clear until XCLC FIXME: somehow do this automatically?
 
     // Sometimes cell 0,0 does not have an XCLC sub record (e.g. ToddLand 000009BF)
@@ -63,8 +63,7 @@ void ESM4::Cell::load(ESM4::Reader& reader)
         && reader.grp().label.grid[0] == 0)
     {
         ESM4::CellGrid currCellGrid;
-        currCellGrid.grid.x = 0;
-        currCellGrid.grid.y = 0;
+        currCellGrid = Grid{ 0, 0 };
         reader.setCurrCellGrid(currCellGrid); // side effect: sets mCellGridValid  true
     }
 
@@ -74,6 +73,7 @@ void ESM4::Cell::load(ESM4::Reader& reader)
     reader.setCurrCell(mFormId); // save for LAND (and other children) to access later
     std::uint32_t esmVer = reader.esmVersion();
     bool isFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
+    bool isSkyrim = (esmVer == ESM::VER_170 || esmVer == ESM::VER_094);
 
     while (reader.getSubRecordHeader())
     {
@@ -120,10 +120,7 @@ void ESM4::Cell::load(ESM4::Reader& reader)
 
                 // Remember cell grid for later (loading LAND, NAVM which should be CELL temporary children)
                 // Note that grids only apply for external cells.  For interior cells use the cell's formid.
-                ESM4::CellGrid currCell;
-                currCell.grid.x = (int16_t)mX;
-                currCell.grid.y = (int16_t)mY;
-                reader.setCurrCellGrid(currCell);
+                reader.setCurrCellGrid(Grid{ static_cast<int16_t>(mX), static_cast<int16_t>(mY) });
 
                 break;
             }
@@ -137,7 +134,8 @@ void ESM4::Cell::load(ESM4::Reader& reader)
                         reader.get(mCellFlags);
                     else
                     {
-                        assert(subHdr.dataSize == 1 && "CELL unexpected DATA flag size");
+                        if (subHdr.dataSize != 1)
+                            throw std::runtime_error("CELL unexpected DATA flag size");
                         reader.get(&mCellFlags, sizeof(std::uint8_t));
                     }
                 else
@@ -153,7 +151,7 @@ void ESM4::Cell::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_XCLR: // for exterior cells
             {
-                mRegions.resize(subHdr.dataSize / sizeof(FormId));
+                mRegions.resize(subHdr.dataSize / sizeof(FormId32));
                 for (std::vector<FormId>::iterator it = mRegions.begin(); it != mRegions.end(); ++it)
                 {
                     reader.getFormId(*it);
@@ -229,15 +227,18 @@ void ESM4::Cell::load(ESM4::Reader& reader)
             case ESM4::SUB_XRNK: // Oblivion only?
             case ESM4::SUB_XCET: // FO3
             case ESM4::SUB_IMPF: // FO3 Zeta
-            {
-                // std::cout << "CELL " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::CELL::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }
     }
+    if (isSkyrim) // Skyrim seems to have broken water level records. But the subrecord exists so it
+                  // shouldn't be skipped.
+    {
+        mWaterHeight = sInvalidWaterLevel;
+    }
+    mReaderContext = reader.getContext();
 }
 
 // void ESM4::Cell::save(ESM4::Writer& writer) const

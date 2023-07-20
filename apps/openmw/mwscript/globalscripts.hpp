@@ -21,7 +21,8 @@ namespace ESM
 {
     class ESMWriter;
     class ESMReader;
-    struct RefNum;
+    struct FormId;
+    using RefNum = FormId;
 }
 
 namespace Loading
@@ -48,7 +49,7 @@ namespace MWScript
 
         MWWorld::Ptr getPtr(); // Resolves mTarget to a Ptr and caches the (potentially empty) result
 
-        const ESM::RefId& getId() const; // Returns the target's ID -- if any
+        ESM::RefId getId() const; // Returns the target's ID -- if any
     };
 
     class GlobalScripts
@@ -86,7 +87,7 @@ namespace MWScript
         ///< If the script \a name has not been added as a global script yet, it is added
         /// automatically, but is not set to running state.
 
-        const Locals* getLocalsIfPresent(const ESM::RefId& name) const;
+        const GlobalScriptDesc* getScriptIfPresent(const ESM::RefId& name) const;
 
         void updatePtrs(const MWWorld::Ptr& base, const MWWorld::Ptr& updated);
         ///< Update the Ptrs stored in mTarget. Should be called after the reference has been moved to a new cell.

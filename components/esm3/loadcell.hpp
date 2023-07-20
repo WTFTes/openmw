@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "cellid.hpp"
 #include "cellref.hpp"
 #include "components/esm/defs.hpp"
 #include "components/esm/esmcommon.hpp"
@@ -67,6 +66,8 @@ namespace ESM
      */
     struct Cell
     {
+        static const ESM::StringRefId sDefaultWorldspaceId;
+
         constexpr static RecNameInts sRecordId = REC_CELL;
 
         /// Return a string descriptor for this record type. Currently used for debugging / error logs only.
@@ -101,7 +102,7 @@ namespace ESM
         };
 
         Cell()
-            : mName(ESM::RefId::sEmpty)
+            : mName("")
             , mRegion(ESM::RefId())
             , mHasAmbi(true)
             , mWater(0)
@@ -110,17 +111,16 @@ namespace ESM
             , mRefNumCounter(0)
         {
         }
-
+        ESM::RefId mId;
         // Interior cells are indexed by this (it's the 'id'), for exterior
         // cells it is optional.
-        ESM::RefId mName;
+        std::string mName;
 
         // Optional region name for exterior and quasi-exterior cells.
         RefId mRegion;
 
         std::vector<ESM_Context> mContextList; // File position; multiple positions for multiple plugin support
         DATAstruct mData;
-        CellId mCellId;
 
         AMBIstruct mAmbi;
         bool mHasAmbi;
@@ -191,7 +191,9 @@ namespace ESM
         void blank();
         ///< Set record to default state (does not touch the ID/index).
 
-        const CellId& getCellId() const;
+        const ESM::RefId& updateId();
+
+        static ESM::RefId generateIdForCell(bool exterior, std::string_view cellName, int x, int y);
     };
 }
 #endif

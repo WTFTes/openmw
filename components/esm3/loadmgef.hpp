@@ -1,12 +1,16 @@
 #ifndef OPENMW_ESM_MGEF_H
 #define OPENMW_ESM_MGEF_H
 
+#include <array>
 #include <map>
 #include <string>
 #include <string_view>
 
 #include "components/esm/defs.hpp"
 #include "components/esm/refid.hpp"
+#include "components/misc/strings/algorithm.hpp"
+
+#include <osg/Vec4>
 
 namespace ESM
 {
@@ -53,7 +57,7 @@ namespace ESM
             // Originally modifiable flags
             AllowSpellmaking = 0x200, // Can be used for spellmaking
             AllowEnchanting = 0x400, // Can be used for enchanting
-            NegativeLight = 0x800 // Unused
+            NegativeLight = 0x800 // Inverts the effect's color
         };
 
         enum MagnitudeDisplayType
@@ -68,7 +72,7 @@ namespace ESM
 
         struct MEDTstruct
         {
-            int mSchool; // SpellSchool, see defs.hpp
+            RefId mSchool; // Skill id
             float mBaseCost;
             int mFlags;
             // Glow color for enchanted items with this effect
@@ -78,11 +82,6 @@ namespace ESM
             float mSpeed; // Speed of fired projectile
             float mUnknown2; // Called "Size Cap" in CS
         }; // 36 bytes
-
-        static const std::map<short, std::string> sNames;
-
-        static const std::string& effectIdToString(short effectID);
-        static short effectStringToId(std::string_view effect);
 
         /// Returns the effect that provides resistance against \a effect (or -1 if there's none)
         static short getResistanceEffect(short effect);
@@ -115,6 +114,8 @@ namespace ESM
 
         /// Set record to default state (does not touch the ID/index).
         void blank();
+
+        osg::Vec4f getColor() const;
 
         enum Effects
         {
@@ -269,7 +270,17 @@ namespace ESM
             Length
         };
 
-        static std::string indexToId(int index);
+        static const std::array<std::string, Length> sGmstEffectIds;
+        static const std::array<std::string_view, Length> sIndexNames;
+        static const std::map<std::string_view, int, Misc::StringUtils::CiComp> sGmstEffectIdToIndexMap;
+        static const std::map<std::string_view, int, Misc::StringUtils::CiComp> sIndexNameToIndexMap;
+
+        static const std::string& indexToGmstString(int effectID);
+        static std::string_view indexToName(int effectID);
+        static int indexNameToIndex(std::string_view effect);
+        static int effectGmstIdToIndex(std::string_view gmstId);
+
+        static RefId indexToRefId(int index);
     };
 }
 #endif

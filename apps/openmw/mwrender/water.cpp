@@ -1,6 +1,6 @@
 #include "water.hpp"
 
-#include <iomanip>
+#include <sstream>
 
 #include <osg/ClipNode>
 #include <osg/Depth>
@@ -12,14 +12,8 @@
 #include <osg/PositionAttitudeTransform>
 #include <osg/ViewportIndexed>
 
-#include <osgDB/ReadFile>
-
-#include <fstream>
-
 #include <osgUtil/CullVisitor>
 #include <osgUtil/IncrementalCompileOperation>
-
-#include <components/debug/debuglog.hpp>
 
 #include <components/resource/imagemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -44,6 +38,7 @@
 #include "../mwworld/cellstore.hpp"
 
 #include "renderbin.hpp"
+#include "ripples.hpp"
 #include "ripplesimulation.hpp"
 #include "vismask.hpp"
 
@@ -234,26 +229,6 @@ namespace MWRender
     private:
         float mRainIntensity;
     };
-
-    osg::ref_ptr<osg::Image> readPngImage(const std::filesystem::path& file)
-    {
-        std::ifstream inStream;
-        inStream.open(file, std::ios_base::in | std::ios_base::binary);
-        if (inStream.fail())
-            Log(Debug::Error) << "Error: Failed to open " << file;
-        osgDB::ReaderWriter* reader = osgDB::Registry::instance()->getReaderWriterForExtension("png");
-        if (!reader)
-        {
-            Log(Debug::Error) << "Error: Failed to read " << file << ", no png readerwriter found";
-            return osg::ref_ptr<osg::Image>();
-        }
-        osgDB::ReaderWriter::ReadResult result = reader->readImage(inStream);
-        if (!result.success())
-            Log(Debug::Error) << "Error: Failed to read " << file << ": " << result.message() << " code "
-                              << result.status();
-
-        return result.getImage();
-    }
 
     class Refraction : public SceneUtil::RTTNode
     {
@@ -453,12 +428,11 @@ namespace MWRender
     };
 
     Water::Water(osg::Group* parent, osg::Group* sceneRoot, Resource::ResourceSystem* resourceSystem,
-        osgUtil::IncrementalCompileOperation* ico, const std::filesystem::path& resourcePath)
+        osgUtil::IncrementalCompileOperation* ico)
         : mRainIntensityUpdater(nullptr)
         , mParent(parent)
         , mSceneRoot(sceneRoot)
         , mResourceSystem(resourceSystem)
-        , mResourcePath(resourcePath)
         , mEnabled(true)
         , mToggled(true)
         , mTop(0)
@@ -537,6 +511,12 @@ namespace MWRender
             mParent->removeChild(mRefraction);
             mRefraction = nullptr;
         }
+        if (mRipples)
+        {
+            mParent->removeChild(mRipples);
+            mRipples = nullptr;
+            mSimulation->setRipples(nullptr);
+        }
 
         mWaterNode->setStateSet(nullptr);
         mWaterGeom->setStateSet(nullptr);
@@ -563,9 +543,13 @@ namespace MWRender
                 mParent->addChild(mRefraction);
             }
 
+            mRipples = new Ripples(mResourceSystem);
+            mSimulation->setRipples(mRipples);
+            mParent->addChild(mRipples);
+
             showWorld(mShowWorld);
 
-            createShaderWaterStateSet(mWaterNode, mReflection, mRefraction);
+            createShaderWaterStateSet(mWaterNode);
         }
         else
             createSimpleWaterStateSet(mWaterGeom, Fallback::Map::getFloat("Water_World_Alpha"));
@@ -635,11 +619,12 @@ namespace MWRender
     class ShaderWaterStateSetUpdater : public SceneUtil::StateSetUpdater
     {
     public:
-        ShaderWaterStateSetUpdater(Water* water, Reflection* reflection, Refraction* refraction,
+        ShaderWaterStateSetUpdater(Water* water, Reflection* reflection, Refraction* refraction, Ripples* ripples,
             osg::ref_ptr<osg::Program> program, osg::ref_ptr<osg::Texture2D> normalMap)
             : mWater(water)
             , mReflection(reflection)
             , mRefraction(refraction)
+            , mRipples(ripples)
             , mProgram(program)
             , mNormalMap(normalMap)
         {
@@ -667,6 +652,10 @@ namespace MWRender
                 depth->setWriteMask(false);
                 stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
             }
+            if (mRipples)
+            {
+                stateset->addUniform(new osg::Uniform("rippleMap", 4));
+            }
             stateset->addUniform(new osg::Uniform("nodePosition", osg::Vec3f(mWater->getPosition())));
         }
 
@@ -680,6 +669,10 @@ namespace MWRender
                 stateset->setTextureAttributeAndModes(2, mRefraction->getColorTexture(cv), osg::StateAttribute::ON);
                 stateset->setTextureAttributeAndModes(3, mRefraction->getDepthTexture(cv), osg::StateAttribute::ON);
             }
+            if (mRipples)
+            {
+                stateset->setTextureAttributeAndModes(4, mRipples->getColorTexture(), osg::StateAttribute::ON);
+            }
             stateset->getUniform("nodePosition")->set(osg::Vec3f(mWater->getPosition()));
         }
 
@@ -687,30 +680,28 @@ namespace MWRender
         Water* mWater;
         Reflection* mReflection;
         Refraction* mRefraction;
+        Ripples* mRipples;
         osg::ref_ptr<osg::Program> mProgram;
         osg::ref_ptr<osg::Texture2D> mNormalMap;
     };
 
-    void Water::createShaderWaterStateSet(osg::Node* node, Reflection* reflection, Refraction* refraction)
+    void Water::createShaderWaterStateSet(osg::Node* node)
     {
         // use a define map to conditionally compile the shader
         std::map<std::string, std::string> defineMap;
         defineMap["refraction_enabled"] = std::string(mRefraction ? "1" : "0");
         const auto rippleDetail = std::clamp(Settings::Manager::getInt("rain ripple detail", "Water"), 0, 2);
         defineMap["rain_ripple_detail"] = std::to_string(rippleDetail);
+        defineMap["ripple_map_world_scale"] = std::to_string(RipplesSurface::mWorldScaleFactor);
+        defineMap["ripple_map_size"] = std::to_string(RipplesSurface::mRTTSize) + ".0";
 
-        Stereo::Manager::instance().shaderStereoDefines(defineMap);
+        Stereo::shaderStereoDefines(defineMap);
 
         Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
-        osg::ref_ptr<osg::Shader> vertexShader(
-            shaderMgr.getShader("water_vertex.glsl", defineMap, osg::Shader::VERTEX));
-        osg::ref_ptr<osg::Shader> fragmentShader(
-            shaderMgr.getShader("water_fragment.glsl", defineMap, osg::Shader::FRAGMENT));
-        osg::ref_ptr<osg::Program> program = shaderMgr.getProgram(vertexShader, fragmentShader);
+        osg::ref_ptr<osg::Program> program = shaderMgr.getProgram("water", defineMap);
 
         osg::ref_ptr<osg::Texture2D> normalMap(
-            new osg::Texture2D(readPngImage(mResourcePath / "shaders" / "water_nm.png")));
-
+            new osg::Texture2D(mResourceSystem->getImageManager()->getImage("textures/omw/water_nm.png")));
         if (normalMap->getImage())
             normalMap->getImage()->flipVertical();
         normalMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
@@ -723,7 +714,7 @@ namespace MWRender
         node->setUpdateCallback(mRainIntensityUpdater);
 
         mShaderWaterStateSetUpdater
-            = new ShaderWaterStateSetUpdater(this, mReflection, mRefraction, program, normalMap);
+            = new ShaderWaterStateSetUpdater(this, mReflection, mRefraction, mRipples, program, normalMap);
         node->addCullCallback(mShaderWaterStateSetUpdater);
     }
 
@@ -745,6 +736,12 @@ namespace MWRender
         {
             mParent->removeChild(mRefraction);
             mRefraction = nullptr;
+        }
+        if (mRipples)
+        {
+            mParent->removeChild(mRipples);
+            mRipples = nullptr;
+            mSimulation->setRipples(nullptr);
         }
     }
 
@@ -772,7 +769,8 @@ namespace MWRender
         bool wasInterior = mInterior;
         if (!isInterior)
         {
-            mWaterNode->setPosition(getSceneNodeCoordinates(store->getCell()->mData.mX, store->getCell()->mData.mY));
+            mWaterNode->setPosition(
+                getSceneNodeCoordinates(store->getCell()->getGridX(), store->getCell()->getGridY()));
             mInterior = false;
         }
         else
@@ -806,9 +804,17 @@ namespace MWRender
             mRainIntensityUpdater->setRainIntensity(rainIntensity);
     }
 
-    void Water::update(float dt)
+    void Water::update(float dt, bool paused)
     {
-        mSimulation->update(dt);
+        if (!paused)
+        {
+            mSimulation->update(dt);
+        }
+
+        if (mRipples)
+        {
+            mRipples->setPaused(paused);
+        }
     }
 
     void Water::updateVisible()
@@ -819,6 +825,8 @@ namespace MWRender
             mRefraction->setNodeMask(visible ? Mask_RenderToTexture : 0u);
         if (mReflection)
             mReflection->setNodeMask(visible ? Mask_RenderToTexture : 0u);
+        if (mRipples)
+            mRipples->setNodeMask(visible ? Mask_RenderToTexture : 0u);
     }
 
     bool Water::toggle()

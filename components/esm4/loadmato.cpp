@@ -34,7 +34,7 @@
 void ESM4::Material::load(ESM4::Reader& reader)
 {
     // mFormId = reader.adjustFormId(reader.hdr().record.id); // FIXME: use master adjusted?
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -50,11 +50,8 @@ void ESM4::Material::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_DNAM:
             case ESM4::SUB_DATA:
-            {
-                // std::cout << "MATO " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::MATO::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

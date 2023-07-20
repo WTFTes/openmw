@@ -23,9 +23,11 @@
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadmgef.hpp>
 #include <components/misc/convert.hpp>
+#include <components/misc/resourcehelpers.hpp>
+#include <components/misc/strings/conversion.hpp>
 #include <components/resource/bulletshapemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -75,7 +77,7 @@ namespace
         if (!isPlayer || !MWBase::Environment::get().getWorld()->getGodModeState())
         {
             const MWWorld::Store<ESM::GameSetting>& gmst
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+                = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
             const float fFatigueJumpBase = gmst.find("fFatigueJumpBase")->mValue.getFloat();
             const float fFatigueJumpMult = gmst.find("fFatigueJumpMult")->mValue.getFloat();
             const float normalizedEncumbrance = std::min(1.f, ptr.getClass().getNormalizedEncumbrance(ptr));
@@ -102,8 +104,6 @@ namespace MWPhysics
         , mWaterEnabled(false)
         , mParentNode(parentNode)
         , mPhysicsDt(1.f / 60.f)
-        , mActorCollisionShapeType(
-              DetourNavigator::toCollisionShapeType(Settings::Manager::getInt("actor collision shape type", "Game")))
     {
         mResourceSystem->addResourceManager(mShapeManager.get());
 
@@ -120,14 +120,13 @@ namespace MWPhysics
         mCollisionWorld->setForceUpdateAllAabbs(false);
 
         // Check if a user decided to override a physics system FPS
-        const char* env = getenv("OPENMW_PHYSICS_FPS");
-        if (env)
+        if (const char* env = getenv("OPENMW_PHYSICS_FPS"))
         {
-            float physFramerate = std::atof(env);
-            if (physFramerate > 0)
+            if (const auto physFramerate = Misc::StringUtils::toNumeric<float>(env);
+                physFramerate.has_value() && *physFramerate > 0)
             {
-                mPhysicsDt = 1.f / physFramerate;
-                Log(Debug::Warning) << "Warning: using custom physics framerate (" << physFramerate << " FPS).";
+                mPhysicsDt = 1.f / *physFramerate;
+                Log(Debug::Warning) << "Warning: using custom physics framerate (" << *physFramerate << " FPS).";
             }
         }
 
@@ -208,7 +207,7 @@ namespace MWPhysics
 
         // Use cone shape as fallback
         const MWWorld::Store<ESM::GameSetting>& store
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         btConeShape shape(osg::DegreesToRadians(store.find("fCombatAngleXY")->mValue.getFloat() / 2.0f), queryDistance);
         shape.setLocalScaling(btVector3(
@@ -482,9 +481,11 @@ namespace MWPhysics
             mHeightFields.erase(heightfield);
     }
 
-    const HeightField* PhysicsSystem::getHeightField(int x, int y) const
+    const HeightField* PhysicsSystem::getHeightField(ESM::ExteriorCellLocation cellIndex) const
     {
-        const auto heightField = mHeightFields.find(std::make_pair(x, y));
+        if (ESM::isEsm4Ext(cellIndex.mWorldspace))
+            return nullptr;
+        const auto heightField = mHeightFields.find(std::make_pair(cellIndex.mX, cellIndex.mY));
         if (heightField == mHeightFields.end())
             return nullptr;
         return heightField->second.get();
@@ -495,7 +496,11 @@ namespace MWPhysics
     {
         if (ptr.mRef->mData.mPhysicsPostponed)
             return;
-        osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(mesh);
+
+        std::string animationMesh = mesh;
+        if (ptr.getClass().useAnim())
+            animationMesh = Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS());
+        osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(animationMesh);
         if (!shapeInstance || !shapeInstance->mCollisionShape)
             return;
 
@@ -642,15 +647,15 @@ namespace MWPhysics
 
     void PhysicsSystem::addActor(const MWWorld::Ptr& ptr, const std::string& mesh)
     {
-        osg::ref_ptr<const Resource::BulletShape> shape = mShapeManager->getShape(mesh);
+        std::string animationMesh = Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS());
+        osg::ref_ptr<const Resource::BulletShape> shape = mShapeManager->getShape(animationMesh);
 
         // Try to get shape from basic model as fallback for creatures
         if (!ptr.getClass().isNpc() && shape && shape->mCollisionBox.mExtents.length2() == 0)
         {
-            const std::string fallbackModel = ptr.getClass().getModel(ptr);
-            if (fallbackModel != mesh)
+            if (animationMesh != mesh)
             {
-                shape = mShapeManager->getShape(fallbackModel);
+                shape = mShapeManager->getShape(mesh);
             }
         }
 
@@ -659,9 +664,10 @@ namespace MWPhysics
 
         // check if Actor should spawn above water
         const MWMechanics::MagicEffects& effects = ptr.getClass().getCreatureStats(ptr).getMagicEffects();
-        const bool canWaterWalk = effects.get(ESM::MagicEffect::WaterWalking).getMagnitude() > 0;
+        const bool canWaterWalk = effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude() > 0;
 
-        auto actor = std::make_shared<Actor>(ptr, shape, mTaskScheduler.get(), canWaterWalk, mActorCollisionShapeType);
+        auto actor = std::make_shared<Actor>(
+            ptr, shape, mTaskScheduler.get(), canWaterWalk, Settings::game().mActorCollisionShapeType);
 
         mActors.emplace(ptr.mRef, std::move(actor));
     }
@@ -743,7 +749,7 @@ namespace MWPhysics
             const MWMechanics::MagicEffects& effects = stats.getMagicEffects();
 
             bool waterCollision = false;
-            if (cell->getCell()->hasWater() && effects.get(ESM::MagicEffect::WaterWalking).getMagnitude())
+            if (cell->getCell()->hasWater() && effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude())
             {
                 if (physicActor->getCollisionMode()
                     || !world->isUnderwater(ptr.getCell(), ptr.getRefData().getPosition().asVec3()))
@@ -754,10 +760,10 @@ namespace MWPhysics
 
             // Slow fall reduces fall speed by a factor of (effect magnitude / 200)
             const float slowFall
-                = 1.f - std::clamp(effects.get(ESM::MagicEffect::SlowFall).getMagnitude() * 0.005f, 0.f, 1.f);
+                = 1.f - std::clamp(effects.getOrDefault(ESM::MagicEffect::SlowFall).getMagnitude() * 0.005f, 0.f, 1.f);
             const bool godmode = ptr == world->getPlayerConstPtr() && world->getGodModeState();
             const bool inert = stats.isDead()
-                || (!godmode && stats.getMagicEffects().get(ESM::MagicEffect::Paralyze).getModifier() > 0);
+                || (!godmode && stats.getMagicEffects().getOrDefault(ESM::MagicEffect::Paralyze).getModifier() > 0);
 
             simulations.emplace_back(ActorSimulation{
                 physicActor, ActorFrameData{ *physicActor, inert, waterCollision, slowFall, waterlevel } });
@@ -817,7 +823,8 @@ namespace MWPhysics
         // copy new ptr position in temporary vector. player is handled separately as its movement might change active
         // cell.
         mActorsPositions.clear();
-        mActorsPositions.reserve(mActors.size() - 1);
+        if (!mActors.empty())
+            mActorsPositions.reserve(mActors.size() - 1);
         for (const auto& [ptr, physicActor] : mActors)
         {
             if (physicActor.get() == player)
@@ -828,7 +835,8 @@ namespace MWPhysics
         for (const auto& [ptr, pos] : mActorsPositions)
             world->moveObject(ptr, pos, false, false);
 
-        world->moveObject(player->getPtr(), player->getSimulationPosition(), false, false);
+        if (player != nullptr)
+            world->moveObject(player->getPtr(), player->getSimulationPosition(), false, false);
     }
 
     void PhysicsSystem::updateAnimatedCollisionShape(const MWWorld::Ptr& object)
@@ -981,9 +989,8 @@ namespace MWPhysics
         , mSwimLevel(waterlevel
               - (actor.getRenderingHalfExtents().z() * 2
                   * MWBase::Environment::get()
-                        .getWorld()
-                        ->getStore()
-                        .get<ESM::GameSetting>()
+                        .getESMStore()
+                        ->get<ESM::GameSetting>()
                         .find("fSwimHeightScale")
                         ->mValue.getFloat()))
         , mSlowFall(slowFall)

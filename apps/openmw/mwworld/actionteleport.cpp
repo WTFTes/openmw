@@ -1,15 +1,16 @@
 #include "actionteleport.hpp"
 
 #include <components/esm3/loadcell.hpp>
+#include <components/esm3/loadmgef.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 
 #include "../mwworld/cellstore.hpp"
-#include "../mwworld/cellutils.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/worldmodel.hpp"
 
@@ -17,9 +18,9 @@
 
 namespace MWWorld
 {
-    ActionTeleport::ActionTeleport(const ESM::RefId& cellName, const ESM::Position& position, bool teleportFollowers)
+    ActionTeleport::ActionTeleport(ESM::RefId cellId, const ESM::Position& position, bool teleportFollowers)
         : Action(true)
-        , mCellName(cellName)
+        , mCellId(cellId)
         , mPosition(position)
         , mTeleportFollowers(teleportFollowers)
     {
@@ -31,7 +32,9 @@ namespace MWWorld
         {
             // Find any NPCs that are following the actor and teleport them with him
             std::set<MWWorld::Ptr> followers;
-            getFollowers(actor, followers, mCellName.empty(), true);
+
+            bool toExterior = MWBase::Environment::get().getWorldModel()->getCell(mCellId).isExterior();
+            getFollowers(actor, followers, toExterior, true);
 
             for (std::set<MWWorld::Ptr>::iterator it = followers.begin(); it != followers.end(); ++it)
                 teleport(*it);
@@ -44,27 +47,34 @@ namespace MWWorld
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
         MWWorld::WorldModel* worldModel = MWBase::Environment::get().getWorldModel();
-        actor.getClass().getCreatureStats(actor).land(actor == world->getPlayerPtr());
+        auto& stats = actor.getClass().getCreatureStats(actor);
+        stats.land(actor == world->getPlayerPtr());
+        stats.setTeleported(true);
+
+        Ptr teleported;
         if (actor == world->getPlayerPtr())
         {
             world->getPlayer().setTeleported(true);
-            if (mCellName.empty())
-                world->changeToExteriorCell(mPosition, true);
-            else
-                world->changeToInteriorCell(mCellName, mPosition, true);
+            world->changeToCell(mCellId, mPosition, true);
+            teleported = world->getPlayerPtr();
         }
         else
         {
             if (actor.getClass().getCreatureStats(actor).getAiSequence().isInCombat(world->getPlayerPtr()))
-                actor.getClass().getCreatureStats(actor).getAiSequence().stopCombat();
-            else if (mCellName.empty())
             {
-                const osg::Vec2i index = positionToCellIndex(mPosition.pos[0], mPosition.pos[1]);
-                world->moveObject(actor, worldModel->getExterior(index.x(), index.y()), mPosition.asVec3(), true, true);
+                actor.getClass().getCreatureStats(actor).getAiSequence().stopCombat();
+                return;
             }
+
             else
-                world->moveObject(actor, worldModel->getInterior(mCellName), mPosition.asVec3(), true, true);
+                teleported = world->moveObject(actor, &worldModel->getCell(mCellId), mPosition.asVec3(), true, true);
         }
+
+        if (!world->isWaterWalkingCastableOnTarget(teleported) && MWMechanics::hasWaterWalking(teleported))
+            teleported.getClass()
+                .getCreatureStats(teleported)
+                .getActiveSpells()
+                .purgeEffect(actor, ESM::MagicEffect::WaterWalking);
     }
 
     void ActionTeleport::getFollowers(

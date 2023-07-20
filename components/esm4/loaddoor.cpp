@@ -33,8 +33,7 @@
 
 void ESM4::Door::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
-    reader.adjustFormId(mFormId);
+    mId = reader.getRefIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -81,11 +80,8 @@ void ESM4::Door::load(ESM4::Reader& reader)
             case ESM4::SUB_DSTF: // FO3
             case ESM4::SUB_DMDL: // FO3
             case ESM4::SUB_DMDT: // FO3
-            {
-                // std::cout << "DOOR " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::DOOR::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

@@ -7,9 +7,7 @@
 #include "settings.hpp"
 
 #include <components/debug/debuglog.hpp>
-#include <components/esm/refid.hpp>
 
-#include <osg/Vec3f>
 #include <osg/io_utils>
 
 #include <functional>
@@ -24,7 +22,7 @@ namespace DetourNavigator
     {
         struct Ignore
         {
-            const ESM::RefId& mWorldspace;
+            std::string_view mWorldspace;
             const TilePosition& mTilePosition;
             std::shared_ptr<NavMeshTileConsumer> mConsumer;
 
@@ -36,7 +34,7 @@ namespace DetourNavigator
         };
     }
 
-    GenerateNavMeshTile::GenerateNavMeshTile(ESM::RefId worldspace, const TilePosition& tilePosition,
+    GenerateNavMeshTile::GenerateNavMeshTile(std::string worldspace, const TilePosition& tilePosition,
         RecastMeshProvider recastMeshProvider, const AgentBounds& agentBounds,
         const DetourNavigator::Settings& settings, std::weak_ptr<NavMeshTileConsumer> consumer)
         : mWorldspace(std::move(worldspace))
@@ -81,7 +79,8 @@ namespace DetourNavigator
                 return;
             }
 
-            const auto data = prepareNavMeshTileData(*recastMesh, mTilePosition, mAgentBounds, mSettings.mRecast);
+            const auto data
+                = prepareNavMeshTileData(*recastMesh, mWorldspace, mTilePosition, mAgentBounds, mSettings.mRecast);
 
             if (data == nullptr)
                 return;

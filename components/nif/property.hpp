@@ -138,6 +138,9 @@ namespace Nif
         unsigned int type{ 0u }, flags1{ 0u }, flags2{ 0u };
         float envMapIntensity{ 0.f };
         void read(NIFStream* nif) override;
+
+        bool doubleSided() const { return (flags2 >> 4) & 1; }
+        bool treeAnim() const { return (flags2 >> 29) & 1; }
     };
 
     struct BSShaderLightingProperty : public BSShaderProperty
@@ -215,6 +218,24 @@ namespace Nif
         void post(Reader& nif) override;
     };
 
+    struct BSEffectShaderProperty : public BSShaderProperty
+    {
+        osg::Vec2f mUVOffset, mUVScale;
+        std::string mSourceTexture;
+        unsigned char mClamp;
+        unsigned char mLightingInfluence;
+        unsigned char mEnvMapMinLOD;
+        osg::Vec4f mFalloffParams;
+        osg::Vec4f mBaseColor;
+        float mBaseColorScale;
+        float mFalloffDepth;
+        std::string mGreyscaleTexture;
+
+        void read(NIFStream* nif) override;
+
+        bool useFalloff() const { return (flags >> 6) & 1; }
+    };
+
     struct NiDitherProperty : public Property
     {
         unsigned short flags;
@@ -289,22 +310,6 @@ namespace Nif
         osg::Vec3f ambient{ 1.f, 1.f, 1.f }, diffuse{ 1.f, 1.f, 1.f };
         osg::Vec3f specular, emissive;
         float glossiness{ 0.f }, alpha{ 0.f }, emissiveMult{ 1.f };
-
-        void read(NIFStream* nif);
-    };
-
-    struct S_VertexColorProperty
-    {
-        /* Vertex mode:
-            0 - source ignore
-            1 - source emmisive
-            2 - source amb diff
-
-            Lighting mode
-            0 - lighting emmisive
-            1 - lighting emmisive ambient/diffuse
-        */
-        int vertmode, lightmode;
 
         void read(NIFStream* nif);
     };
@@ -402,9 +407,28 @@ namespace Nif
         int alphaTestMode() const { return (flags >> 10) & 0x7; }
     };
 
-    struct NiVertexColorProperty : public StructPropT<S_VertexColorProperty>
+    struct NiVertexColorProperty : public Property
     {
+        enum class VertexMode : unsigned int
+        {
+            VertMode_SrcIgnore = 0,
+            VertMode_SrcEmissive = 1,
+            VertMode_SrcAmbDif = 2
+        };
+
+        enum class LightMode : unsigned int
+        {
+            LightMode_Emissive = 0,
+            LightMode_EmiAmbDif = 1
+        };
+
+        unsigned short mFlags;
+        VertexMode mVertexMode;
+        LightMode mLightingMode;
+
+        void read(NIFStream* nif) override;
     };
+
     struct NiStencilProperty : public Property
     {
         S_StencilProperty data;

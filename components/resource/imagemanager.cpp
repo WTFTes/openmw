@@ -6,6 +6,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/misc/pathhelpers.hpp>
 #include <components/vfs/manager.hpp>
+#include <components/vfs/pathutil.hpp>
 
 #include "objectcache.hpp"
 
@@ -55,7 +56,7 @@ namespace Resource
 
     ImageManager::~ImageManager() {}
 
-    bool checkSupported(osg::Image* image, const std::string& filename)
+    bool checkSupported(osg::Image* image)
     {
         switch (image->getPixelFormat())
         {
@@ -83,9 +84,9 @@ namespace Resource
         return true;
     }
 
-    osg::ref_ptr<osg::Image> ImageManager::getImage(const std::string& filename, bool disableFlip)
+    osg::ref_ptr<osg::Image> ImageManager::getImage(std::string_view filename, bool disableFlip)
     {
-        const std::string normalized = mVFS->normalizeFilename(filename);
+        const std::string normalized = VFS::Path::normalizeFilename(filename);
 
         osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(normalized);
         if (obj)
@@ -149,7 +150,7 @@ namespace Resource
             osg::ref_ptr<osg::Image> image = result.getImage();
 
             image->setFileName(normalized);
-            if (!checkSupported(image, filename))
+            if (!checkSupported(image))
             {
                 static bool uncompress = (getenv("OPENMW_DECOMPRESS_TEXTURES") != nullptr);
                 if (!uncompress)

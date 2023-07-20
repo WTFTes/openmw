@@ -4,6 +4,7 @@
 #include "navigator.hpp"
 #include "settings.hpp"
 #include "stats.hpp"
+#include "updateguard.hpp"
 
 namespace Loading
 {
@@ -17,13 +18,13 @@ namespace DetourNavigator
     public:
         NavigatorStub() = default;
 
-        std::unique_ptr<const UpdateGuard> makeUpdateGuard() override { return nullptr; }
+        ScopedUpdateGuard makeUpdateGuard() override { return nullptr; }
 
-        void addAgent(const AgentBounds& /*agentBounds*/) override {}
+        bool addAgent(const AgentBounds& /*agentBounds*/) override { return true; }
 
         void removeAgent(const AgentBounds& /*agentBounds*/) override {}
 
-        void setWorldspace(const ESM::RefId& /*worldspace*/, const UpdateGuard* /*guard*/) override {}
+        void setWorldspace(std::string_view /*worldspace*/, const UpdateGuard* /*guard*/) override {}
 
         void addObject(const ObjectId /*id*/, const ObjectShapes& /*shapes*/, const btTransform& /*transform*/,
             const UpdateGuard* /*guard*/) override

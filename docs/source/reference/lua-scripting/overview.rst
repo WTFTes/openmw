@@ -7,7 +7,10 @@ Language and sandboxing
 OpenMW supports scripts written in Lua 5.1 with some extensions (see below) from Lua 5.2.
 There are no plans to switch to any newer version of the language, because newer versions are not supported by LuaJIT.
 
-Here are starting points for learning Lua:
+.. note::
+  There are also experimental declarations available for Teal, a typed dialect of Lua. see :ref:`Teal` for more details.
+
+Here are some starting points for learning Lua:
 
 - `Programing in Lua <https://www.lua.org/pil/contents.html>`__ (first edition, aimed at Lua 5.0)
 - `Lua 5.1 Reference Manual <https://www.lua.org/manual/5.1/>`__
@@ -85,7 +88,7 @@ Let's write a simple example of a `Player script`:
 
 .. code-block:: Lua
 
-    -- Save to my_lua_mod/example/player.lua
+    -- Save to my_lua_mod/scripts/example/player.lua
 
     local ui = require('openmw.ui')
 
@@ -107,7 +110,7 @@ The options are:
 1. Create text file "my_lua_mod.omwscripts" with the following line:
 ::
 
-    PLAYER: example/player.lua
+    PLAYER: scripts/example/player.lua
 
 2. (not implemented yet) Add the script in OpenMW CS on "Lua scripts" view and save as "my_lua_mod.omwaddon".
 
@@ -122,6 +125,19 @@ Enable it in ``openmw.cfg`` the same way as any other mod:
 Now every time the player presses "X" on a keyboard, a message is shown.
 
 
+Lua scripts naming policy
+=========================
+
+Technically scripts can be placed anywhere in the virtual file system, but we recommend to follow the naming policy and choose one of:
+
+- ``scripts/<ModName>/<ScriptName>.lua``: general case.
+- ``scripts/<AuthorName>/<ModName>/<ScriptName>.lua``: if "ModName" is short and can potentially collide with other mods.
+- ``scripts/<ModName>.lua``: if it is a simple mod that consists from a single script, the script can placed to ``scripts/`` without subdirs.
+
+``scripts/omw/`` is reserved for built-in scripts, don't use it in mods. Overriding built-in scripts is not recommended, prefer to adjust their behaviour via :ref:`Interfaces of built-in scripts` instead.
+
+See also naming policy of :ref:`Localisation Files`.
+
 Format of ``.omwscripts``
 =========================
 
@@ -129,20 +145,20 @@ Format of ``.omwscripts``
 
     # Lines starting with '#' are comments
 
-    GLOBAL: my_mod/some_global_script.lua
+    GLOBAL: scripts/my_mod/some_global_script.lua
 
     # Script that will be automatically attached to the player
-    PLAYER: my_mod/player.lua
+    PLAYER: scripts/my_mod/player.lua
 
     # Local script that will be automatically attached to every NPC and every creature in the game
-    NPC, CREATURE: my_mod/some_other_script.lua
+    NPC, CREATURE: scripts/my_mod/some_other_script.lua
 
     # Local script that can be attached to any object by a global script
-    CUSTOM: my_mod/something.lua
+    CUSTOM: scripts/my_mod/something.lua
 
     # Local script that will be automatically attached to any Container AND can be
     # attached to any other object by a global script.
-    CONTAINER, CUSTOM: my_mod/container.lua
+    CONTAINER, CUSTOM: scripts/my_mod/container.lua
 
 Each script is described by one line:
 ``<flags>: <path to .lua file in virtual file system>``.
@@ -445,6 +461,9 @@ The order in which the scripts are started is important. So if one mod should ov
   * - Interface
     - Can be used
     - Description
+  * - :ref:`Activation <Interface Activation>`
+    - by global scripts
+    - Allows to extend or override built-in activation mechanics.
   * - :ref:`AI <Interface AI>`
     - by local scripts
     - Control basic AI of NPCs and creatures.

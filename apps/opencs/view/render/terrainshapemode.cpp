@@ -13,7 +13,6 @@
 
 #include <osg/Camera>
 #include <osg/Vec3f>
-#include <osg/ref_ptr>
 
 #include <apps/opencs/model/doc/document.hpp>
 #include <apps/opencs/model/prefs/category.hpp>
@@ -1326,14 +1325,14 @@ bool CSVRender::TerrainShapeMode::noCell(const std::string& cellId)
 {
     CSMDoc::Document& document = getWorldspaceWidget().getDocument();
     const CSMWorld::IdCollection<CSMWorld::Cell>& cellCollection = document.getData().getCells();
-    return cellCollection.searchId(cellId) == -1;
+    return cellCollection.searchId(ESM::RefId::stringRefId(cellId)) == -1;
 }
 
 bool CSVRender::TerrainShapeMode::noLand(const std::string& cellId)
 {
     CSMDoc::Document& document = getWorldspaceWidget().getDocument();
     const CSMWorld::IdCollection<CSMWorld::Land>& landCollection = document.getData().getLand();
-    return landCollection.searchId(cellId) == -1;
+    return landCollection.searchId(ESM::RefId::stringRefId(cellId)) == -1;
 }
 
 bool CSVRender::TerrainShapeMode::noLandLoaded(const std::string& cellId)

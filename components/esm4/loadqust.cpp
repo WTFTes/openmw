@@ -27,7 +27,6 @@
 #include "loadqust.hpp"
 
 #include <cstring>
-#include <iostream> // FIXME: for debugging only
 #include <stdexcept>
 
 #include "reader.hpp"
@@ -35,7 +34,7 @@
 
 void ESM4::Quest::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -69,7 +68,7 @@ void ESM4::Quest::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_SCRI:
-                reader.get(mQuestScript);
+                reader.getFormId(mQuestScript);
                 break;
             case ESM4::SUB_CTDA: // FIXME: how to detect if 1st/2nd param is a formid?
             {
@@ -157,12 +156,8 @@ void ESM4::Quest::load(ESM4::Reader& reader)
             case ESM4::SUB_SPOR: // TES5
             case ESM4::SUB_VMAD: // TES5
             case ESM4::SUB_VTCK: // TES5
-            {
-                // std::cout << "QUST " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::QUST::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

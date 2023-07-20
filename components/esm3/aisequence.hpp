@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "components/esm/defs.hpp"
 #include "components/esm/refid.hpp"
 #include "components/esm/util.hpp"
 
@@ -92,7 +91,7 @@ namespace ESM
 
             int mTargetActorId;
             ESM::RefId mTargetId;
-            ESM::RefId mCellId;
+            std::string mCellId;
             float mRemainingDuration;
             bool mRepeat;
 
@@ -106,7 +105,7 @@ namespace ESM
 
             int mTargetActorId;
             ESM::RefId mTargetId;
-            ESM::RefId mCellId;
+            std::string mCellId;
             float mRemainingDuration;
 
             bool mAlwaysFollow;

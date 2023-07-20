@@ -30,16 +30,13 @@
 
 #include <cstring>
 #include <stdexcept>
-//#include <iostream> // FIXME: for debugging only
-
-//#include "formid.hpp"
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::DefaultObj::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -52,7 +49,6 @@ void ESM4::DefaultObj::load(ESM4::Reader& reader)
                 reader.getZString(mEditorId);
                 break; // "DefaultObjectManager"
             case ESM4::SUB_DATA:
-            {
                 reader.getFormId(mData.stimpack);
                 reader.getFormId(mData.superStimpack);
                 reader.getFormId(mData.radX);
@@ -91,20 +87,11 @@ void ESM4::DefaultObj::load(ESM4::Reader& reader)
                     reader.getFormId(mData.itemDetectedEfect);
                     reader.getFormId(mData.cateyeMobileEffectNYI);
                 }
-
                 break;
-            }
             case ESM4::SUB_DNAM:
-            {
-                // std::cout << "DOBJ " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
-                // std::cout << "DOBJ " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
-                // reader.skipSubRecordData();
                 throw std::runtime_error("ESM4::DOBJ::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }
     }

@@ -7,7 +7,6 @@
 #include <components/debug/debuglog.hpp>
 #include <components/misc/strings/algorithm.hpp>
 
-#include "cellid.hpp"
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
@@ -40,6 +39,8 @@ namespace ESM
 
 namespace ESM
 {
+    const StringRefId Cell::sDefaultWorldspaceId = StringRefId("sys::default");
+
     // Some overloaded compare operators.
     bool operator==(const MovedCellRef& ref, const RefNum& refNum)
     {
@@ -57,6 +58,24 @@ namespace ESM
         loadCell(esm, saveContext);
     }
 
+    const ESM::RefId& Cell::updateId()
+    {
+        mId = generateIdForCell(isExterior(), mName, getGridX(), getGridY());
+        return mId;
+    }
+
+    ESM::RefId Cell::generateIdForCell(bool exterior, std::string_view cellName, int x, int y)
+    {
+        if (!exterior)
+        {
+            return ESM::RefId::stringRefId(cellName);
+        }
+        else
+        {
+            return ESM::RefId::esm3ExteriorCell(x, y);
+        }
+    }
+
     void Cell::loadNameAndData(ESMReader& esm, bool& isDeleted)
     {
         isDeleted = false;
@@ -71,7 +90,7 @@ namespace ESM
             switch (esm.retSubName().toInt())
             {
                 case SREC_NAME:
-                    mName = esm.getRefId();
+                    mName = esm.getHString();
                     break;
                 case fourCC("DATA"):
                     esm.getHTSized<12>(mData);
@@ -91,20 +110,7 @@ namespace ESM
         if (!hasData)
             esm.fail("Missing DATA subrecord");
 
-        mCellId.mPaged = !(mData.mFlags & Interior);
-
-        if (mCellId.mPaged)
-        {
-            mCellId.mWorldspace = CellId::sDefaultWorldspace;
-            mCellId.mIndex.mX = mData.mX;
-            mCellId.mIndex.mY = mData.mY;
-        }
-        else
-        {
-            mCellId.mWorldspace = mName;
-            mCellId.mIndex.mX = 0;
-            mCellId.mIndex.mY = 0;
-        }
+        updateId();
     }
 
     void Cell::loadCell(ESMReader& esm, bool saveContext)
@@ -173,7 +179,7 @@ namespace ESM
 
     void Cell::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mName.getRefIdString());
+        esm.writeHNCString("NAME", mName);
         esm.writeHNT("DATA", mData, 12);
 
         if (isDeleted)
@@ -195,7 +201,7 @@ namespace ESM
             }
 
             if (mData.mFlags & QuasiEx)
-                esm.writeHNOCString("RGNN", mRegion.getRefIdString());
+                esm.writeHNOCRefId("RGNN", mRegion);
             else
             {
                 // Try to avoid saving ambient lighting information when it's unnecessary.
@@ -206,7 +212,7 @@ namespace ESM
         }
         else
         {
-            esm.writeHNOCString("RGNN", mRegion.getRefIdString());
+            esm.writeHNOCRefId("RGNN", mRegion);
             if (mMapColor != 0)
                 esm.writeHNT("NAM5", mMapColor);
         }
@@ -225,7 +231,7 @@ namespace ESM
 
     std::string Cell::getDescription() const
     {
-        const auto& nameString = mName.getRefIdString();
+        const auto& nameString = mName;
         if (mData.mFlags & Interior)
             return nameString;
 
@@ -315,8 +321,8 @@ namespace ESM
 
     void Cell::blank()
     {
-        mName = ESM::RefId::sEmpty;
-        mRegion = ESM::RefId::sEmpty;
+        mName = "";
+        mRegion = ESM::RefId();
         mWater = 0;
         mWaterInt = false;
         mMapColor = 0;
@@ -333,8 +339,4 @@ namespace ESM
         mAmbi.mFogDensity = 0;
     }
 
-    const CellId& Cell::getCellId() const
-    {
-        return mCellId;
-    }
 }

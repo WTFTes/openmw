@@ -2,16 +2,18 @@
 
 #include <QApplication>
 #include <QCheckBox>
-#include <QDesktopWidget>
 #include <QDropEvent>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QPushButton>
+#include <QScreen>
 #include <QVBoxLayout>
+#include <QVariant>
 
 #include <algorithm>
 #include <utility>
+#include <variant>
 
 #include <apps/opencs/view/doc/subview.hpp>
 
@@ -20,6 +22,7 @@
 
 #include "../doc/sizehint.hpp"
 #include "../filter/filterbox.hpp"
+#include "../filter/filterdata.hpp"
 #include "table.hpp"
 #include "tablebottombox.hpp"
 
@@ -76,7 +79,7 @@ CSVWorld::TableSubView::TableSubView(
 
     setWidget(widget);
     // prefer height of the screen and full width of the table
-    const QRect rect = QApplication::desktop()->screenGeometry(this);
+    const QRect rect = QApplication::screenAt(pos())->geometry();
     int frameHeight = 40; // set a reasonable default
     QWidget* topLevel = QApplication::topLevelAt(pos());
     if (topLevel)
@@ -103,6 +106,8 @@ CSVWorld::TableSubView::TableSubView(
 
         connect(this, qOverload<const std::string&, const CSMWorld::UniversalId::Type>(&TableSubView::cloneRequest),
             mBottom, &TableBottomBox::cloneRequest);
+
+        connect(mTable, &Table::createRecordsDirectlyRequest, mBottom, &TableBottomBox::createRecordsDirectlyRequest);
 
         connect(mTable, &Table::touchRequest, mBottom, &TableBottomBox::touchRequest);
 
@@ -148,10 +153,10 @@ void CSVWorld::TableSubView::cloneRequest(const CSMWorld::UniversalId& toClone)
     emit cloneRequest(toClone.getId(), toClone.getType());
 }
 
-void CSVWorld::TableSubView::createFilterRequest(std::vector<CSMWorld::UniversalId>& types, Qt::DropAction action)
+void CSVWorld::TableSubView::createFilterRequest(std::vector<CSMWorld::UniversalId>& types,
+    const std::pair<QVariant, std::string>& columnSearchData, Qt::DropAction action)
 {
-    std::vector<std::pair<std::string, std::vector<std::string>>> filterSource;
-
+    std::vector<CSVFilter::FilterData> sourceFilter;
     std::vector<std::string> refIdColumns = mTable->getColumnsWithDisplay(
         CSMWorld::TableMimeData::convertEnums(CSMWorld::UniversalId::Type_Referenceable));
     bool hasRefIdDisplay = !refIdColumns.empty();
@@ -162,16 +167,40 @@ void CSVWorld::TableSubView::createFilterRequest(std::vector<CSMWorld::Universal
         std::vector<std::string> col = mTable->getColumnsWithDisplay(CSMWorld::TableMimeData::convertEnums(type));
         if (!col.empty())
         {
-            filterSource.emplace_back(it->getId(), col);
+            CSVFilter::FilterData filterData;
+            filterData.searchData = it->getId();
+            filterData.columns = col;
+            sourceFilter.emplace_back(filterData);
         }
 
         if (hasRefIdDisplay && CSMWorld::TableMimeData::isReferencable(type))
         {
-            filterSource.emplace_back(it->getId(), refIdColumns);
+            CSVFilter::FilterData filterData;
+            filterData.searchData = it->getId();
+            filterData.columns = refIdColumns;
+            sourceFilter.emplace_back(filterData);
         }
     }
 
-    mFilterBox->createFilterRequest(filterSource, action);
+    if (!sourceFilter.empty())
+        mFilterBox->createFilterRequest(sourceFilter, action);
+    else
+    {
+        std::vector<CSVFilter::FilterData> sourceFilterByValue;
+
+        QVariant qData = columnSearchData.first;
+        std::string searchColumn = columnSearchData.second;
+        std::vector<std::string> searchColumns;
+        searchColumns.emplace_back(searchColumn);
+
+        CSVFilter::FilterData filterData;
+        filterData.searchData = qData;
+        filterData.columns = searchColumns;
+
+        sourceFilterByValue.emplace_back(filterData);
+
+        mFilterBox->createFilterRequest(sourceFilterByValue, action);
+    }
 }
 
 bool CSVWorld::TableSubView::eventFilter(QObject* object, QEvent* event)

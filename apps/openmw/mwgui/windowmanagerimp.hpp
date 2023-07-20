@@ -28,6 +28,7 @@
 #include "draganddrop.hpp"
 #include "mapwindow.hpp"
 #include "messagebox.hpp"
+#include "settings.hpp"
 #include "soulgemdialog.hpp"
 #include "statswatcher.hpp"
 #include "textcolours.hpp"
@@ -126,7 +127,8 @@ namespace MWGui
         WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
             Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
             const std::filesystem::path& logpath, bool consoleOnlyScripts, Translation::Storage& translationDataStorage,
-            ToUTF8::FromType encoding, const std::string& versionDescription, bool useShaders);
+            ToUTF8::FromType encoding, const std::string& versionDescription, bool useShaders,
+            Files::ConfigurationManager& cfgMgr);
         virtual ~WindowManager();
 
         /// Set the ESMStore to use for retrieving of GUI-related strings.
@@ -237,14 +239,12 @@ namespace MWGui
         const MWWorld::Ptr& getSelectedEnchantItem() const override;
         void setSelectedWeapon(const MWWorld::Ptr& item) override;
         const MWWorld::Ptr& getSelectedWeapon() const override;
-        int getFontHeight() const override;
         void unsetSelectedSpell() override;
         void unsetSelectedWeapon() override;
 
         void updateConsoleObjectPtr(const MWWorld::Ptr& currentPtr, const MWWorld::Ptr& newPtr) override;
 
         void showCrosshair(bool show) override;
-        bool getSubtitlesEnabled() override;
 
         /// Turn visibility of HUD on or off
         bool toggleHud() override;
@@ -294,7 +294,7 @@ namespace MWGui
         void watchActor(const MWWorld::Ptr& ptr) override;
         MWWorld::Ptr getWatchedActor() const override;
 
-        void executeInConsole(const std::string& path) override;
+        void executeInConsole(const std::filesystem::path& path) override;
 
         void enableRest() override { mRestAllowed = true; }
         bool getRestEnabled() override;
@@ -403,8 +403,8 @@ namespace MWGui
 
         bool mConsoleOnlyScripts;
 
-        std::map<MyGUI::Window*, std::string> mTrackedWindows;
-        void trackWindow(Layout* layout, const std::string& name);
+        std::map<MyGUI::Window*, WindowSettingValues> mTrackedWindows;
+        void trackWindow(Layout* layout, const WindowSettingValues& settings);
         void onWindowChangeCoord(MyGUI::Window* _sender);
 
         ESM::RefId mSelectedSpell;
@@ -458,9 +458,6 @@ namespace MWGui
         MyGUI::Widget* mInputBlocker;
 
         bool mCrosshairEnabled;
-        bool mSubtitlesEnabled;
-        bool mHitFaderEnabled;
-        bool mWerewolfOverlayEnabled;
         bool mHudEnabled;
         bool mCursorVisible;
         bool mCursorActive;
@@ -512,8 +509,6 @@ namespace MWGui
         void updateVisible(); // Update visibility of all windows based on mode, shown and allowed settings
 
         void updateMap();
-
-        int mShowOwned;
 
         ToUTF8::FromType mEncoding;
 
@@ -585,6 +580,8 @@ namespace MWGui
 
         void setCullMask(uint32_t mask) override;
         uint32_t getCullMask() override;
+
+        Files::ConfigurationManager& mCfgMgr;
     };
 }
 

@@ -25,7 +25,6 @@
 #include <apps/opencs/model/world/refcollection.hpp>
 #include <apps/opencs/model/world/refidcollection.hpp>
 #include <apps/opencs/model/world/refiddata.hpp>
-#include <apps/opencs/model/world/subcellcollection.hpp>
 #include <apps/opencs/model/world/universalid.hpp>
 
 #include <components/esm/esmcommon.hpp>
@@ -39,7 +38,6 @@
 #include <components/misc/strings/lower.hpp>
 
 #include "../world/cellcoordinates.hpp"
-#include "../world/infocollection.hpp"
 
 #include "document.hpp"
 
@@ -91,7 +89,7 @@ void CSMDoc::WriteHeaderStage::perform(int stage, Messages& messages)
 
         // ESM::Header::CurrentFormat is `1` but since new records are not yet used in opencs
         // we use the format `0` for compatibility with old versions.
-        mState.getWriter().setFormat(0);
+        mState.getWriter().setFormatVersion(ESM::DefaultFormatVersion);
     }
     else
     {
@@ -125,6 +123,7 @@ CSMDoc::WriteDialogueCollectionStage::WriteDialogueCollectionStage(Document& doc
 
 int CSMDoc::WriteDialogueCollectionStage::setup()
 {
+    mInfosByTopic = mInfos.getInfosByTopic();
     return mTopics.getSize();
 }
 
@@ -145,14 +144,17 @@ void CSMDoc::WriteDialogueCollectionStage::perform(int stage, Messages& messages
 
     // Test, if we need to save anything associated info records.
     bool infoModified = false;
-    CSMWorld::InfoCollection::Range range = mInfos.getTopicRange(topic.get().mId.getRefIdString());
+    const auto topicInfos = mInfosByTopic.find(topic.get().mId);
 
-    for (CSMWorld::InfoCollection::RecordConstIterator iter(range.first); iter != range.second; ++iter)
+    if (topicInfos != mInfosByTopic.end())
     {
-        if ((*iter)->isModified() || (*iter)->mState == CSMWorld::RecordBase::State_Deleted)
+        for (const auto& record : topicInfos->second)
         {
-            infoModified = true;
-            break;
+            if (record->isModified() || record->mState == CSMWorld::RecordBase::State_Deleted)
+            {
+                infoModified = true;
+                break;
+            }
         }
     }
 
@@ -173,36 +175,35 @@ void CSMDoc::WriteDialogueCollectionStage::perform(int stage, Messages& messages
         }
 
         // write modified selected info records
-        for (CSMWorld::InfoCollection::RecordConstIterator iter(range.first); iter != range.second; ++iter)
+        if (topicInfos != mInfosByTopic.end())
         {
-            if ((*iter)->isModified() || (*iter)->mState == CSMWorld::RecordBase::State_Deleted)
+            const std::vector<const CSMWorld::Record<CSMWorld::Info>*>& infos = topicInfos->second;
+
+            for (auto iter = infos.begin(); iter != infos.end(); ++iter)
             {
-                ESM::DialInfo info = (*iter)->get();
-                std::string_view infoIdString = info.mId.getRefIdString();
-                info.mId = ESM::RefId::stringRefId(infoIdString.substr(infoIdString.find_last_of('#') + 1));
+                const CSMWorld::Record<CSMWorld::Info>& record = **iter;
 
-                info.mPrev = ESM::RefId::sEmpty;
-                if (iter != range.first)
+                if (record.isModified() || record.mState == CSMWorld::RecordBase::State_Deleted)
                 {
-                    CSMWorld::InfoCollection::RecordConstIterator prev = iter;
-                    --prev;
-                    std::string_view prevIdString = (*prev)->get().mId.getRefIdString();
-                    info.mPrev = ESM::RefId::stringRefId(prevIdString.substr(prevIdString.find_last_of('#') + 1));
+                    ESM::DialInfo info = record.get();
+                    info.mId = record.get().mOriginalId;
+
+                    if (iter == infos.begin())
+                        info.mPrev = ESM::RefId();
+                    else
+                        info.mPrev = (*std::prev(iter))->get().mOriginalId;
+
+                    const auto next = std::next(iter);
+
+                    if (next == infos.end())
+                        info.mNext = ESM::RefId();
+                    else
+                        info.mNext = (*next)->get().mOriginalId;
+
+                    writer.startRecord(info.sRecordId);
+                    info.save(writer, record.mState == CSMWorld::RecordBase::State_Deleted);
+                    writer.endRecord(info.sRecordId);
                 }
-
-                CSMWorld::InfoCollection::RecordConstIterator next = iter;
-                ++next;
-
-                info.mNext = ESM::RefId::sEmpty;
-                if (next != range.second)
-                {
-                    std::string_view nextIdString = (*next)->get().mId.getRefIdString();
-                    info.mNext = ESM::RefId::stringRefId(nextIdString.substr(nextIdString.find_last_of('#') + 1));
-                }
-
-                writer.startRecord(info.sRecordId);
-                info.save(writer, (*iter)->mState == CSMWorld::RecordBase::State_Deleted);
-                writer.endRecord(info.sRecordId);
             }
         }
     }
@@ -232,7 +233,7 @@ CSMDoc::CollectionReferencesStage::CollectionReferencesStage(Document& document,
 
 int CSMDoc::CollectionReferencesStage::setup()
 {
-    mState.getSubRecords().clear();
+    mState.clearSubRecords();
 
     int size = mDocument.getData().getReferences().getSize();
 
@@ -253,25 +254,24 @@ void CSMDoc::CollectionReferencesStage::perform(int stage, Messages& messages)
 
         if (record.isModified() || record.mState == CSMWorld::RecordBase::State_Deleted)
         {
-            const ESM::RefId& cellId
-                = record.get().mOriginalCell.empty() ? record.get().mCell : record.get().mOriginalCell;
+            ESM::RefId cellId = record.get().mOriginalCell.empty() ? record.get().mCell : record.get().mOriginalCell;
 
-            std::deque<int>& indices = mState.getSubRecords()[cellId.getRefIdString()];
+            std::deque<int>& indices = mState.getOrInsertSubRecord(cellId);
 
             // collect moved references at the end of the container
-            bool interior = cellId.getRefIdString()[0] != '#';
+
+            const bool interior = !cellId.startsWith("#");
             std::ostringstream stream;
             if (!interior)
             {
                 // recalculate the ref's cell location
                 std::pair<int, int> index = record.get().getCellIndex();
-                stream << "#" << index.first << " " << index.second;
+                cellId = ESM::RefId::stringRefId(ESM::RefId::esm3ExteriorCell(index.first, index.second).toString());
             }
 
             // An empty mOriginalCell is meant to indicate that it is the same as
             // the current cell.  It is possible that a moved ref is moved again.
-            if ((record.get().mOriginalCell.empty() ? record.get().mCell : record.get().mOriginalCell)
-                    != ESM::RefId::stringRefId(stream.str())
+            if ((record.get().mOriginalCell.empty() ? record.get().mCell : record.get().mOriginalCell) != cellId
                 && !interior && record.mState != CSMWorld::RecordBase::State_ModifiedOnly && !record.get().mNew)
                 indices.push_back(i);
             else
@@ -337,7 +337,7 @@ void CSMDoc::WriteCellCollectionStage::writeReferences(
                 char ignore;
                 istream >> ignore >> moved.mTarget[0] >> moved.mTarget[1];
 
-                refRecord.mRefNum.save(writer, false, "MVRF");
+                writer.writeFormId(refRecord.mRefNum, false, "MVRF");
                 writer.writeHNT("CNDT", moved.mTarget);
             }
 
@@ -356,22 +356,19 @@ void CSMDoc::WriteCellCollectionStage::perform(int stage, Messages& messages)
     std::deque<int> tempRefs;
     std::deque<int> persistentRefs;
 
-    std::map<std::string, std::deque<int>>::const_iterator references
-        = mState.getSubRecords().find(cell.get().mId.getRefIdString());
+    const std::deque<int>* references = mState.findSubRecord(cell.get().mId);
 
-    if (cell.isModified() || cell.mState == CSMWorld::RecordBase::State_Deleted
-        || references != mState.getSubRecords().end())
+    if (cell.isModified() || cell.mState == CSMWorld::RecordBase::State_Deleted || references != nullptr)
     {
         CSMWorld::Cell cellRecord = cell.get();
-        bool interior = cellRecord.mId.getRefIdString()[0] != '#';
+        const bool interior = !cellRecord.mId.startsWith("#");
 
         // count new references and adjust RefNumCount accordingsly
         unsigned int newRefNum = cellRecord.mRefNumCounter;
 
-        if (references != mState.getSubRecords().end())
+        if (references != nullptr)
         {
-            for (std::deque<int>::const_iterator iter(references->second.begin()); iter != references->second.end();
-                 ++iter)
+            for (std::deque<int>::const_iterator iter(references->begin()); iter != references->end(); ++iter)
             {
                 const CSMWorld::Record<CSMWorld::CellRef>& ref = mDocument.getData().getReferences().getRecord(*iter);
 
@@ -417,10 +414,10 @@ void CSMDoc::WriteCellCollectionStage::perform(int stage, Messages& messages)
         cellRecord.save(writer, cell.mState == CSMWorld::RecordBase::State_Deleted);
 
         // write references
-        if (references != mState.getSubRecords().end())
+        if (references != nullptr)
         {
             writeReferences(persistentRefs, interior, newRefNum);
-            cellRecord.saveTempMarker(writer, int(references->second.size()) - persistentRefs.size());
+            cellRecord.saveTempMarker(writer, static_cast<int>(references->size()) - persistentRefs.size());
             writeReferences(tempRefs, interior, newRefNum);
         }
 
@@ -447,10 +444,9 @@ void CSMDoc::WritePathgridCollectionStage::perform(int stage, Messages& messages
     if (pathgrid.isModified() || pathgrid.mState == CSMWorld::RecordBase::State_Deleted)
     {
         CSMWorld::Pathgrid record = pathgrid.get();
-        std::string recordIdString = record.mId.getRefIdString();
-        if (recordIdString[0] == '#')
+        if (record.mId.startsWith("#"))
         {
-            std::istringstream stream(recordIdString.c_str());
+            std::istringstream stream(record.mId.getRefIdString());
             char ignore;
             stream >> ignore >> record.mData.mX >> record.mData.mY;
         }

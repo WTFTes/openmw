@@ -15,6 +15,7 @@
 
 #include "actorutil.hpp"
 #include "creaturestats.hpp"
+#include "spellutil.hpp"
 
 namespace MWMechanics
 {
@@ -26,9 +27,8 @@ namespace MWMechanics
             return false;
 
         static const float fMagicItemRechargePerSecond = MWBase::Environment::get()
-                                                             .getWorld()
-                                                             ->getStore()
-                                                             .get<ESM::GameSetting>()
+                                                             .getESMStore()
+                                                             ->get<ESM::GameSetting>()
                                                              .find("fMagicItemRechargePerSecond")
                                                              ->mValue.getFloat();
 
@@ -62,16 +62,16 @@ namespace MWMechanics
         if (roll < x)
         {
             const ESM::RefId& soul = gem.getCellRef().getSoul();
-            const ESM::Creature* creature
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Creature>().find(soul);
+            const ESM::Creature* creature = MWBase::Environment::get().getESMStore()->get<ESM::Creature>().find(soul);
 
             float restored = creature->mData.mSoul * (roll / x);
 
             const ESM::Enchantment* enchantment
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().find(
+                = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().find(
                     item.getClass().getEnchantment(item));
-            item.getCellRef().setEnchantmentCharge(std::min(
-                item.getCellRef().getEnchantmentCharge() + restored, static_cast<float>(enchantment->mData.mCharge)));
+            const int maxCharge = MWMechanics::getEnchantmentCharge(*enchantment);
+            item.getCellRef().setEnchantmentCharge(
+                std::min(item.getCellRef().getEnchantmentCharge() + restored, static_cast<float>(maxCharge)));
 
             MWBase::Environment::get().getWindowManager()->playSound(ESM::RefId::stringRefId("Enchant Success"));
 
@@ -83,14 +83,13 @@ namespace MWMechanics
         }
 
         player.getClass().skillUsageSucceeded(player, ESM::Skill::Enchant, 0);
-        gem.getContainerStore()->remove(gem, 1, player);
+        gem.getContainerStore()->remove(gem, 1);
 
         if (gem.getRefData().getCount() == 0)
         {
             std::string message = MWBase::Environment::get()
-                                      .getWorld()
-                                      ->getStore()
-                                      .get<ESM::GameSetting>()
+                                      .getESMStore()
+                                      ->get<ESM::GameSetting>()
                                       .find("sNotifyMessage51")
                                       ->mValue.getString();
             message = Misc::StringUtils::format(message, gem.getClass().getName(gem));
@@ -100,7 +99,7 @@ namespace MWMechanics
             const ESM::RefId soulGemAzura = ESM::RefId::stringRefId("Misc_SoulGem_Azura");
             // special case: readd Azura's Star
             if (gem.get<ESM::Miscellaneous>()->mBase->mId == soulGemAzura)
-                player.getClass().getContainerStore(player).add(soulGemAzura, 1, player);
+                player.getClass().getContainerStore(player).add(soulGemAzura, 1);
         }
 
         return true;

@@ -27,14 +27,13 @@
 #include "loadidlm.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: testing only
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::IdleMarker::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -52,7 +51,6 @@ void ESM4::IdleMarker::load(ESM4::Reader& reader)
                 reader.get(mIdleFlags);
                 break;
             case ESM4::SUB_IDLC:
-            {
                 if (subHdr.dataSize != 1) // FO3 can have 4?
                 {
                     reader.skipSubRecordData();
@@ -61,7 +59,6 @@ void ESM4::IdleMarker::load(ESM4::Reader& reader)
 
                 reader.get(mIdleCount);
                 break;
-            }
             case ESM4::SUB_IDLT:
                 reader.get(mIdleTimer);
                 break;
@@ -75,16 +72,18 @@ void ESM4::IdleMarker::load(ESM4::Reader& reader)
                 }
 
                 mIdleAnim.resize(mIdleCount);
-                for (unsigned int i = 0; i < static_cast<unsigned int>(mIdleCount); ++i)
-                    reader.get(mIdleAnim.at(i));
+                for (FormId& value : mIdleAnim)
+                    reader.getFormId(value);
                 break;
             }
+            case ESM4::SUB_MODL:
+                reader.getZString(mModel);
+                break;
             case ESM4::SUB_OBND: // object bounds
-            {
-                // std::cout << "IDLM " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
+            case ESM4::SUB_MODT:
+            case ESM4::SUB_MODS:
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::IDLM::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

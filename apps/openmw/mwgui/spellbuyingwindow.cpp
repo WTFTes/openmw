@@ -6,11 +6,11 @@
 
 #include <components/esm3/loadgmst.hpp>
 #include <components/esm3/loadrace.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
@@ -40,7 +40,7 @@ namespace MWGui
 
     void SpellBuyingWindow::addSpell(const ESM::Spell& spell)
     {
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
         int price = std::max(1,
             static_cast<int>(
@@ -52,7 +52,7 @@ namespace MWGui
 
         // TODO: refactor to use MyGUI::ListBox
 
-        int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
 
         MyGUI::Button* toAdd = mSpellsView->createWidget<MyGUI::Button>(price <= playerGold
                 ? "SandTextButton"
@@ -66,7 +66,7 @@ namespace MWGui
         toAdd->setSize(mSpellsView->getWidth(), lineHeight);
         toAdd->eventMouseWheel += MyGUI::newDelegate(this, &SpellBuyingWindow::onMouseWheel);
         toAdd->setUserString("ToolTipType", "Spell");
-        toAdd->setUserString("Spell", spell.mId.getRefIdString());
+        toAdd->setUserString("Spell", spell.mId.serialize());
         toAdd->setUserString("SpellCost", std::to_string(spell.mData.mCost));
         toAdd->eventMouseButtonClick += MyGUI::newDelegate(this, &SpellBuyingWindow::onSpellButtonClick);
         mSpellsWidgetMap.insert(std::make_pair(toAdd, spell.mId));
@@ -103,7 +103,7 @@ namespace MWGui
 
             if (actor.getClass().isNpc())
             {
-                const ESM::Race* race = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(
+                const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(
                     actor.get<ESM::NPC>()->mBase->mRace);
                 if (race->mPowers.exists(spell->mId))
                     continue;
@@ -152,7 +152,7 @@ namespace MWGui
         MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
         MWMechanics::Spells& spells = stats.getSpells();
         spells.add(mSpellsWidgetMap.find(_sender)->second);
-        player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price, player);
+        player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price);
 
         // add gold to NPC trading gold pool
         MWMechanics::CreatureStats& npcStats = mPtr.getClass().getCreatureStats(mPtr);

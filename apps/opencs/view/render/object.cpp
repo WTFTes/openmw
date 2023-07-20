@@ -44,8 +44,10 @@
 #include "../../model/world/data.hpp"
 
 #include <components/debug/debuglog.hpp>
+#include <components/esm/esmbridge.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/lightcommon.hpp>
 #include <components/sceneutil/lightmanager.hpp>
 #include <components/sceneutil/lightutil.hpp>
 
@@ -167,7 +169,7 @@ void CSVRender::Object::update()
     if (light)
     {
         bool isExterior = false; // FIXME
-        SceneUtil::addLight(mBaseNode, light, Mask_Lighting, isExterior);
+        SceneUtil::addLight(mBaseNode, SceneUtil::LightCommon(*light), Mask_Lighting, isExterior);
     }
 }
 
@@ -735,7 +737,7 @@ void CSVRender::Object::apply(CSMWorld::CommandMacro& commands)
         // Do cell check first so positions can be compared
         const CSMWorld::CellRef& ref = collection.getRecord(recordIndex).get();
 
-        if (CSMWorld::CellCoordinates::isExteriorCell(ref.mCell.getRefIdString()))
+        if (CSMWorld::CellCoordinates::isExteriorCell(ref.mCell))
         {
             // Find cell index at new position
             std::pair<int, int> cellIndex

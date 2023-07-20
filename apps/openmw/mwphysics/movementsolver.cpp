@@ -8,7 +8,6 @@
 #include <components/misc/convert.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/esmstore.hpp"
 
@@ -177,9 +176,8 @@ namespace MWPhysics
             float angleDegrees = osg::RadiansToDegrees(
                 std::acos(stormDirection * velocity / (stormDirection.length() * velocity.length())));
             static const float fStromWalkMult = MWBase::Environment::get()
-                                                    .getWorld()
-                                                    ->getStore()
-                                                    .get<ESM::GameSetting>()
+                                                    .getESMStore()
+                                                    ->get<ESM::GameSetting>()
                                                     .find("fStromWalkMult")
                                                     ->mValue.getFloat();
             velocity *= 1.f - (fStromWalkMult * (angleDegrees / 180.f));
@@ -473,6 +471,9 @@ namespace MWPhysics
     void MovementSolver::unstuck(ActorFrameData& actor, const btCollisionWorld* collisionWorld)
     {
         if (actor.mSkipCollisionDetection) // noclipping/tcl
+            return;
+
+        if (actor.mMovement.length2() == 0) // no AI nor player attempted to move, current position is assumed correct
             return;
 
         auto tempPosition = actor.mPosition;

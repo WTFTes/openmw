@@ -27,7 +27,7 @@ class QUndoStack;
 
 std::string CSVWorld::InfoCreator::getId() const
 {
-    std::string id = Misc::StringUtils::lowerCase(mTopic->text().toUtf8().constData());
+    const std::string topic = mTopic->text().toStdString();
 
     std::string unique = QUuid::createUuid().toByteArray().data();
 
@@ -35,7 +35,7 @@ std::string CSVWorld::InfoCreator::getId() const
 
     unique = unique.substr(1, unique.size() - 2);
 
-    return id + '#' + unique;
+    return topic + '#' + unique;
 }
 
 void CSVWorld::InfoCreator::configureCreateCommand(CSMWorld::CreateCommand& command) const
@@ -115,12 +115,18 @@ void CSVWorld::InfoCreator::reset()
     GenericCreator::reset();
 }
 
+void CSVWorld::InfoCreator::setText(const std::string& text)
+{
+    QString qText = QString::fromStdString(text);
+    mTopic->setText(qText);
+}
+
 std::string CSVWorld::InfoCreator::getErrors() const
 {
     // We ignore errors from GenericCreator here, because they can never happen in an InfoCreator.
     std::string errors;
 
-    std::string topic = mTopic->text().toUtf8().constData();
+    const ESM::RefId topic = ESM::RefId::stringRefId(mTopic->text().toStdString());
 
     if ((getCollectionId().getType() == CSMWorld::UniversalId::Type_TopicInfos ? getData().getTopics()
                                                                                : getData().getJournals())
@@ -136,6 +142,11 @@ std::string CSVWorld::InfoCreator::getErrors() const
 void CSVWorld::InfoCreator::focus()
 {
     mTopic->setFocus();
+}
+
+void CSVWorld::InfoCreator::callReturnPressed()
+{
+    emit inputReturnPressed();
 }
 
 void CSVWorld::InfoCreator::topicChanged()

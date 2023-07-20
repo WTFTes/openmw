@@ -27,14 +27,13 @@
 #include "loadlvln.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: testing only
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::LevelledNpc::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
     // std::uint32_t esmVer = reader.esmVersion(); // currently unused
@@ -94,11 +93,8 @@ void ESM4::LevelledNpc::load(ESM4::Reader& reader)
             case ESM4::SUB_COED: // owner
             case ESM4::SUB_OBND: // object bounds
             case ESM4::SUB_MODT: // model texture data
-            {
-                // std::cout << "LVLN " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::LVLN::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

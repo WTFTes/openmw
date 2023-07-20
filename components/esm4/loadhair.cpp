@@ -27,14 +27,13 @@
 #include "loadhair.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: for debugging only
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::Hair::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -62,11 +61,8 @@ void ESM4::Hair::load(ESM4::Reader& reader)
                 reader.get(mBoundRadius);
                 break;
             case ESM4::SUB_MODT:
-            {
-                // std::cout << "HAIR " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::HAIR::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

@@ -108,7 +108,7 @@ namespace MWMechanics
             const ESM::Enchantment* enchantment = world->getStore().get<ESM::Enchantment>().find(weapon->mEnchant);
             if (enchantment->mData.mType == ESM::Enchantment::WhenStrikes)
             {
-                int castCost = getEffectiveEnchantmentCastCost(static_cast<float>(enchantment->mData.mCost), actor);
+                int castCost = getEffectiveEnchantmentCastCost(*enchantment, actor);
                 float charge = item.getCellRef().getEnchantmentCharge();
 
                 if (charge == -1 || charge >= castCost || weapclass == ESM::WeaponType::Thrown
@@ -120,8 +120,8 @@ namespace MWMechanics
         int value = 50.f;
         if (actor.getClass().isNpc())
         {
-            int skill = item.getClass().getEquipmentSkill(item);
-            if (skill != -1)
+            ESM::RefId skill = item.getClass().getEquipmentSkill(item);
+            if (!skill.empty())
                 value = actor.getClass().getSkill(actor, skill);
         }
         else
@@ -170,7 +170,7 @@ namespace MWMechanics
         const MWWorld::Ptr& weapon, const MWWorld::Ptr& ammo, const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy)
     {
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         static const float fAIMeleeWeaponMult = gmst.find("fAIMeleeWeaponMult")->mValue.getFloat();
         static const float fAIMeleeArmorMult = gmst.find("fAIMeleeArmorMult")->mValue.getFloat();

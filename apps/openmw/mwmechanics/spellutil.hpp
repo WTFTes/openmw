@@ -6,6 +6,7 @@
 namespace ESM
 {
     struct ENAMstruct;
+    struct Enchantment;
     struct MagicEffect;
     struct Spell;
 }
@@ -17,12 +18,11 @@ namespace MWWorld
 
 namespace MWMechanics
 {
-    ESM::Skill::SkillEnum spellSchoolToSkill(int school);
-
     enum class EffectCostMethod
     {
         GameSpell,
         PlayerSpell,
+        GameEnchantment,
     };
 
     float calcEffectCost(const ESM::ENAMstruct& effect, const ESM::MagicEffect* magicEffect = nullptr,
@@ -30,6 +30,8 @@ namespace MWMechanics
     int calcSpellCost(const ESM::Spell& spell);
 
     int getEffectiveEnchantmentCastCost(float castCost, const MWWorld::Ptr& actor);
+    int getEffectiveEnchantmentCastCost(const ESM::Enchantment& enchantment, const MWWorld::Ptr& actor);
+    int getEnchantmentCharge(const ESM::Enchantment& enchantment);
 
     /**
      * @param spell spell to cast
@@ -40,14 +42,14 @@ namespace MWMechanics
      * @note actor can be an NPC or a creature
      * @return success chance from 0 to 100 (in percent), if cap=false then chance above 100 may be returned.
      */
-    float calcSpellBaseSuccessChance(const ESM::Spell* spell, const MWWorld::Ptr& actor, int* effectiveSchool);
-    float getSpellSuccessChance(const ESM::Spell* spell, const MWWorld::Ptr& actor, int* effectiveSchool = nullptr,
-        bool cap = true, bool checkMagicka = true);
-    float getSpellSuccessChance(const ESM::RefId& spellId, const MWWorld::Ptr& actor, int* effectiveSchool = nullptr,
-        bool cap = true, bool checkMagicka = true);
+    float calcSpellBaseSuccessChance(const ESM::Spell* spell, const MWWorld::Ptr& actor, ESM::RefId* effectiveSchool);
+    float getSpellSuccessChance(const ESM::Spell* spell, const MWWorld::Ptr& actor,
+        ESM::RefId* effectiveSchool = nullptr, bool cap = true, bool checkMagicka = true);
+    float getSpellSuccessChance(const ESM::RefId& spellId, const MWWorld::Ptr& actor,
+        ESM::RefId* effectiveSchool = nullptr, bool cap = true, bool checkMagicka = true);
 
-    int getSpellSchool(const ESM::RefId& spellId, const MWWorld::Ptr& actor);
-    int getSpellSchool(const ESM::Spell* spell, const MWWorld::Ptr& actor);
+    ESM::RefId getSpellSchool(const ESM::RefId& spellId, const MWWorld::Ptr& actor);
+    ESM::RefId getSpellSchool(const ESM::Spell* spell, const MWWorld::Ptr& actor);
 
     /// Get whether or not the given spell contributes to skill progress.
     bool spellIncreasesSkill(const ESM::Spell* spell);

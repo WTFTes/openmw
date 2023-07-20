@@ -13,7 +13,7 @@ namespace SceneUtil
 {
     using namespace osgShadow;
 
-    void ShadowManager::setupShadowSettings()
+    void ShadowManager::setupShadowSettings(Shader::ShaderManager& shaderManager)
     {
         mEnableShadows = Settings::Manager::getBool("enable shadows", "Shadows");
 
@@ -32,7 +32,8 @@ namespace SceneUtil
             = std::clamp(Settings::Manager::getInt("number of shadow maps", "Shadows"), 1, 8);
 
         mShadowSettings->setNumShadowMapsPerLight(numberOfShadowMapsPerLight);
-        mShadowSettings->setBaseShadowTextureUnit(8 - numberOfShadowMapsPerLight);
+        mShadowSettings->setBaseShadowTextureUnit(shaderManager.reserveGlobalTextureUnits(
+            Shader::ShaderManager::Slot::ShadowMaps, numberOfShadowMapsPerLight));
 
         const float maximumShadowMapDistance = Settings::Manager::getFloat("maximum shadow map distance", "Shadows");
         if (maximumShadowMapDistance > 0)
@@ -92,6 +93,8 @@ namespace SceneUtil
         fakeShadowMapImage->allocateImage(1, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT);
         *(float*)fakeShadowMapImage->data() = std::numeric_limits<float>::infinity();
         osg::ref_ptr<osg::Texture> fakeShadowMapTexture = new osg::Texture2D(fakeShadowMapImage);
+        fakeShadowMapTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        fakeShadowMapTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
         fakeShadowMapTexture->setShadowComparison(true);
         fakeShadowMapTexture->setShadowCompareFunc(osg::Texture::ShadowCompareFunc::ALWAYS);
         for (int i = baseShadowTextureUnit; i < baseShadowTextureUnit + numberOfShadowMapsPerLight; ++i)
@@ -114,14 +117,16 @@ namespace SceneUtil
         , mIndoorShadowCastingMask(indoorShadowCastingMask)
     {
         mShadowedScene->setShadowTechnique(mShadowTechnique);
-        Stereo::Manager::instance().setShadowTechnique(mShadowTechnique);
+
+        if (Stereo::getStereo())
+            Stereo::Manager::instance().setShadowTechnique(mShadowTechnique);
 
         mShadowedScene->addChild(sceneRoot);
         rootNode->addChild(mShadowedScene);
         mShadowedScene->setNodeMask(sceneRoot->getNodeMask());
 
         mShadowSettings = mShadowedScene->getShadowSettings();
-        setupShadowSettings();
+        setupShadowSettings(shaderManager);
 
         mShadowTechnique->setupCastingShader(shaderManager);
         mShadowTechnique->setWorldMask(worldMask);
@@ -131,7 +136,8 @@ namespace SceneUtil
 
     ShadowManager::~ShadowManager()
     {
-        Stereo::Manager::instance().setShadowTechnique(nullptr);
+        if (Stereo::getStereo())
+            Stereo::Manager::instance().setShadowTechnique(nullptr);
     }
 
     Shader::ShaderManager::DefineMap ShadowManager::getShadowDefines()

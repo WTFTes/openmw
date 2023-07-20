@@ -141,7 +141,7 @@ namespace MWScript
                 ESM::RefId actorID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
 
-                ESM::RefId cellID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
+                std::string_view cellID = runtime.getStringLiteral(runtime[0].mInteger);
                 runtime.pop();
 
                 Interpreter::Type_Float duration = runtime[0].mFloat;
@@ -167,7 +167,7 @@ namespace MWScript
                 if (cellID.empty())
                     return;
 
-                if (!MWBase::Environment::get().getWorld()->getStore().get<ESM::Cell>().search(cellID))
+                if (!MWBase::Environment::get().getESMStore()->get<ESM::Cell>().search(cellID))
                     return;
 
                 MWMechanics::AiEscort escortPackage(actorID, cellID, static_cast<int>(duration), x, y, z, repeat);
@@ -355,8 +355,7 @@ namespace MWScript
                 MWMechanics::AiFollow followPackage(actorID, duration, x, y, z, repeat);
                 ptr.getClass().getCreatureStats(ptr).getAiSequence().stack(followPackage, ptr);
 
-                Log(Debug::Info) << "AiFollow: " << actorID.getRefIdString() << ", " << x << ", " << y << ", " << z
-                                 << ", " << duration;
+                Log(Debug::Info) << "AiFollow: " << actorID << ", " << x << ", " << y << ", " << z << ", " << duration;
             }
         };
 
@@ -371,7 +370,7 @@ namespace MWScript
                 ESM::RefId actorID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
 
-                ESM::RefId cellID = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
+                std::string_view cellID = runtime.getStringLiteral(runtime[0].mInteger);
                 runtime.pop();
 
                 Interpreter::Type_Float duration = runtime[0].mFloat;
@@ -396,8 +395,7 @@ namespace MWScript
 
                 MWMechanics::AiFollow followPackage(actorID, cellID, duration, x, y, z, repeat);
                 ptr.getClass().getCreatureStats(ptr).getAiSequence().stack(followPackage, ptr);
-                Log(Debug::Info) << "AiFollow: " << actorID.getRefIdString() << ", " << x << ", " << y << ", " << z
-                                 << ", " << duration;
+                Log(Debug::Info) << "AiFollow: " << actorID << ", " << x << ", " << y << ", " << z << ", " << duration;
             }
         };
 

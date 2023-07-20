@@ -12,6 +12,7 @@
 #include <components/misc/strings/lower.hpp>
 
 #include <components/vfs/manager.hpp>
+#include <components/vfs/pathutil.hpp>
 
 namespace
 {
@@ -134,7 +135,11 @@ std::string Misc::ResourceHelpers::correctActorModelPath(const std::string& resP
         mdlname.insert(mdlname.begin() + p + 1, 'x');
     else
         mdlname.insert(mdlname.begin(), 'x');
-    if (!vfs->exists(mdlname))
+    std::string kfname = mdlname;
+    if (Misc::StringUtils::ciEndsWith(kfname, ".nif"))
+        kfname.replace(kfname.size() - 4, 4, ".kf");
+
+    if (!vfs->exists(kfname))
     {
         return resPath;
     }
@@ -146,6 +151,17 @@ std::string Misc::ResourceHelpers::correctMeshPath(const std::string& resPath, c
     return "meshes\\" + resPath;
 }
 
+std::string_view Misc::ResourceHelpers::meshPathForESM3(std::string_view resPath)
+{
+    constexpr std::string_view prefix = "meshes";
+    if (resPath.length() < prefix.size() + 1 || !Misc::StringUtils::ciStartsWith(resPath, prefix)
+        || (resPath[prefix.size()] != '/' && resPath[prefix.size()] != '\\'))
+    {
+        throw std::runtime_error("Path should start with 'meshes\\'");
+    }
+    return resPath.substr(prefix.size() + 1);
+}
+
 std::string Misc::ResourceHelpers::correctSoundPath(std::string_view resPath, const VFS::Manager* vfs)
 {
     // Workaround: Bethesda at some point converted some of the files to mp3, but the references were kept as .wav.
@@ -153,9 +169,10 @@ std::string Misc::ResourceHelpers::correctSoundPath(std::string_view resPath, co
     {
         std::string sound{ resPath };
         changeExtension(sound, ".mp3");
-        return vfs->normalizeFilename(sound);
+        VFS::Path::normalizeFilenameInPlace(sound);
+        return sound;
     }
-    return vfs->normalizeFilename(resPath);
+    return VFS::Path::normalizeFilename(resPath);
 }
 
 bool Misc::ResourceHelpers::isHiddenMarker(const ESM::RefId& id)
@@ -169,7 +186,7 @@ namespace
     {
         if (auto w = Misc::findExtension(resPath); w != std::string::npos)
             resPath.insert(w, pattern);
-        return vfs->normalizeFilename(resPath);
+        return VFS::Path::normalizeFilename(resPath);
     }
 
     std::string getBestLODMeshName(std::string const& resPath, const VFS::Manager* vfs, std::string_view pattern)

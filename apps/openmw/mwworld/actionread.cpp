@@ -2,10 +2,10 @@
 
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadclas.hpp>
+#include <components/esm3/loadskil.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/npcstats.hpp"
@@ -46,15 +46,15 @@ namespace MWWorld
         MWMechanics::NpcStats& npcStats = actor.getClass().getNpcStats(actor);
 
         // Skill gain from books
-        if (ref->mBase->mData.mSkillId >= 0 && ref->mBase->mData.mSkillId < ESM::Skill::Length
-            && !npcStats.hasBeenUsed(ref->mBase->mId))
+        ESM::RefId skill = ESM::Skill::indexToRefId(ref->mBase->mData.mSkillId);
+        if (!skill.empty() && !npcStats.hasBeenUsed(ref->mBase->mId))
         {
             MWWorld::LiveCellRef<ESM::NPC>* playerRef = actor.get<ESM::NPC>();
 
             const ESM::Class* class_
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Class>().find(playerRef->mBase->mClass);
+                = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(playerRef->mBase->mClass);
 
-            npcStats.increaseSkill(ref->mBase->mData.mSkillId, *class_, true, true);
+            npcStats.increaseSkill(skill, *class_, true, true);
 
             npcStats.flagAsUsed(ref->mBase->mId);
         }

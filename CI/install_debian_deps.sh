@@ -12,10 +12,24 @@ declare -rA GROUPED_DEPS=(
   [gcc]="binutils gcc build-essential cmake ccache curl unzip git pkg-config mold"
   [clang]="binutils clang make cmake ccache curl unzip git pkg-config mold"
   [coverity]="binutils clang-11 make cmake ccache curl unzip git pkg-config"
+  [gcc_preprocess]="
+    binutils
+    build-essential
+    clang
+    cmake
+    curl
+    gcc
+    git
+    libclang-dev
+    ninja-build
+    python3-clang
+    python3-pip
+    unzip
+  "
 
   # Common dependencies for building OpenMW.
   [openmw-deps]="
-    libboost-filesystem-dev libboost-program-options-dev
+    libboost-program-options-dev
     libboost-system-dev libboost-iostreams-dev
 
     libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
@@ -46,16 +60,16 @@ declare -rA GROUPED_DEPS=(
 
   [openmw-integration-tests]="
     ca-certificates
+    gdb
     git
     git-lfs
     libavcodec58
     libavformat58
     libavutil56
-    libboost-filesystem1.74.0
     libboost-iostreams1.74.0
     libboost-program-options1.74.0
     libboost-system1.74.0
-    libbullet3.06
+    libbullet3.24
     libcollada-dom2.5-dp0
     libicu70
     libjpeg8
@@ -76,6 +90,8 @@ declare -rA GROUPED_DEPS=(
     python3-pip
     xvfb
   "
+
+  [libasan6]="libasan6"
 
   [android]="binutils build-essential cmake ccache curl unzip git pkg-config"
   

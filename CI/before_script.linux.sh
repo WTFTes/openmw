@@ -47,6 +47,9 @@ fi
 if [[ $CI_CLANG_TIDY ]]; then
     CMAKE_CONF_OPTS+=(
           -DCMAKE_CXX_CLANG_TIDY="clang-tidy;--warnings-as-errors=*"
+          -DBUILD_UNITTESTS=ON
+          -DBUILD_OPENCS_TESTS=ON
+          -DBUILD_BENCHMARKS=ON
     )
 fi
 
@@ -101,7 +104,23 @@ if [[ "${BUILD_TESTS_ONLY}" ]]; then
         -DBUILD_BULLETOBJECTTOOL=OFF \
         -DBUILD_NIFTEST=OFF \
         -DBUILD_UNITTESTS=${BUILD_UNITTESTS} \
+        -DBUILD_OPENCS_TESTS=${BUILD_UNITTESTS} \
         -DBUILD_BENCHMARKS=${BUILD_BENCHMARKS} \
+        ..
+elif [[ "${BUILD_OPENMW_ONLY}" ]]; then
+    ${ANALYZE} cmake \
+        "${CMAKE_CONF_OPTS[@]}" \
+        -DBUILD_OPENMW=ON \
+        -DBUILD_BSATOOL=OFF \
+        -DBUILD_ESMTOOL=OFF \
+        -DBUILD_LAUNCHER=OFF \
+        -DBUILD_MWINIIMPORTER=OFF \
+        -DBUILD_ESSIMPORTER=OFF \
+        -DBUILD_OPENCS=OFF \
+        -DBUILD_WIZARD=OFF \
+        -DBUILD_NAVMESHTOOL=OFF \
+        -DBUILD_BULLETOBJECTTOOL=OFF \
+        -DBUILD_NIFTEST=OFF \
         ..
 else
     ${ANALYZE} cmake \

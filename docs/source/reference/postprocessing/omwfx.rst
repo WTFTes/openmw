@@ -67,6 +67,10 @@ Builtin Uniforms
 +-------------+------------------------------+--------------------------------------------------+
 | vec4        | ``omw.fogColor``             | The RGBA color of fog                            |
 +-------------+------------------------------+--------------------------------------------------+
+| vec4        | ``omw.ambientColor``         | The RGBA color of scene ambient                  |
++-------------+------------------------------+--------------------------------------------------+
+| vec4        | ``omw.skyColor``             | The RGBA color of sky                            |
++-------------+------------------------------+--------------------------------------------------+
 | vec4        | ``omw.sunColor``             | The RGBA color of sun                            |
 +-------------+------------------------------+--------------------------------------------------+
 | vec4        | ``omw.sunPos``               | The normalized sun direction                     |
@@ -202,7 +206,7 @@ The following functions can be accessed in any fragment or vertex shader.
 Special Attributes
 ##################
 
-To maintain maximum compatability with future releases, OpenMW defines specific keywords, attributes, and functions for you to use. These should be used instead of their
+To maintain maximum compatibility with future releases, OpenMW defines specific keywords, attributes, and functions for you to use. These should be used instead of their
 GLSL equivalent. Refer to the table below to view these mappings.
 
 +-------------------+---------------------------------------------------------+
@@ -210,7 +214,7 @@ GLSL equivalent. Refer to the table below to view these mappings.
 +===================+=========================================================+
 | omw_In            |  use in place of ``in`` and ``varying``                 |
 +-------------------+---------------------------------------------------------+
-| omw_Out           |  use in place of ``out`` and ```varying``               |
+| omw_Out           |  use in place of ``out`` and ``varying``                |
 +-------------------+---------------------------------------------------------+
 | omw_Position      |  use in place of ``gl_Position``                        |
 +-------------------+---------------------------------------------------------+
@@ -316,7 +320,7 @@ Exactly one ``technique`` block is required for every shader file. In this we de
 +------------------+--------------------+---------------------------------------------------+
 | glsl_Version     | integer            | GLSL version                                      |
 +------------------+--------------------+---------------------------------------------------+
-| glsl_profile     | string             | GLSL profile, like ``compatability``              |
+| glsl_profile     | string             | GLSL profile, like ``compatibility``              |
 +------------------+--------------------+---------------------------------------------------+
 | glsl_extensions  | literal list       | ``,`` separated list of required GLSL extensions  |
 +------------------+--------------------+---------------------------------------------------+
@@ -373,7 +377,7 @@ OpenMW currently supports ``1D``, ``2D``, and ``3D`` texture samplers, cubemaps 
     OpenMW vertically flips all DDS textures when loading them, with the exception of ``3D`` textures.
 
 
-The properites for a ``sampler_*`` block are as following.
+The properties for a ``sampler_*`` block are as following.
 The only required property for a texture is its ``source``.
 
 +-----------------------+-----------------------+
@@ -853,8 +857,6 @@ Types
 +------------------+---------------------+
 | .omwfx           | OpenGL              |
 +==================+=====================+
-| clamp            | GL_CLAMP            |
-+------------------+---------------------+
 | clamp_to_edge    | GL_CLAMP_TO_EDGE    |
 +------------------+---------------------+
 | clamp_to_border  | GL_CLAMP_TO_BORDER  |

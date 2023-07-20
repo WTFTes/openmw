@@ -1,9 +1,10 @@
-#include "luabindings.hpp"
+#include "inputbindings.hpp"
 
 #include <SDL_events.h>
 #include <SDL_gamecontroller.h>
 #include <SDL_mouse.h>
 
+#include <components/lua/luastate.hpp>
 #include <components/sdlutil/events.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -98,14 +99,11 @@ namespace MWLua
             { "AutoMove", MWInput::A_AutoMove },
             { "Rest", MWInput::A_Rest },
             { "Journal", MWInput::A_Journal },
-            { "Weapon", MWInput::A_Weapon },
-            { "Spell", MWInput::A_Spell },
             { "Run", MWInput::A_Run },
             { "CycleSpellLeft", MWInput::A_CycleSpellLeft },
             { "CycleSpellRight", MWInput::A_CycleSpellRight },
             { "CycleWeaponLeft", MWInput::A_CycleWeaponLeft },
             { "CycleWeaponRight", MWInput::A_CycleWeaponRight },
-            { "ToggleSneak", MWInput::A_ToggleSneak },
             { "AlwaysRun", MWInput::A_AlwaysRun },
             { "Sneak", MWInput::A_Sneak },
 

@@ -144,10 +144,10 @@ namespace
     class TestInterpreterContext : public Interpreter::Context
     {
         LocalVariables mLocals;
-        std::map<std::string, GlobalVariables, Misc::StringUtils::CiComp> mMembers;
+        std::map<ESM::RefId, GlobalVariables> mMembers;
 
     public:
-        const ESM::RefId& getTarget() const override { return ESM::RefId::sEmpty; }
+        ESM::RefId getTarget() const override { return ESM::RefId(); }
 
         int getLocalShort(int index) const override { return mLocals.getShort(index); }
 
@@ -207,53 +207,53 @@ namespace
 
         std::string_view getCurrentCellName() const override { return {}; }
 
-        int getMemberShort(const ESM::RefId& id, std::string_view name, bool global) const override
+        int getMemberShort(ESM::RefId id, std::string_view name, bool global) const override
         {
-            auto it = mMembers.find(id.getRefIdString());
+            auto it = mMembers.find(id);
             if (it != mMembers.end())
                 return it->second.getShort(name);
             return {};
         }
 
-        int getMemberLong(const ESM::RefId& id, std::string_view name, bool global) const override
+        int getMemberLong(ESM::RefId id, std::string_view name, bool global) const override
         {
-            auto it = mMembers.find(id.getRefIdString());
+            auto it = mMembers.find(id);
             if (it != mMembers.end())
                 return it->second.getLong(name);
             return {};
         }
 
-        float getMemberFloat(const ESM::RefId& id, std::string_view name, bool global) const override
+        float getMemberFloat(ESM::RefId id, std::string_view name, bool global) const override
         {
-            auto it = mMembers.find(id.getRefIdString());
+            auto it = mMembers.find(id);
             if (it != mMembers.end())
                 return it->second.getFloat(name);
             return {};
         }
 
-        void setMemberShort(const ESM::RefId& id, std::string_view name, int value, bool global) override
+        void setMemberShort(ESM::RefId id, std::string_view name, int value, bool global) override
         {
-            mMembers[id.getRefIdString()].setShort(name, value);
+            mMembers[id].setShort(name, value);
         }
 
-        void setMemberLong(const ESM::RefId& id, std::string_view name, int value, bool global) override
+        void setMemberLong(ESM::RefId id, std::string_view name, int value, bool global) override
         {
-            mMembers[id.getRefIdString()].setLong(name, value);
+            mMembers[id].setLong(name, value);
         }
 
-        void setMemberFloat(const ESM::RefId& id, std::string_view name, float value, bool global) override
+        void setMemberFloat(ESM::RefId id, std::string_view name, float value, bool global) override
         {
-            mMembers[id.getRefIdString()].setFloat(name, value);
+            mMembers[id].setFloat(name, value);
         }
     };
 
     struct CompiledScript
     {
-        std::vector<Interpreter::Type_Code> mByteCode;
+        Interpreter::Program mProgram;
         Compiler::Locals mLocals;
 
-        CompiledScript(const std::vector<Interpreter::Type_Code>& code, const Compiler::Locals& locals)
-            : mByteCode(code)
+        CompiledScript(Interpreter::Program&& program, const Compiler::Locals& locals)
+            : mProgram(std::move(program))
             , mLocals(locals)
         {
         }

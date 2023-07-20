@@ -6,6 +6,8 @@
 
 #include <components/esm3/loadcrea.hpp>
 #include <components/esm3/loadgmst.hpp>
+#include <components/misc/strings/conversion.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -14,7 +16,6 @@
 
 #include "../mwworld/actionteleport.hpp"
 #include "../mwworld/cellstore.hpp"
-#include "../mwworld/cellutils.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -48,7 +49,7 @@ namespace MWGui
         int price;
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
         int playerGold = player.getClass().getContainerStore(player).count(MWWorld::ContainerStore::sGoldId);
@@ -79,7 +80,7 @@ namespace MWGui
         // Apply followers cost, unlike vanilla the first follower doesn't travel for free
         price *= 1 + static_cast<int>(followers.size());
 
-        int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
 
         MyGUI::Button* toAdd = mDestinationsView->createWidget<MyGUI::Button>(
             "SandTextButton", 0, mCurrentY, 200, lineHeight, MyGUI::Align::Default);
@@ -121,20 +122,19 @@ namespace MWGui
         else if (mPtr.getType() == ESM::Creature::sRecordId)
             transport = mPtr.get<ESM::Creature>()->mBase->getTransport();
 
-        for (unsigned int i = 0; i < transport.size(); i++)
+        for (const auto& dest : transport)
         {
-            std::string_view cellname = transport[i].mCellName.getRefIdString();
+            std::string_view cellname = dest.mCellName;
             bool interior = true;
-            const osg::Vec2i cellIndex
-                = MWWorld::positionToCellIndex(transport[i].mPos.pos[0], transport[i].mPos.pos[1]);
+            const ESM::ExteriorCellLocation cellIndex
+                = ESM::positionToExteriorCellLocation(dest.mPos.pos[0], dest.mPos.pos[1]);
             if (cellname.empty())
             {
-                MWWorld::CellStore* cell
-                    = MWBase::Environment::get().getWorldModel()->getExterior(cellIndex.x(), cellIndex.y());
-                cellname = MWBase::Environment::get().getWorld()->getCellName(cell);
+                MWWorld::CellStore& cell = MWBase::Environment::get().getWorldModel()->getExterior(cellIndex);
+                cellname = MWBase::Environment::get().getWorld()->getCellName(&cell);
                 interior = false;
             }
-            addDestination(ESM::RefId::stringRefId(cellname), transport[i].mPos, interior);
+            addDestination(ESM::RefId::stringRefId(cellname), dest.mPos, interior);
         }
 
         updateLabels();
@@ -148,9 +148,7 @@ namespace MWGui
 
     void TravelWindow::onTravelButtonClick(MyGUI::Widget* _sender)
     {
-        std::istringstream iss(_sender->getUserString("price"));
-        int price;
-        iss >> price;
+        const int price = Misc::StringUtils::toNumeric<int>(_sender->getUserString("price"), 0);
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
         int playerGold = player.getClass().getContainerStore(player).count(MWWorld::ContainerStore::sGoldId);
@@ -166,7 +164,7 @@ namespace MWGui
             // Interior cell -> mages guild transport
             MWBase::Environment::get().getWindowManager()->playSound(ESM::RefId::stringRefId("mysticism cast"));
 
-        player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price, player);
+        player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price);
 
         // add gold to NPC trading gold pool
         MWMechanics::CreatureStats& npcStats = mPtr.getClass().getCreatureStats(mPtr);
@@ -174,7 +172,7 @@ namespace MWGui
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(1);
         ESM::Position pos = *_sender->getUserData<ESM::Position>();
-        const ESM::RefId& cellname = ESM::RefId::stringRefId(_sender->getUserString("Destination"));
+        std::string_view cellname = _sender->getUserString("Destination");
         bool interior = _sender->getUserString("interior") == "y";
         if (mPtr.getCell()->isExterior())
         {
@@ -183,9 +181,8 @@ namespace MWGui
                 = (osg::Vec3f(pos.pos[0], pos.pos[1], 0) - osg::Vec3f(playerPos.pos[0], playerPos.pos[1], 0)).length();
             int hours = static_cast<int>(d
                 / MWBase::Environment::get()
-                      .getWorld()
-                      ->getStore()
-                      .get<ESM::GameSetting>()
+                      .getESMStore()
+                      ->get<ESM::GameSetting>()
                       .find("fTravelTimeMult")
                       ->mValue.getFloat());
             MWBase::Environment::get().getMechanicsManager()->rest(hours, true);
@@ -196,9 +193,11 @@ namespace MWGui
         MWBase::Environment::get().getWindowManager()->exitCurrentGuiMode();
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(1);
+        const ESM::ExteriorCellLocation posCell = ESM::positionToExteriorCellLocation(pos.pos[0], pos.pos[1]);
+        ESM::RefId cellId = ESM::Cell::generateIdForCell(!interior, cellname, posCell.mX, posCell.mY);
 
         // Teleports any followers, too.
-        MWWorld::ActionTeleport action(interior ? cellname : ESM::RefId::sEmpty, pos, true);
+        MWWorld::ActionTeleport action(cellId, pos, true);
         action.execute(player);
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0);

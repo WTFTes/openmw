@@ -9,8 +9,10 @@
 #include <algorithm>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
 
 #include <apps/launcher/utils/cellnameloader.hpp>
+
 #include <components/files/configurationmanager.hpp>
 
 #include <components/contentselector/model/esmfile.hpp>
@@ -20,10 +22,12 @@
 #include <components/config/launchersettings.hpp>
 
 #include <components/bsa/compressedbsafile.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/files/qtconversion.hpp>
 #include <components/misc/strings/conversion.hpp>
 #include <components/navmeshtool/protocol.hpp>
 #include <components/settings/settings.hpp>
+#include <components/vfs/bsaarchive.hpp>
 
 #include "utils/profilescombobox.hpp"
 #include "utils/textinputdialog.hpp"
@@ -36,7 +40,7 @@ namespace
 {
     void contentSubdirs(const QString& path, QStringList& dirs)
     {
-        QStringList fileFilter{ "*.esm", "*.esp", "*.omwaddon", "*.bsa" };
+        QStringList fileFilter{ "*.esm", "*.esp", "*.omwaddon", "*.bsa", "*.omwscripts" };
         QStringList dirFilter{ "bookart", "icons", "meshes", "music", "sound", "textures" };
 
         QDir currentDir(path);
@@ -94,10 +98,31 @@ namespace Launcher
         {
             return Settings::Manager::getUInt64("max navmeshdb file size", "Navigator") / (1024 * 1024);
         }
+
+        std::optional<QString> findFirstPath(const QStringList& directories, const QString& fileName)
+        {
+            for (const QString& directoryPath : directories)
+            {
+                const QString filePath = QDir(directoryPath).absoluteFilePath(fileName);
+                if (QFile::exists(filePath))
+                    return filePath;
+            }
+            return std::nullopt;
+        }
+
+        QStringList findAllFilePaths(const QStringList& directories, const QStringList& fileNames)
+        {
+            QStringList result;
+            result.reserve(fileNames.size());
+            for (const QString& fileName : fileNames)
+                if (const auto filepath = findFirstPath(directories, fileName))
+                    result.append(*filepath);
+            return result;
+        }
     }
 }
 
-Launcher::DataFilesPage::DataFilesPage(Files::ConfigurationManager& cfg, Config::GameSettings& gameSettings,
+Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, Config::GameSettings& gameSettings,
     Config::LauncherSettings& launcherSettings, MainDialog* parent)
     : QWidget(parent)
     , mMainDialog(parent)
@@ -111,6 +136,12 @@ Launcher::DataFilesPage::DataFilesPage(Files::ConfigurationManager& cfg, Config:
     mSelector = new ContentSelectorView::ContentSelector(ui.contentSelectorWidget, /*showOMWScripts=*/true);
     const QString encoding = mGameSettings.value("encoding", "win1252");
     mSelector->setEncoding(encoding);
+
+    QStringList languages;
+    languages << tr("English") << tr("French") << tr("German") << tr("Italian") << tr("Polish") << tr("Russian")
+              << tr("Spanish");
+
+    mSelector->languageBox()->addItems(languages);
 
     mNewProfileDialog = new TextInputDialog(tr("New Content List"), tr("Content List name:"), this);
     mCloneProfileDialog = new TextInputDialog(tr("Clone Content List"), tr("Content List name:"), this);
@@ -196,6 +227,10 @@ bool Launcher::DataFilesPage::loadSettings()
     if (!currentProfile.isEmpty())
         addProfile(currentProfile, true);
 
+    const int index = mSelector->languageBox()->findText(mLauncherSettings.getLanguage());
+    if (index != -1)
+        mSelector->languageBox()->setCurrentIndex(index);
+
     return true;
 }
 
@@ -217,21 +252,22 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
     if (!globalDataDir.empty())
         directories.insert(0, Files::pathToQString(globalDataDir));
 
-    // normalize user supplied directories: resolve symlink, convert to native separator, make absolute
-    for (auto& currentDir : directories)
-        currentDir = QDir(QDir::cleanPath(currentDir)).canonicalPath();
-
-    // add directories, archives and content files
-    directories.removeDuplicates();
-    for (const auto& currentDir : directories)
+    std::unordered_set<QString> visitedDirectories;
+    for (const QString& currentDir : directories)
     {
+        // normalize user supplied directories: resolve symlink, convert to native separator, make absolute
+        const QString canonicalDirPath = QDir(QDir::cleanPath(currentDir)).canonicalPath();
+
+        if (!visitedDirectories.insert(canonicalDirPath).second)
+            continue;
+
         // add new achives files presents in current directory
         addArchivesFromDir(currentDir);
 
         QString tooltip;
 
         // add content files presents in current directory
-        mSelector->addFiles(currentDir, mNewDataDirs.contains(currentDir));
+        mSelector->addFiles(currentDir, mNewDataDirs.contains(canonicalDirPath));
 
         // add current directory to list
         ui.directoryListWidget->addItem(currentDir);
@@ -239,7 +275,7 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         auto* item = ui.directoryListWidget->item(row);
 
         // Display new content with green background
-        if (mNewDataDirs.contains(currentDir))
+        if (mNewDataDirs.contains(canonicalDirPath))
         {
             tooltip += "Will be added to the current profile\n";
             item->setBackground(Qt::green);
@@ -247,9 +283,7 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         }
 
         // deactivate data-local and global data directory: they are always included
-        const auto tmp = currentDir.toUtf8();
-        if (currentDir == mDataLocal
-            || std::filesystem::path(Misc::StringUtils::stringToU8String(tmp)) == globalDataDir)
+        if (currentDir == mDataLocal || Files::pathFromQString(currentDir) == globalDataDir)
         {
             auto flags = item->flags();
             item->setFlags(flags & ~(Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled | Qt::ItemIsEnabled));
@@ -292,25 +326,8 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         row++;
     }
 
-    PathIterator pathIterator(directories);
-
-    mSelector->setProfileContent(filesInProfile(contentModelName, pathIterator));
-}
-
-QStringList Launcher::DataFilesPage::filesInProfile(const QString& profileName, PathIterator& pathIterator)
-{
-    QStringList files = mLauncherSettings.getContentListFiles(profileName);
-    QStringList filepaths;
-
-    for (const QString& file : files)
-    {
-        QString filepath = pathIterator.findFirstPath(file);
-
-        if (!filepath.isEmpty())
-            filepaths << filepath;
-    }
-
-    return filepaths;
+    mSelector->setProfileContent(
+        findAllFilePaths(directories, mLauncherSettings.getContentListFiles(contentModelName)));
 }
 
 void Launcher::DataFilesPage::saveSettings(const QString& profile)
@@ -340,6 +357,23 @@ void Launcher::DataFilesPage::saveSettings(const QString& profile)
     }
     mLauncherSettings.setContentList(profileName, dirList, selectedArchivePaths(), fileNames);
     mGameSettings.setContentList(dirList, selectedArchivePaths(), fileNames);
+
+    QString language(mSelector->languageBox()->currentText());
+
+    mLauncherSettings.setLanguage(language);
+
+    if (language == QLatin1String("Polish"))
+    {
+        mGameSettings.setValue(QLatin1String("encoding"), QLatin1String("win1250"));
+    }
+    else if (language == QLatin1String("Russian"))
+    {
+        mGameSettings.setValue(QLatin1String("encoding"), QLatin1String("win1251"));
+    }
+    else
+    {
+        mGameSettings.setValue(QLatin1String("encoding"), QLatin1String("win1252"));
+    }
 }
 
 QStringList Launcher::DataFilesPage::selectedDirectoriesPaths() const
@@ -347,21 +381,20 @@ QStringList Launcher::DataFilesPage::selectedDirectoriesPaths() const
     QStringList dirList;
     for (int i = 0; i < ui.directoryListWidget->count(); ++i)
     {
-        if (ui.directoryListWidget->item(i)->flags() & Qt::ItemIsEnabled)
-            dirList.append(ui.directoryListWidget->item(i)->text());
+        const QListWidgetItem* item = ui.directoryListWidget->item(i);
+        if (item->flags() & Qt::ItemIsEnabled)
+            dirList.append(item->text());
     }
     return dirList;
 }
 
-QStringList Launcher::DataFilesPage::selectedArchivePaths(bool all) const
+QStringList Launcher::DataFilesPage::selectedArchivePaths() const
 {
     QStringList archiveList;
     for (int i = 0; i < ui.archiveListWidget->count(); ++i)
     {
-        const auto* item = ui.archiveListWidget->item(i);
-        const auto archive = ui.archiveListWidget->item(i)->text();
-
-        if (all || item->checkState() == Qt::Checked)
+        const QListWidgetItem* item = ui.archiveListWidget->item(i);
+        if (item->checkState() == Qt::Checked)
             archiveList.append(item->text());
     }
     return archiveList;
@@ -373,11 +406,8 @@ QStringList Launcher::DataFilesPage::selectedFilePaths() const
     ContentSelectorModel::ContentFileList items = mSelector->selectedFiles();
     QStringList filePaths;
     for (const ContentSelectorModel::EsmFile* item : items)
-    {
-        QFile file(item->filePath());
-        if (file.exists())
+        if (QFile::exists(item->filePath()))
             filePaths.append(item->filePath());
-    }
     return filePaths;
 }
 
@@ -694,16 +724,19 @@ void Launcher::DataFilesPage::addArchivesFromDir(const QString& path)
 {
     QDir dir(path, "*.bsa");
 
+    std::unordered_set<QString> archives;
+    for (int i = 0; i < ui.archiveListWidget->count(); ++i)
+        archives.insert(ui.archiveListWidget->item(i)->text());
+
     for (const auto& fileinfo : dir.entryInfoList())
     {
         const auto absPath = fileinfo.absoluteFilePath();
-        if (Bsa::CompressedBSAFile::detectVersion(absPath.toStdString()) == Bsa::BSAVER_UNKNOWN)
+        if (Bsa::BSAFile::detectVersion(Files::pathFromQString(absPath)) == Bsa::BSAVER_UNKNOWN)
             continue;
 
         const auto fileName = fileinfo.fileName();
-        const auto currentList = selectedArchivePaths(true);
 
-        if (!currentList.contains(fileName, Qt::CaseInsensitive))
+        if (archives.insert(fileName).second)
             addArchive(fileName, Qt::Unchecked);
     }
 }
@@ -756,12 +789,8 @@ void Launcher::DataFilesPage::reloadCells(QStringList selectedFiles)
 
     // The following code will run only if there is not another thread currently running it
     CellNameLoader cellNameLoader;
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
     QSet<QString> set = cellNameLoader.getCellNames(selectedFiles);
     QStringList cellNamesList(set.begin(), set.end());
-#else
-    QStringList cellNamesList = QStringList::fromSet(cellNameLoader.getCellNames(selectedFiles));
-#endif
     std::sort(cellNamesList.begin(), cellNamesList.end());
     emit signalLoadedCellsChanged(cellNamesList);
 }
@@ -773,6 +802,7 @@ void Launcher::DataFilesPage::startNavMeshTool()
     ui.navMeshLogPlainTextEdit->clear();
     ui.navMeshProgressBar->setValue(0);
     ui.navMeshProgressBar->setMaximum(1);
+    ui.navMeshProgressBar->resetFormat();
 
     mNavMeshToolProgress = NavMeshToolProgress{};
 
@@ -799,6 +829,8 @@ void Launcher::DataFilesPage::readNavMeshToolStderr()
 
 void Launcher::DataFilesPage::updateNavMeshProgress(int minDataSize)
 {
+    if (!mNavMeshToolProgress.mEnabled)
+        return;
     QProcess& process = *mNavMeshToolInvoker->getProcess();
     mNavMeshToolProgress.mMessagesData.append(process.readAllStandardError());
     if (mNavMeshToolProgress.mMessagesData.size() < minDataSize)
@@ -812,14 +844,23 @@ void Launcher::DataFilesPage::updateNavMeshProgress(int minDataSize)
         ui.navMeshProgressBar->maximum(),
         ui.navMeshProgressBar->value(),
     };
-    while (true)
+    try
     {
-        NavMeshTool::Message message;
-        const std::byte* const nextPosition = NavMeshTool::deserialize(position, end, message);
-        if (nextPosition == position)
-            break;
-        position = nextPosition;
-        handle = std::visit(handle, NavMeshTool::decode(message));
+        while (true)
+        {
+            NavMeshTool::Message message;
+            const std::byte* const nextPosition = NavMeshTool::deserialize(position, end, message);
+            if (nextPosition == position)
+                break;
+            position = nextPosition;
+            handle = std::visit(handle, NavMeshTool::decode(message));
+        }
+    }
+    catch (const std::exception& e)
+    {
+        Log(Debug::Error) << "Failed to deserialize navmeshtool message: " << e.what();
+        mNavMeshToolProgress.mEnabled = false;
+        ui.navMeshProgressBar->setFormat("Failed to update progress: " + QString(e.what()));
     }
     if (position != begin)
         mNavMeshToolProgress.mMessagesData = mNavMeshToolProgress.mMessagesData.mid(position - begin);
@@ -848,7 +889,10 @@ void Launcher::DataFilesPage::navMeshToolFinished(int exitCode, QProcess::ExitSt
     ui.navMeshLogPlainTextEdit->appendPlainText(
         QString::fromUtf8(mNavMeshToolInvoker->getProcess()->readAllStandardOutput()));
     if (exitCode == 0 && exitStatus == QProcess::ExitStatus::NormalExit)
+    {
         ui.navMeshProgressBar->setValue(ui.navMeshProgressBar->maximum());
+        ui.navMeshProgressBar->resetFormat();
+    }
     ui.cancelNavMeshButton->setEnabled(false);
     ui.navMeshProgressBar->setEnabled(false);
 }

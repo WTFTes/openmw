@@ -2,7 +2,6 @@
 
 #include <QApplication>
 #include <QCloseEvent>
-#include <QDesktopWidget>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QScreen>
@@ -46,6 +45,16 @@
 #include "subview.hpp"
 #include "subviewfactoryimp.hpp"
 #include "viewmanager.hpp"
+
+QRect desktopRect()
+{
+    QRegion virtualGeometry;
+    for (auto screen : QGuiApplication::screens())
+    {
+        virtualGeometry += screen->geometry();
+    }
+    return virtualGeometry.boundingRect();
+}
 
 void CSVDoc::View::closeEvent(QCloseEvent* event)
 {
@@ -529,8 +538,6 @@ CSVDoc::View::View(ViewManager& viewManager, CSMDoc::Document* document, int tot
     connect(&CSMPrefs::State::get(), &CSMPrefs::State::settingChanged, this, &View::settingChanged);
 }
 
-CSVDoc::View::~View() {}
-
 const CSMDoc::Document* CSVDoc::View::getDocument() const
 {
     return mDocument;
@@ -651,7 +658,11 @@ void CSVDoc::View::addSubView(const CSMWorld::UniversalId& id, const std::string
     //
     mScrollbarOnly = windows["mainwindow-scrollbar"].toString() == "Scrollbar Only";
 
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
     updateWidth(windows["grow-limit"].isTrue(), minWidth);
+#else
+    updateWidth(true, minWidth);
+#endif
 
     mSubViewWindow.addDockWidget(Qt::TopDockWidgetArea, view);
 
@@ -1098,12 +1109,11 @@ void CSVDoc::View::merge()
 
 void CSVDoc::View::updateWidth(bool isGrowLimit, int minSubViewWidth)
 {
-    QDesktopWidget* dw = QApplication::desktop();
     QRect rect;
     if (isGrowLimit)
-        rect = dw->screenGeometry(this);
+        rect = QApplication::screenAt(pos())->geometry();
     else
-        rect = QGuiApplication::screens().at(dw->screenNumber(this))->geometry();
+        rect = desktopRect();
 
     if (!mScrollbarOnly && mScroll && mSubViews.size() > 1)
     {

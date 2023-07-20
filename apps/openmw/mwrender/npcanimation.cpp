@@ -21,8 +21,9 @@
 #include <components/sceneutil/actorutil.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/keyframe.hpp>
+#include <components/sceneutil/lightcommon.hpp>
 #include <components/sceneutil/visitor.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/vfs/manager.hpp>
 
@@ -55,7 +56,7 @@ namespace
 
         if (sVampireMapping.find(thisCombination) == sVampireMapping.end())
         {
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
             for (const ESM::BodyPart& bodypart : store.get<ESM::BodyPart>())
             {
                 if (!bodypart.mData.mVampire)
@@ -84,7 +85,6 @@ namespace
 
 namespace MWRender
 {
-
     class HeadAnimationTime : public SceneUtil::ControllerSource
     {
     private:
@@ -222,7 +222,7 @@ namespace MWRender
     {
         const MWWorld::Class& cls = ptr.getClass();
         NpcAnimation::NpcType curType = Type_Normal;
-        if (cls.getCreatureStats(ptr).getMagicEffects().get(ESM::MagicEffect::Vampirism).getMagnitude() > 0)
+        if (cls.getCreatureStats(ptr).getMagicEffects().getOrDefault(ESM::MagicEffect::Vampirism).getMagnitude() > 0)
             curType = Type_Vampire;
         if (cls.getNpcStats(ptr).isWerewolf())
             curType = Type_Werewolf;
@@ -297,8 +297,7 @@ namespace MWRender
         rebuild();
         setRenderBin();
 
-        static const bool shieldSheathing = Settings::Manager::getBool("shield sheathing", "Game");
-        if (viewChange && shieldSheathing)
+        if (viewChange && Settings::game().mShieldSheathing)
         {
             int weaptype = ESM::Weapon::None;
             MWMechanics::getActiveWeapon(mPtr, &weaptype);
@@ -313,8 +312,9 @@ namespace MWRender
     class DepthClearCallback : public osgUtil::RenderBin::DrawCallback
     {
     public:
-        DepthClearCallback()
+        DepthClearCallback(Resource::ResourceSystem* resourceSystem)
         {
+            mPassNormals = resourceSystem->getSceneManager()->getSupportsNormalsRT();
             mDepth = new SceneUtil::AutoDepth;
             mDepth->setWriteMask(true);
 
@@ -337,7 +337,11 @@ namespace MWRender
             if (postProcessor && postProcessor->getFbo(PostProcessor::FBO_FirstPerson, frameId))
             {
                 postProcessor->getFbo(PostProcessor::FBO_FirstPerson, frameId)->apply(*state);
-
+                if (mPassNormals)
+                {
+                    state->get<osg::GLExtensions>()->glColorMaski(1, true, true, true, true);
+                    state->haveAppliedAttribute(osg::StateAttribute::COLORMASK);
+                }
                 glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
                 // color accumulation pass
                 bin->drawImplementation(renderInfo, previous);
@@ -368,6 +372,7 @@ namespace MWRender
             state->checkGLErrors("after DepthClearCallback::drawImplementation");
         }
 
+        bool mPassNormals;
         osg::ref_ptr<osg::Depth> mDepth;
         osg::ref_ptr<osg::StateSet> mStateSet;
     };
@@ -416,7 +421,7 @@ namespace MWRender
             if (!prototypeAdded)
             {
                 osg::ref_ptr<osgUtil::RenderBin> depthClearBin(new osgUtil::RenderBin);
-                depthClearBin->setDrawCallback(new DepthClearCallback);
+                depthClearBin->setDrawCallback(new DepthClearCallback(mResourceSystem));
                 osgUtil::RenderBin::addRenderBinPrototype("DepthClear", depthClearBin);
                 prototypeAdded = true;
             }
@@ -457,7 +462,7 @@ namespace MWRender
         for (size_t i = 0; i < ESM::PRT_Count; i++)
             removeIndividualPart((ESM::PartReferenceType)i);
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Race* race = store.get<ESM::Race>().find(mNpc->mRace);
         NpcType curType = getNpcType();
         bool isWerewolf = (curType == Type_Werewolf);
@@ -519,8 +524,7 @@ namespace MWRender
 
             addAnimSource(smodel, smodel);
 
-            if (!isWerewolf
-                && Misc::StringUtils::lowerCase(mNpc->mRace.getRefIdString()).find("argonian") != std::string::npos)
+            if (!isWerewolf && mNpc->mRace.contains("argonian"))
                 addAnimSource("meshes\\xargonian_swimkna.nif", smodel);
         }
         else
@@ -658,7 +662,7 @@ namespace MWRender
                 addOrReplaceIndividualPart(ESM::PRT_Shield, MWWorld::InventoryStore::Slot_CarriedLeft, 1,
                     Misc::ResourceHelpers::correctMeshPath(light->mModel, vfs), false, nullptr, true);
                 if (mObjectParts[ESM::PRT_Shield])
-                    addExtraLight(mObjectParts[ESM::PRT_Shield]->getNode()->asGroup(), light);
+                    addExtraLight(mObjectParts[ESM::PRT_Shield]->getNode()->asGroup(), SceneUtil::LightCommon(*light));
             }
         }
 
@@ -753,12 +757,6 @@ namespace MWRender
             if (mPartslots[i] == group)
                 removeIndividualPart((ESM::PartReferenceType)i);
         }
-    }
-
-    bool NpcAnimation::isFirstPersonPart(const ESM::BodyPart* bodypart)
-    {
-        std::string_view partName = bodypart->mId.getRefIdString();
-        return partName.size() >= 3 && partName.substr(partName.size() - 3, 3) == "1st";
     }
 
     bool NpcAnimation::isFemalePart(const ESM::BodyPart* bodypart)
@@ -874,7 +872,7 @@ namespace MWRender
     void NpcAnimation::addPartGroup(int group, int priority, const std::vector<ESM::PartReference>& parts,
         bool enchantedGlow, osg::Vec4f* glowColor)
     {
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const MWWorld::Store<ESM::BodyPart>& partStore = store.get<ESM::BodyPart>();
 
         const char* ext = (mViewMode == VM_FirstPerson) ? ".1st" : "";
@@ -989,8 +987,7 @@ namespace MWRender
 
     bool NpcAnimation::updateCarriedLeftVisible(const int weaptype) const
     {
-        static const bool shieldSheathing = Settings::Manager::getBool("shield sheathing", "Game");
-        if (shieldSheathing)
+        if (Settings::game().mShieldSheathing)
         {
             const MWWorld::Class& cls = mPtr.getClass();
             MWMechanics::CreatureStats& stats = cls.getCreatureStats(mPtr);
@@ -1035,7 +1032,8 @@ namespace MWRender
                 if (mesh.empty())
                     reserveIndividualPart(ESM::PRT_Shield, MWWorld::InventoryStore::Slot_CarriedLeft, 1);
                 if (iter->getType() == ESM::Light::sRecordId && mObjectParts[ESM::PRT_Shield])
-                    addExtraLight(mObjectParts[ESM::PRT_Shield]->getNode()->asGroup(), iter->get<ESM::Light>()->mBase);
+                    addExtraLight(mObjectParts[ESM::PRT_Shield]->getNode()->asGroup(),
+                        SceneUtil::LightCommon(*iter->get<ESM::Light>()->mBase));
             }
         }
         else
@@ -1125,8 +1123,7 @@ namespace MWRender
 
     void NpcAnimation::equipmentChanged()
     {
-        static const bool shieldSheathing = Settings::Manager::getBool("shield sheathing", "Game");
-        if (shieldSheathing)
+        if (Settings::game().mShieldSheathing)
         {
             int weaptype = ESM::Weapon::None;
             MWMechanics::getActiveWeapon(mPtr, &weaptype);
@@ -1201,7 +1198,7 @@ namespace MWRender
             if (werewolf)
                 return parts;
 
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
             for (const ESM::BodyPart& bodypart : store.get<ESM::BodyPart>())
             {
@@ -1213,7 +1210,7 @@ namespace MWRender
                 if (!(bodypart.mRace == race))
                     continue;
 
-                bool partFirstPerson = isFirstPersonPart(&bodypart);
+                const bool partFirstPerson = ESM::isFirstPersonBodyPart(bodypart);
 
                 bool isHand = bodypart.mData.mPart == ESM::BodyPart::MP_Hand
                     || bodypart.mData.mPart == ESM::BodyPart::MP_Wrist
@@ -1270,7 +1267,7 @@ namespace MWRender
                             parts[bIt->second] = &bodypart;
 
                         // If we have 3d person fallback bodypart for hand and 1st person fallback found (2)
-                        else if (isHand && !isFirstPersonPart(parts[bIt->second]) && partFirstPerson)
+                        else if (isHand && !ESM::isFirstPersonBodyPart(*parts[bIt->second]) && partFirstPerson)
                             parts[bIt->second] = &bodypart;
 
                         ++bIt;

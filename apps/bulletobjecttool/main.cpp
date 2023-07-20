@@ -10,6 +10,7 @@
 #include <components/files/collections.hpp>
 #include <components/files/configurationmanager.hpp>
 #include <components/files/multidircollection.hpp>
+#include <components/misc/strings/conversion.hpp>
 #include <components/platform/platform.hpp>
 #include <components/resource/bulletshape.hpp>
 #include <components/resource/bulletshapemanager.hpp>
@@ -33,7 +34,6 @@
 #include <limits>
 #include <map>
 #include <memory>
-#include <osg/ref_ptr>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -47,6 +47,8 @@ namespace
     namespace bpo = boost::program_options;
 
     using StringsVector = std::vector<std::string>;
+
+    constexpr std::string_view applicationName = "BulletObjectTool";
 
     bpo::options_description makeOptionsDescription()
     {
@@ -81,9 +83,6 @@ namespace
         addOption("content", bpo::value<StringsVector>()->default_value(StringsVector(), "")->multitoken()->composing(),
             "content file(s): esm/esp, or omwgame/omwaddon/omwscripts");
 
-        addOption("fs-strict", bpo::value<bool>()->implicit_value(true)->default_value(false),
-            "strict file system handling (no case folding)");
-
         addOption("encoding", bpo::value<std::string>()->default_value("win1252"),
             "Character encoding used in OpenMW game messages:\n"
             "\n\twin1250 - Central and Eastern European such as Polish, Czech, Slovak, Hungarian, Slovene, Bosnian, "
@@ -93,7 +92,7 @@ namespace
 
         addOption("fallback", bpo::value<FallbackMap>()->default_value(FallbackMap(), "")->multitoken()->composing(),
             "fallback values");
-        ;
+
         Files::ConfigurationManager::addCommonOptions(result);
 
         return result;
@@ -110,21 +109,6 @@ namespace
             return stream << std::setprecision(std::numeric_limits<float>::max_exponent10) << value.mValue[2];
         }
     };
-
-    std::string toHex(std::string_view value)
-    {
-        std::string buffer(value.size() * 2, '0');
-        char* out = buffer.data();
-        for (const char v : value)
-        {
-            const std::ptrdiff_t space = static_cast<std::ptrdiff_t>(static_cast<std::uint8_t>(v) <= 0xf);
-            const auto [ptr, ec] = std::to_chars(out + space, out + space + 2, static_cast<std::uint8_t>(v), 16);
-            if (ec != std::errc())
-                throw std::system_error(std::make_error_code(ec));
-            out += 2;
-        }
-        return buffer;
-    }
 
     int runBulletObjectTool(int argc, char* argv[])
     {
@@ -145,10 +129,9 @@ namespace
         }
 
         Files::ConfigurationManager config;
-
-        bpo::variables_map composingVariables = Files::separateComposingVariables(variables, desc);
         config.readConfiguration(variables, desc);
-        Files::mergeComposingVariables(variables, composingVariables, desc);
+
+        setupLogging(config.getLogPath(), applicationName);
 
         const std::string encoding(variables["encoding"].as<std::string>());
         Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
@@ -162,23 +145,21 @@ namespace
 
         config.filterOutNonExistingPaths(dataDirs);
 
-        const auto fsStrict = variables["fs-strict"].as<bool>();
         const auto resDir = variables["resources"].as<Files::MaybeQuotedPath>();
         const auto v = Version::getOpenmwVersion(resDir);
         Log(Debug::Info) << v.describe();
         dataDirs.insert(dataDirs.begin(), resDir / "vfs");
-        const auto fileCollections = Files::Collections(dataDirs, !fsStrict);
+        const auto fileCollections = Files::Collections(dataDirs);
         const auto archives = variables["fallback-archive"].as<StringsVector>();
         const auto contentFiles = variables["content"].as<StringsVector>();
 
         Fallback::Map::init(variables["fallback"].as<Fallback::FallbackMap>().mMap);
 
-        VFS::Manager vfs(fsStrict);
+        VFS::Manager vfs;
 
         VFS::registerArchives(&vfs, fileCollections, archives, true);
 
-        Settings::Manager settings;
-        settings.load(config);
+        Settings::Manager::load(config);
 
         ESM::ReadersCache readers;
         EsmLoader::Query query;
@@ -202,7 +183,7 @@ namespace
                 Log(Debug::Verbose) << "Found bullet object in " << (cell.isExterior() ? "exterior" : "interior")
                                     << " cell \"" << cell.getDescription() << "\":"
                                     << " fileName=\"" << object.mShape->mFileName << '"'
-                                    << " fileHash=" << toHex(object.mShape->mFileHash)
+                                    << " fileHash=" << Misc::StringUtils::toHex(object.mShape->mFileHash)
                                     << " collisionShape=" << std::boolalpha
                                     << (object.mShape->mCollisionShape == nullptr)
                                     << " avoidCollisionShape=" << std::boolalpha
@@ -221,5 +202,5 @@ namespace
 
 int main(int argc, char* argv[])
 {
-    return wrapApplication(runBulletObjectTool, argc, argv, "BulletObjectTool");
+    return wrapApplication(runBulletObjectTool, argc, argv, applicationName);
 }

@@ -63,9 +63,7 @@ namespace LuaUi
                     destroyWidget(w);
                 return result;
             }
-            if (!contentObj.is<Content>())
-                throw std::logic_error("Layout content field must be a openmw.ui.content");
-            Content content = contentObj.as<Content>();
+            ContentView content(LuaUtil::cast<sol::table>(contentObj));
             result.resize(content.size());
             size_t minSize = std::min(children.size(), content.size());
             for (size_t i = 0; i < minSize; i++)
@@ -108,11 +106,11 @@ namespace LuaUi
                 throw std::logic_error("The \"events\" layout field must be a table of callbacks");
             auto events = eventsObj.as<sol::table>();
             events.for_each([ext](const sol::object& name, const sol::object& callback) {
-                if (name.is<std::string>() && callback.is<LuaUtil::Callback>())
-                    ext->setCallback(name.as<std::string>(), callback.as<LuaUtil::Callback>());
+                if (name.is<std::string>() && LuaUtil::Callback::isLuaCallback(callback))
+                    ext->setCallback(name.as<std::string>(), LuaUtil::Callback::fromLua(callback));
                 else if (!name.is<std::string>())
                     Log(Debug::Warning) << "UI event key must be a string";
-                else if (!callback.is<LuaUtil::Callback>())
+                else
                     Log(Debug::Warning) << "UI event handler for key \"" << name.as<std::string>()
                                         << "\" must be an openmw.async.callback";
             });
@@ -191,8 +189,8 @@ namespace LuaUi
         assert(!mRoot);
         if (!mRoot)
         {
-            mRoot = createWidget(mLayout, 0);
-            mLayer = setLayer(mRoot, mLayout);
+            mRoot = createWidget(layout(), 0);
+            mLayer = setLayer(mRoot, layout());
             updateAttachment();
         }
     }
@@ -201,16 +199,16 @@ namespace LuaUi
     {
         if (mRoot && mUpdate)
         {
-            if (mRoot->widget()->getTypeName() != widgetType(mLayout))
+            if (mRoot->widget()->getTypeName() != widgetType(layout()))
             {
                 destroyWidget(mRoot);
-                mRoot = createWidget(mLayout, 0);
+                mRoot = createWidget(layout(), 0);
             }
             else
             {
-                updateWidget(mRoot, mLayout, 0);
+                updateWidget(mRoot, layout(), 0);
             }
-            mLayer = setLayer(mRoot, mLayout);
+            mLayer = setLayer(mRoot, layout());
             updateAttachment();
         }
         mUpdate = false;
@@ -218,10 +216,12 @@ namespace LuaUi
 
     void Element::destroy()
     {
-        if (mRoot)
-            destroyWidget(mRoot);
-        mRoot = nullptr;
         sAllElements.erase(this);
+        if (!mRoot)
+            return;
+        destroyWidget(mRoot);
+        mRoot = nullptr;
+        mLayout = sol::make_object(mLayout.lua_state(), sol::nil);
     }
 
     void Element::attachToWidget(WidgetExtension* w)

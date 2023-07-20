@@ -1,48 +1,98 @@
 #include "settings.hpp"
 #include "parser.hpp"
+#include "values.hpp"
 
-#include <cerrno>
 #include <charconv>
 #include <filesystem>
 #include <sstream>
 #include <system_error>
 
+#if !(defined(_MSC_VER) && (_MSC_VER >= 1924)) && !(defined(__GNUC__) && __GNUC__ >= 11) || defined(__clang__)         \
+    || defined(__apple_build_version__)
+
+#include <cerrno>
+#include <ios>
+#include <locale>
+
+#endif
+
 #include <components/files/configurationmanager.hpp>
 #include <components/misc/strings/algorithm.hpp>
+#include <components/misc/strings/conversion.hpp>
 
 namespace Settings
 {
     namespace
     {
         template <class T>
-        auto parseIntegralNumber(const std::string& value, std::string_view setting, std::string_view category)
+        T parseNumberFromSetting(const std::string& value, std::string_view setting, std::string_view category)
         {
             T number{};
+
             const auto result = std::from_chars(value.data(), value.data() + value.size(), number);
             if (result.ec != std::errc())
+            {
                 throw std::system_error(std::make_error_code(result.ec),
                     "Failed to parse number from setting [" + std::string(category) + "] " + std::string(setting)
                         + " value \"" + value + "\"");
+            }
+
             return number;
         }
 
-        template <class T>
-        auto parseFloatingPointNumber(const std::string& value, std::string_view setting, std::string_view category)
+#if !(defined(_MSC_VER) && (_MSC_VER >= 1924)) && !(defined(__GNUC__) && __GNUC__ >= 11) || defined(__clang__)         \
+    || defined(__apple_build_version__)
+        template <>
+        float parseNumberFromSetting<float>(
+            const std::string& value, std::string_view setting, std::string_view category)
         {
-            std::stringstream stream(value);
-            T number{};
-            stream >> number;
-            if (stream.bad())
+            std::istringstream iss(value);
+            iss.imbue(std::locale::classic());
+
+            float floatValue = 0.0f;
+
+            if (!(iss >> floatValue))
+            {
                 throw std::system_error(errno, std::generic_category(),
                     "Failed to parse number from setting [" + std::string(category) + "] " + std::string(setting)
                         + " value \"" + value + "\"");
-            return number;
+            }
+
+            return floatValue;
+        }
+
+        template <>
+        double parseNumberFromSetting<double>(
+            const std::string& value, std::string_view setting, std::string_view category)
+        {
+            std::istringstream iss(value);
+            iss.imbue(std::locale::classic());
+
+            double doubleValue = 0.0;
+
+            if (!(iss >> doubleValue))
+            {
+                throw std::system_error(errno, std::generic_category(),
+                    "Failed to parse number from setting [" + std::string(category) + "] " + std::string(setting)
+                        + " value \"" + value + "\"");
+            }
+
+            return doubleValue;
+        }
+#endif
+        template <class T>
+        std::string serialize(const T& value)
+        {
+            std::ostringstream stream;
+            stream << value;
+            return stream.str();
         }
     }
 
     CategorySettingValueMap Manager::mDefaultSettings = CategorySettingValueMap();
     CategorySettingValueMap Manager::mUserSettings = CategorySettingValueMap();
     CategorySettingVector Manager::mChangedSettings = CategorySettingVector();
+    std::set<std::pair<std::string_view, std::string_view>> Manager::sInitialized;
 
     void Manager::clear()
     {
@@ -80,6 +130,8 @@ namespace Settings
                 + "\" was properly installed.");
         parser.loadSettingsFile(defaultsBin, mDefaultSettings, true, false);
 
+        const CategorySettingValueMap originalDefaultSettings = mDefaultSettings;
+
         // Load "settings.cfg" or "openmw-cs.cfg" from every config dir except the last one as additional default
         // settings.
         for (int i = 0; i < static_cast<int>(paths.size()) - 1; ++i)
@@ -89,11 +141,21 @@ namespace Settings
                 parser.loadSettingsFile(additionalDefaults, mDefaultSettings, false, true);
         }
 
+        if (!loadEditorSettings)
+            Settings::StaticValues::initDefaults();
+
         // Load "settings.cfg" or "openmw-cs.cfg" from the last config dir as user settings. This path will be used to
         // save modified settings.
         auto settingspath = paths.back() / userSettingsFile;
         if (std::filesystem::exists(settingspath))
             parser.loadSettingsFile(settingspath, mUserSettings, false, false);
+
+        if (!loadEditorSettings)
+            Settings::StaticValues::init();
+
+        for (const auto& [key, value] : originalDefaultSettings)
+            if (!sInitialized.contains(key))
+                throw std::runtime_error("Default setting [" + key.first + "] " + key.second + " is not initialized");
 
         return settingspath;
     }
@@ -115,10 +177,8 @@ namespace Settings
         if (it != mDefaultSettings.end())
             return it->second;
 
-        std::string error("Trying to retrieve a non-existing setting: ");
-        error += setting;
-        error += ".\nMake sure the defaults.bin file was properly installed.";
-        throw std::runtime_error(error);
+        throw std::runtime_error("Trying to retrieve a non-existing setting: [" + std::string(category) + "] "
+            + std::string(setting) + ".\nMake sure the defaults.bin file was properly installed.");
     }
 
     std::vector<std::string> Manager::getStringArray(std::string_view setting, std::string_view category)
@@ -139,27 +199,42 @@ namespace Settings
 
     float Manager::getFloat(std::string_view setting, std::string_view category)
     {
-        return parseFloatingPointNumber<float>(getString(setting, category), setting, category);
+        return parseNumberFromSetting<float>(getString(setting, category), setting, category);
     }
 
     double Manager::getDouble(std::string_view setting, std::string_view category)
     {
-        return parseFloatingPointNumber<double>(getString(setting, category), setting, category);
+        return parseNumberFromSetting<double>(getString(setting, category), setting, category);
     }
 
     int Manager::getInt(std::string_view setting, std::string_view category)
     {
-        return parseIntegralNumber<int>(getString(setting, category), setting, category);
+        return parseNumberFromSetting<int>(getString(setting, category), setting, category);
     }
 
     std::uint64_t Manager::getUInt64(std::string_view setting, std::string_view category)
     {
-        return parseIntegralNumber<std::uint64_t>(getString(setting, category), setting, category);
+        return parseNumberFromSetting<uint64_t>(getString(setting, category), setting, category);
     }
 
     std::size_t Manager::getSize(std::string_view setting, std::string_view category)
     {
-        return parseIntegralNumber<std::size_t>(getString(setting, category), setting, category);
+        return parseNumberFromSetting<size_t>(getString(setting, category), setting, category);
+    }
+
+    unsigned Manager::getUnsigned(std::string_view setting, std::string_view category)
+    {
+        return parseNumberFromSetting<unsigned>(getString(setting, category), setting, category);
+    }
+
+    unsigned long Manager::getUnsignedLong(std::string_view setting, std::string_view category)
+    {
+        return parseNumberFromSetting<unsigned long>(getString(setting, category), setting, category);
+    }
+
+    unsigned long long Manager::getUnsignedLongLong(std::string_view setting, std::string_view category)
+    {
+        return parseNumberFromSetting<unsigned long long>(getString(setting, category), setting, category);
     }
 
     bool Manager::getBool(std::string_view setting, std::string_view category)
@@ -171,23 +246,44 @@ namespace Settings
     osg::Vec2f Manager::getVector2(std::string_view setting, std::string_view category)
     {
         const std::string& value = getString(setting, category);
-        std::stringstream stream(value);
-        float x, y;
-        stream >> x >> y;
-        if (stream.fail())
-            throw std::runtime_error(std::string("Can't parse 2d vector: " + value));
-        return { x, y };
+
+        std::vector<std::string> components;
+        Misc::StringUtils::split(value, components);
+
+        if (components.size() == 2)
+        {
+            auto x = Misc::StringUtils::toNumeric<float>(components[0]);
+            auto y = Misc::StringUtils::toNumeric<float>(components[1]);
+
+            if (x && y)
+            {
+                return { x.value(), y.value() };
+            }
+        }
+
+        throw std::runtime_error(std::string("Can't parse 2d vector: " + value));
     }
 
     osg::Vec3f Manager::getVector3(std::string_view setting, std::string_view category)
     {
         const std::string& value = getString(setting, category);
-        std::stringstream stream(value);
-        float x, y, z;
-        stream >> x >> y >> z;
-        if (stream.fail())
-            throw std::runtime_error(std::string("Can't parse 3d vector: " + value));
-        return { x, y, z };
+
+        std::vector<std::string> components;
+        Misc::StringUtils::split(value, components);
+
+        if (components.size() == 3)
+        {
+            auto x = Misc::StringUtils::toNumeric<float>(components[0]);
+            auto y = Misc::StringUtils::toNumeric<float>(components[1]);
+            auto z = Misc::StringUtils::toNumeric<float>(components[2]);
+
+            if (x && y && z)
+            {
+                return { x.value(), y.value(), z.value() };
+            }
+        }
+
+        throw std::runtime_error(std::string("Can't parse 3d vector: " + value));
     }
 
     void Manager::setString(std::string_view setting, std::string_view category, const std::string& value)
@@ -296,6 +392,76 @@ namespace Settings
         {
             mChangedSettings.erase(key);
         }
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, int value)
+    {
+        setInt(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, unsigned value)
+    {
+        setString(setting, category, serialize(value));
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, unsigned long value)
+    {
+        setString(setting, category, serialize(value));
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, unsigned long long value)
+    {
+        setString(setting, category, serialize(value));
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, float value)
+    {
+        setFloat(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, double value)
+    {
+        setDouble(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, const std::string& value)
+    {
+        setString(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, bool value)
+    {
+        setBool(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, const osg::Vec2f& value)
+    {
+        setVector2(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, const osg::Vec3f& value)
+    {
+        setVector3(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, DetourNavigator::CollisionShapeType value)
+    {
+        setInt(setting, category, static_cast<int>(value));
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, const std::vector<std::string>& value)
+    {
+        setStringArray(setting, category, value);
+    }
+
+    void Manager::set(std::string_view setting, std::string_view category, const MyGUI::Colour& value)
+    {
+        setString(setting, category, value.print());
+    }
+
+    void Manager::recordInit(std::string_view setting, std::string_view category)
+    {
+        sInitialized.emplace(category, setting);
     }
 
 }

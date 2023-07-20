@@ -1,12 +1,9 @@
 #include "variant.hpp"
 
-#include <cassert>
 #include <stdexcept>
 
 #include "esmreader.hpp"
 #include "variantimp.hpp"
-
-#include "components/esm/defs.hpp"
 
 namespace ESM
 {

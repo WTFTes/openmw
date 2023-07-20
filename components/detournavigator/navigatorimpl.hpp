@@ -3,9 +3,13 @@
 
 #include "navigator.hpp"
 #include "navmeshmanager.hpp"
+#include "updateguard.hpp"
 
+#include <map>
 #include <memory>
-#include <set>
+#include <optional>
+#include <string_view>
+#include <unordered_map>
 
 namespace DetourNavigator
 {
@@ -18,16 +22,13 @@ namespace DetourNavigator
          */
         explicit NavigatorImpl(const Settings& settings, std::unique_ptr<NavMeshDb>&& db);
 
-        std::unique_ptr<const DetourNavigator::UpdateGuard> makeUpdateGuard() override
-        {
-            return std::make_unique<const UpdateGuard>(*this);
-        }
+        ScopedUpdateGuard makeUpdateGuard() override { return mNavMeshManager.makeUpdateGuard(); }
 
-        void addAgent(const AgentBounds& agentBounds) override;
+        bool addAgent(const AgentBounds& agentBounds) override;
 
         void removeAgent(const AgentBounds& agentBounds) override;
 
-        void setWorldspace(const ESM::RefId& worldspace, const UpdateGuard* guard) override;
+        void setWorldspace(std::string_view worldspace, const UpdateGuard* guard) override;
 
         void updateBounds(const osg::Vec3f& playerPosition, const UpdateGuard* guard) override;
 
@@ -93,23 +94,6 @@ namespace DetourNavigator
         inline void removeUnusedNavMeshes();
 
         friend class UpdateGuard;
-    };
-
-    class UpdateGuard
-    {
-    public:
-        explicit UpdateGuard(NavigatorImpl& navigator)
-            : mImpl(navigator.mNavMeshManager)
-        {
-        }
-
-    private:
-        NavMeshManager::UpdateGuard mImpl;
-
-        friend inline const NavMeshManager::UpdateGuard* getImpl(const UpdateGuard* guard)
-        {
-            return guard == nullptr ? nullptr : &guard->mImpl;
-        }
     };
 }
 

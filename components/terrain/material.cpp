@@ -173,6 +173,27 @@ namespace
         }
     };
 
+    class DiscardAlphaCombine
+    {
+    public:
+        static const osg::ref_ptr<osg::TexEnvCombine>& value()
+        {
+            static DiscardAlphaCombine instance;
+            return instance.mValue;
+        }
+
+    private:
+        osg::ref_ptr<osg::TexEnvCombine> mValue;
+
+        DiscardAlphaCombine()
+            : mValue(new osg::TexEnvCombine)
+        {
+            mValue->setCombine_Alpha(osg::TexEnvCombine::REPLACE);
+            mValue->setSource0_Alpha(osg::TexEnvCombine::CONSTANT);
+            mValue->setConstantColor(osg::Vec4(0.0, 0.0, 0.0, 1.0));
+        }
+    };
+
     class UniformCollection
     {
     public:
@@ -262,19 +283,9 @@ namespace Terrain
                 defineMap["specularMap"] = it->mSpecular ? "1" : "0";
                 defineMap["parallax"] = (it->mNormalMap && it->mParallax) ? "1" : "0";
                 defineMap["writeNormals"] = (it == layers.end() - 1) ? "1" : "0";
-                Stereo::Manager::instance().shaderStereoDefines(defineMap);
+                Stereo::shaderStereoDefines(defineMap);
 
-                osg::ref_ptr<osg::Shader> vertexShader
-                    = shaderManager.getShader("terrain_vertex.glsl", defineMap, osg::Shader::VERTEX);
-                osg::ref_ptr<osg::Shader> fragmentShader
-                    = shaderManager.getShader("terrain_fragment.glsl", defineMap, osg::Shader::FRAGMENT);
-                if (!vertexShader || !fragmentShader)
-                {
-                    // Try again without shader. Error already logged by above
-                    return createPasses(false, sceneManager, layers, blendmaps, blendmapScale, layerTileSize);
-                }
-
-                stateset->setAttributeAndModes(shaderManager.getProgram(vertexShader, fragmentShader));
+                stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
                 stateset->addUniform(UniformCollection::value().mColorMode);
             }
             else
@@ -286,6 +297,8 @@ namespace Terrain
                 if (layerTileSize != 1.f)
                     stateset->setTextureAttributeAndModes(
                         0, LayerTexMat::value(layerTileSize), osg::StateAttribute::ON);
+
+                stateset->setTextureAttributeAndModes(0, DiscardAlphaCombine::value(), osg::StateAttribute::ON);
 
                 // Multiply by the alpha map
                 if (!blendmaps.empty())

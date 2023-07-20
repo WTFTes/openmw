@@ -4,19 +4,27 @@
 #include <list>
 #include <map>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+
+#include <components/esm/util.hpp>
+#include <components/misc/algorithm.hpp>
 
 #include "cellstore.hpp"
 #include "ptr.hpp"
+#include "ptrregistry.hpp"
 
 namespace ESM
 {
     class ESMReader;
     class ESMWriter;
     class ReadersCache;
-    struct CellId;
     struct Cell;
-    struct RefNum;
+}
+
+namespace ESM4
+{
+    struct Cell;
 }
 
 namespace Loading
@@ -31,69 +39,52 @@ namespace MWWorld
     /// \brief Cell container
     class WorldModel
     {
-        typedef std::vector<std::pair<ESM::RefId, CellStore*>> IdCache;
-        const MWWorld::ESMStore& mStore;
-        ESM::ReadersCache& mReaders;
-        mutable std::map<ESM::RefId, CellStore> mInteriors;
-        mutable std::map<std::pair<int, int>, CellStore> mExteriors;
-        IdCache mIdCache;
-        std::size_t mIdCacheIndex;
-
-        WorldModel(const WorldModel&);
-        WorldModel& operator=(const WorldModel&);
-
-        const ESM::Cell* getESMCellByName(const ESM::RefId& name);
-        CellStore* getCellStore(const ESM::Cell* cell);
-
-        Ptr getPtrAndCache(const ESM::RefId& name, CellStore& cellStore);
-
-        Ptr getPtr(CellStore& cellStore, const ESM::RefId& id, const ESM::RefNum& refNum);
-
-        void writeCell(ESM::ESMWriter& writer, CellStore& cell) const;
-
-        std::unordered_map<ESM::RefNum, Ptr> mPtrIndex;
-        size_t mPtrIndexUpdateCounter;
-        ESM::RefNum mLastGeneratedRefnum;
-
     public:
+        explicit WorldModel(ESMStore& store, ESM::ReadersCache& reader);
+
+        WorldModel(const WorldModel&) = delete;
+        WorldModel& operator=(const WorldModel&) = delete;
+
         void clear();
 
-        explicit WorldModel(const MWWorld::ESMStore& store, ESM::ReadersCache& reader);
+        CellStore& getExterior(ESM::ExteriorCellLocation location, bool forceLoad = true) const;
 
-        CellStore* getExterior(int x, int y);
-        CellStore* getInterior(const ESM::RefId& name);
-        CellStore* getCell(const ESM::RefId& name); // interior or named exterior
-        CellStore* getCell(const ESM::CellId& id);
+        CellStore* findCell(ESM::RefId Id, bool forceLoad = true) const;
 
-        // If cellNameInSameWorldSpace is an interior - returns this interior.
-        // Otherwise returns exterior cell for given position in the same world space.
-        // At the moment multiple world spaces are not supported, so all exteriors are in one world space.
-        CellStore* getCellByPosition(const osg::Vec3f& pos, const ESM::RefId& cellNameInSameWorldSpace);
+        CellStore& getCell(ESM::RefId Id, bool forceLoad = true) const;
 
-        void registerPtr(const MWWorld::Ptr& ptr);
-        void deregisterPtr(const MWWorld::Ptr& ptr);
-        ESM::RefNum getLastGeneratedRefNum() const { return mLastGeneratedRefnum; }
-        void setLastGeneratedRefNum(ESM::RefNum v) { mLastGeneratedRefnum = v; }
-        size_t getPtrIndexUpdateCounter() const { return mPtrIndexUpdateCounter; }
-        const std::unordered_map<ESM::RefNum, Ptr>& getAllPtrs() const { return mPtrIndex; }
+        // Returns a special cell that is never active. Can be used for creating objects
+        // without adding them to the scene.
+        CellStore& getDraftCell() const;
 
-        Ptr getPtr(const ESM::RefNum& refNum) const;
+        CellStore* findInterior(std::string_view name, bool forceLoad = true) const;
 
-        Ptr getPtr(const ESM::RefId& name, CellStore& cellStore, bool searchInContainers = false);
-        ///< \param searchInContainers Only affect loaded cells.
-        /// @note name must be lower case
+        CellStore& getInterior(std::string_view name, bool forceLoad = true) const;
 
-        /// @note name must be lower case
+        CellStore* findCell(std::string_view name, bool forceLoad = true) const;
+
+        CellStore& getCell(std::string_view name, bool forceLoad = true) const;
+
         Ptr getPtr(const ESM::RefId& name);
 
-        Ptr getPtr(const ESM::RefId& id, const ESM::RefNum& refNum);
+        Ptr getPtr(ESM::RefNum refNum) const { return mPtrRegistry.getOrEmpty(refNum); }
+
+        PtrRegistryView getPtrRegistryView() const { return PtrRegistryView(mPtrRegistry); }
+
+        ESM::RefNum getLastGeneratedRefNum() const { return mPtrRegistry.getLastGenerated(); }
+
+        void setLastGeneratedRefNum(ESM::RefNum v) { mPtrRegistry.setLastGenerated(v); }
+
+        std::size_t getPtrRegistryRevision() const { return mPtrRegistry.getRevision(); }
+
+        void registerPtr(const Ptr& ptr) { mPtrRegistry.insert(ptr); }
+
+        void deregisterPtr(const Ptr& ptr) { mPtrRegistry.remove(ptr); }
 
         template <typename Fn>
         void forEachLoadedCellStore(Fn&& fn)
         {
-            for (auto& [_, store] : mInteriors)
-                fn(store);
-            for (auto& [_, store] : mExteriors)
+            for (auto& [_, store] : mCells)
                 fn(store);
         }
 
@@ -102,11 +93,6 @@ namespace MWWorld
         /// @note name must be lower case
         void getExteriorPtrs(const ESM::RefId& name, std::vector<MWWorld::Ptr>& out);
 
-        /// Get all Ptrs referencing \a name in interior cells
-        /// @note Due to the current implementation of getPtr this only supports one Ptr per cell.
-        /// @note name must be lower case
-        void getInteriorPtrs(const ESM::RefId& name, std::vector<MWWorld::Ptr>& out);
-
         std::vector<MWWorld::Ptr> getAll(const ESM::RefId& id);
 
         int countSavedGameRecords() const;
@@ -114,6 +100,25 @@ namespace MWWorld
         void write(ESM::ESMWriter& writer, Loading::Listener& progress) const;
 
         bool readRecord(ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap);
+
+    private:
+        MWWorld::ESMStore& mStore;
+        ESM::ReadersCache& mReaders;
+        mutable std::unordered_map<ESM::RefId, CellStore> mCells;
+        mutable std::map<std::string, CellStore*, Misc::StringUtils::CiComp> mInteriors;
+        mutable std::map<ESM::ExteriorCellLocation, CellStore*> mExteriors;
+        ESM::Cell mDraftCell;
+        std::vector<std::pair<ESM::RefId, CellStore*>> mIdCache;
+        std::size_t mIdCacheIndex = 0;
+        PtrRegistry mPtrRegistry;
+
+        CellStore& getOrInsertCellStore(const ESM::Cell& cell);
+
+        CellStore& insertCellStore(const ESM::Cell& cell);
+
+        Ptr getPtrAndCache(const ESM::RefId& name, CellStore& cellStore);
+
+        void writeCell(ESM::ESMWriter& writer, CellStore& cell) const;
     };
 }
 

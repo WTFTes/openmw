@@ -91,7 +91,7 @@ namespace LuaUtil
         // new script, adds it to the container, and calls onInit for this script. Returns `true` if the script was
         // successfully added. The script should have CUSTOM flag. If the flag is not set, or file not found, or has
         // syntax errors, returns false. If such script already exists in the container, then also returns false.
-        bool addCustomScript(int scriptId);
+        bool addCustomScript(int scriptId, std::string_view initData = "");
 
         bool hasScript(int scriptId) const { return mScripts.count(scriptId) != 0; }
         void removeScript(int scriptId);
@@ -155,6 +155,7 @@ namespace LuaUtil
             int64_t mMemoryUsage = 0; // bytes
         };
         void collectStats(std::vector<ScriptStats>& stats) const;
+        static int64_t getInstanceCount() { return sInstanceCount; }
 
     protected:
         struct Handler
@@ -265,44 +266,9 @@ namespace LuaUtil
 
         std::map<int, int64_t> mRemovedScriptsMemoryUsage;
         std::shared_ptr<ScriptsContainer*> mThis; // used by LuaState to track ownership of memory allocations
+
+        static int64_t sInstanceCount; // debug information, shown in Lua profiler
     };
-
-    // Wrapper for a Lua function.
-    // Holds information about the script the function belongs to.
-    // Needed to prevent callback calls if the script was removed.
-    struct Callback
-    {
-        sol::main_protected_function mFunc;
-        sol::table mHiddenData; // same object as Script::mHiddenData in ScriptsContainer
-
-        bool isValid() const { return mHiddenData[ScriptsContainer::sScriptIdKey] != sol::nil; }
-
-        template <typename... Args>
-        sol::object call(Args&&... args) const
-        {
-            sol::optional<ScriptId> scriptId = mHiddenData[ScriptsContainer::sScriptIdKey];
-            if (scriptId.has_value())
-                return LuaUtil::call(scriptId.value(), mFunc, std::forward<Args>(args)...);
-            else
-                Log(Debug::Debug) << "Ignored callback to the removed script "
-                                  << mHiddenData.get<std::string>(ScriptsContainer::sScriptDebugNameKey);
-            return sol::nil;
-        }
-
-        template <typename... Args>
-        void tryCall(Args&&... args) const
-        {
-            try
-            {
-                this->call(std::forward<Args>(args)...);
-            }
-            catch (std::exception& e)
-            {
-                Log(Debug::Error) << "Error in callback: " << e.what();
-            }
-        }
-    };
-
 }
 
 #endif // COMPONENTS_LUA_SCRIPTSCONTAINER_H

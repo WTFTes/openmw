@@ -41,14 +41,6 @@ Log::~Log()
     sLock.unlock();
 }
 
-Log& Log::operator<<(std::filesystem::path&& rhs)
-{
-    if (mShouldLog)
-        (mStream.get() ? *mStream.get() : std::cout) << Files::pathToUnicodeString(std::move(rhs));
-
-    return *this;
-}
-
 Log& Log::operator<<(const std::filesystem::path& rhs)
 {
     if (mShouldLog)
@@ -57,10 +49,10 @@ Log& Log::operator<<(const std::filesystem::path& rhs)
     return *this;
 }
 
-Log& Log::operator<<(std::u8string&& rhs)
+Log& Log::operator<<(const std::u8string& rhs)
 {
     if (mShouldLog)
-        (mStream.get() ? *mStream.get() : std::cout) << Misc::StringUtils::u8StringToString(std::move(rhs));
+        (mStream.get() ? *mStream.get() : std::cout) << Misc::StringUtils::u8StringToString(rhs);
 
     return *this;
 }

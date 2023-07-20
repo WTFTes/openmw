@@ -18,6 +18,8 @@ namespace MWGui
 
         void updateLightSettings();
 
+        void updateVSyncModeSettings();
+
         void updateWindowModeSettings();
 
         void onResChange(int, int) override;
@@ -29,6 +31,7 @@ namespace MWGui
         // graphics
         MyGUI::ListBox* mResolutionList;
         MyGUI::ComboBox* mWindowModeList;
+        MyGUI::ComboBox* mVSyncModeList;
         MyGUI::Button* mWindowBorderButton;
         MyGUI::ComboBox* mTextureFilteringButton;
 
@@ -42,6 +45,7 @@ namespace MWGui
 
         MyGUI::ComboBox* mPrimaryLanguage;
         MyGUI::ComboBox* mSecondaryLanguage;
+        MyGUI::Button* mGmstOverridesL10n;
 
         MyGUI::Widget* mWindowModeHint;
 
@@ -81,8 +85,10 @@ namespace MWGui
         void onPrimaryLanguageChanged(MyGUI::ComboBox* _sender, size_t pos) { onLanguageChanged(0, _sender, pos); }
         void onSecondaryLanguageChanged(MyGUI::ComboBox* _sender, size_t pos) { onLanguageChanged(1, _sender, pos); }
         void onLanguageChanged(size_t langPriority, MyGUI::ComboBox* _sender, size_t pos);
+        void onGmstOverridesL10nChanged(MyGUI::Widget* _sender);
 
         void onWindowModeChanged(MyGUI::ComboBox* _sender, size_t pos);
+        void onVSyncModeChanged(MyGUI::ComboBox* _sender, size_t pos);
 
         void onRebindAction(MyGUI::Widget* _sender);
         void onInputTabMouseWheel(MyGUI::Widget* _sender, int _rel);

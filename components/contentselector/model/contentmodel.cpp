@@ -8,6 +8,7 @@
 #include <QDir>
 
 #include <components/esm3/esmreader.hpp>
+#include <components/files/qtconversion.hpp>
 
 ContentSelectorModel::ContentModel::ContentModel(QObject* parent, QIcon warningIcon, bool showOMWScripts)
     : QAbstractTableModel(parent)
@@ -192,12 +193,12 @@ QVariant ContentSelectorModel::ContentModel::data(const QModelIndex& index, int 
             {
                 case 0:
                 case 1:
-                    return Qt::AlignLeft + Qt::AlignVCenter;
+                    return QVariant(Qt::AlignLeft | Qt::AlignVCenter);
                 case 2:
                 case 3:
-                    return Qt::AlignRight + Qt::AlignVCenter;
+                    return QVariant(Qt::AlignRight | Qt::AlignVCenter);
                 default:
-                    return Qt::AlignLeft + Qt::AlignVCenter;
+                    return QVariant(Qt::AlignLeft | Qt::AlignVCenter);
             }
         }
 
@@ -460,6 +461,7 @@ void ContentSelectorModel::ContentModel::addFiles(const QString& path, bool newf
             file->setDate(info.lastModified());
             file->setFilePath(info.absoluteFilePath());
             addFile(file);
+            setNew(file->fileName(), newfiles);
             continue;
         }
 
@@ -468,7 +470,7 @@ void ContentSelectorModel::ContentModel::addFiles(const QString& path, bool newf
             ESM::ESMReader fileReader;
             ToUTF8::Utf8Encoder encoder(ToUTF8::calculateEncoding(mEncoding.toStdString()));
             fileReader.setEncoder(&encoder);
-            fileReader.open(std::string(dir.absoluteFilePath(path2).toUtf8().constData()));
+            fileReader.open(Files::pathFromQString(dir.absoluteFilePath(path2)));
 
             EsmFile* file = new EsmFile(path2);
 
@@ -478,7 +480,7 @@ void ContentSelectorModel::ContentModel::addFiles(const QString& path, bool newf
 
             file->setAuthor(QString::fromUtf8(fileReader.getAuthor().c_str()));
             file->setDate(info.lastModified());
-            file->setFormat(fileReader.getFormat());
+            file->setFormat(fileReader.getFormatVersion());
             file->setFilePath(info.absoluteFilePath());
             file->setDescription(QString::fromUtf8(fileReader.getDesc().c_str()));
 
@@ -579,10 +581,10 @@ void ContentSelectorModel::ContentModel::sortFiles()
 
 bool ContentSelectorModel::ContentModel::isChecked(const QString& filepath) const
 {
-    if (mCheckStates.contains(filepath))
-        return (mCheckStates[filepath] == Qt::Checked);
-
-    return false;
+    const auto it = mCheckStates.find(filepath);
+    if (it == mCheckStates.end())
+        return false;
+    return it.value() == Qt::Checked;
 }
 
 bool ContentSelectorModel::ContentModel::isEnabled(const QModelIndex& index) const
@@ -592,10 +594,10 @@ bool ContentSelectorModel::ContentModel::isEnabled(const QModelIndex& index) con
 
 bool ContentSelectorModel::ContentModel::isNew(const QString& filepath) const
 {
-    if (mNewFiles.contains(filepath))
-        return mNewFiles[filepath];
-
-    return false;
+    const auto it = mNewFiles.find(filepath);
+    if (it == mNewFiles.end())
+        return false;
+    return it.value();
 }
 
 void ContentSelectorModel::ContentModel::setNew(const QString& filepath, bool isNew)

@@ -76,6 +76,12 @@ local function updatePOV(dt)
             end
         end
         camera.setMode(primaryMode)
+        if camera.getMode() == MODE.Preview then
+            -- If Preview -> FirstPerson change is queued (because of 3rd person animation),
+            -- then first exit Preview by switching to ThirdPerson, and then queue the switch to FirstPerson.
+            camera.setMode(MODE.ThirdPerson)
+            camera.setMode(MODE.FirstPerson)
+        end
         previewTimer = 0
     end
 end
@@ -98,7 +104,7 @@ local function updateVanity(dt)
 end
 
 local function updateSmoothedSpeed(dt)
-    local speed = Actor.currentSpeed(self)
+    local speed = Actor.getCurrentSpeed(self)
     speed = speed / (1 + speed / 500)
     local maxDelta = 300 * dt
     smoothedSpeed = smoothedSpeed + util.clamp(speed - smoothedSpeed, -maxDelta, maxDelta)
@@ -147,7 +153,7 @@ local function updateStandingPreview()
         third_person.standingPreview = false
         return
     end
-    local standingStill = Actor.currentSpeed(self) == 0 and Actor.stance(self) == Actor.STANCE.Nothing
+    local standingStill = Actor.getCurrentSpeed(self) == 0 and Actor.getStance(self) == Actor.STANCE.Nothing
     if standingStill and mode == MODE.ThirdPerson then
         third_person.standingPreview = true
         camera.setMode(MODE.Preview)
@@ -186,17 +192,15 @@ local function onFrame(dt)
     if core.isWorldPaused() then return end
     updateIdleTimer(dt)
     local mode = camera.getMode()
-    if mode == MODE.FirstPerson or mode == MODE.ThirdPerson then
+    if (mode == MODE.FirstPerson or mode == MODE.ThirdPerson) and not camera.getQueuedMode() then
         primaryMode = mode
     end
     if mode ~= MODE.Static then
-        if not camera.getQueuedMode() or camera.getQueuedMode() == MODE.Preview then
-            if noModeControl == 0 then
-                updatePOV(dt)
-                updateVanity(dt)
-            end
-            updateStandingPreview()
+        if noModeControl == 0 then
+            updatePOV(dt)
+            updateVanity(dt)
         end
+        updateStandingPreview()
         updateCrosshair()
     end
     applyControllerZoom(dt)

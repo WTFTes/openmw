@@ -26,6 +26,8 @@ namespace MWRender
         image->setColor(osg::Vec4(1, 1, 1, 1), 0, 0);
 
         osg::ref_ptr<osg::Texture2D> dummyTexture = new osg::Texture2D(image);
+        dummyTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        dummyTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
 
         constexpr osg::StateAttribute::OverrideValue modeOff = osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE;
         constexpr osg::StateAttribute::OverrideValue modeOn = osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE;
@@ -33,14 +35,10 @@ namespace MWRender
         mStateSet->setTextureAttributeAndModes(0, dummyTexture);
 
         Shader::ShaderManager::DefineMap defines;
-        Stereo::Manager::instance().shaderStereoDefines(defines);
-        osg::ref_ptr<osg::Shader> vertex
-            = shaderManager.getShader("blended_depth_postpass_vertex.glsl", defines, osg::Shader::VERTEX);
-        osg::ref_ptr<osg::Shader> fragment
-            = shaderManager.getShader("blended_depth_postpass_fragment.glsl", defines, osg::Shader::FRAGMENT);
+        Stereo::shaderStereoDefines(defines);
 
         mStateSet->setAttributeAndModes(new osg::BlendFunc, modeOff);
-        mStateSet->setAttributeAndModes(shaderManager.getProgram(vertex, fragment), modeOn);
+        mStateSet->setAttributeAndModes(shaderManager.getProgram("depthclipped", defines), modeOn);
         mStateSet->setAttributeAndModes(new SceneUtil::AutoDepth, modeOn);
 
         for (unsigned int unit = 1; unit < 8; ++unit)
@@ -83,6 +81,11 @@ namespace MWRender
             {
                 mMultiviewResolve[frameId] = std::make_unique<Stereo::MultiviewFramebufferResolve>(
                     msaaFbo ? msaaFbo : fbo, opaqueFbo, GL_DEPTH_BUFFER_BIT);
+            }
+            else
+            {
+                mMultiviewResolve[frameId]->setResolveFbo(opaqueFbo);
+                mMultiviewResolve[frameId]->setMsaaFbo(msaaFbo ? msaaFbo : fbo);
             }
             mMultiviewResolve[frameId]->resolveImplementation(state);
         }
@@ -137,11 +140,4 @@ namespace MWRender
                 : fbo->apply(state, osg::FrameBufferObject::DRAW_FRAMEBUFFER);
         state.checkGLErrors("after TransparentDepthBinCallback::drawImplementation");
     }
-
-    void TransparentDepthBinCallback::dirtyFrame(int frameId)
-    {
-        if (mMultiviewResolve[frameId])
-            mMultiviewResolve[frameId]->dirty();
-    }
-
 }

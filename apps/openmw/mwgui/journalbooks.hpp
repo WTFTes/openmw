@@ -8,7 +8,7 @@
 
 namespace MWGui
 {
-    MWGui::BookTypesetter::Utf8Span to_utf8_span(char const* text);
+    MWGui::BookTypesetter::Utf8Span to_utf8_span(std::string_view text);
 
     struct JournalBooks
     {
@@ -20,8 +20,7 @@ namespace MWGui
         Book createEmptyJournalBook();
         Book createJournalBook();
         Book createTopicBook(uintptr_t topicId);
-        Book createTopicBook(const std::string& topicId);
-        Book createQuestBook(const std::string& questName);
+        Book createQuestBook(std::string_view questName);
         Book createTopicIndexBook();
 
         ToUTF8::FromType mEncoding;

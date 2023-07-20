@@ -2,7 +2,7 @@
 #include "combat.hpp"
 
 #include <components/misc/rng.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/sceneutil/positionattitudetransform.hpp>
 
@@ -18,6 +18,7 @@
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
+#include "../mwworld/globals.hpp"
 #include "../mwworld/inventorystore.hpp"
 
 #include "actorutil.hpp"
@@ -44,12 +45,11 @@ namespace MWMechanics
     bool applyOnStrikeEnchantment(const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, const MWWorld::Ptr& object,
         const osg::Vec3f& hitPosition, const bool fromProjectile)
     {
-        const ESM::RefId& enchantmentName
-            = !object.isEmpty() ? object.getClass().getEnchantment(object) : ESM::RefId::sEmpty;
+        const ESM::RefId enchantmentName = !object.isEmpty() ? object.getClass().getEnchantment(object) : ESM::RefId();
         if (!enchantmentName.empty())
         {
             const ESM::Enchantment* enchantment
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().find(enchantmentName);
+                = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().find(enchantmentName);
             if (enchantment->mData.mType == ESM::Enchantment::WhenStrikes)
             {
                 MWMechanics::CastSpell cast(attacker, victim, fromProjectile);
@@ -92,7 +92,7 @@ namespace MWMechanics
             blocker.getRefData().getBaseNode()->getAttitude() * osg::Vec3f(0, 1, 0), osg::Vec3f(0, 0, 1)));
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
         static const float fCombatBlockLeftAngle = gmst.find("fCombatBlockLeftAngle")->mValue.getFloat();
         if (angleDegrees < fCombatBlockLeftAngle)
             return false;
@@ -140,7 +140,7 @@ namespace MWMechanics
             shieldhealth -= std::min(shieldhealth, int(damage));
             shield->getCellRef().setCharge(shieldhealth);
             if (shieldhealth == 0)
-                inv.unequipItem(*shield, blocker);
+                inv.unequipItem(*shield);
             // Reduce blocker fatigue
             static const float fFatigueBlockBase = gmst.find("fFatigueBlockBase")->mValue.getFloat();
             static const float fFatigueBlockMult = gmst.find("fFatigueBlockMult")->mValue.getFloat();
@@ -174,8 +174,7 @@ namespace MWMechanics
         bool isMagical = flags & ESM::Weapon::Magical;
         bool isEnchanted = !weapon.getClass().getEnchantment(weapon).empty();
 
-        return !isSilver && !isMagical
-            && (!isEnchanted || !Settings::Manager::getBool("enchanted weapons are magical", "Game"));
+        return !isSilver && !isMagical && (!isEnchanted || !Settings::game().mEnchantedWeaponsAreMagical);
     }
 
     void resistNormalWeapon(
@@ -185,8 +184,8 @@ namespace MWMechanics
             return;
 
         const MWMechanics::MagicEffects& effects = actor.getClass().getCreatureStats(actor).getMagicEffects();
-        const float resistance = effects.get(ESM::MagicEffect::ResistNormalWeapons).getMagnitude() / 100.f;
-        const float weakness = effects.get(ESM::MagicEffect::WeaknessToNormalWeapons).getMagnitude() / 100.f;
+        const float resistance = effects.getOrDefault(ESM::MagicEffect::ResistNormalWeapons).getMagnitude() / 100.f;
+        const float weakness = effects.getOrDefault(ESM::MagicEffect::WeaknessToNormalWeapons).getMagnitude() / 100.f;
 
         damage *= 1.f - std::min(1.f, resistance - weakness);
 
@@ -204,7 +203,7 @@ namespace MWMechanics
 
         if (isSilver && actor.getClass().getNpcStats(actor).isWerewolf())
         {
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
             damage *= store.get<ESM::GameSetting>().find("fWereWolfSilverWeaponDamageMult")->mValue.getFloat();
         }
     }
@@ -217,7 +216,7 @@ namespace MWMechanics
 
         bool validVictim = !victim.isEmpty() && victim.getClass().isActor();
 
-        int weaponSkill = ESM::Skill::Marksman;
+        ESM::RefId weaponSkill = ESM::Skill::Marksman;
         if (!weapon.isEmpty())
             weaponSkill = weapon.getClass().getEquipmentSkill(weapon);
 
@@ -251,8 +250,7 @@ namespace MWMechanics
 
         if (validVictim)
         {
-            if (weapon == projectile
-                || Settings::Manager::getBool("only appropriate ammunition bypasses resistance", "Game")
+            if (weapon == projectile || Settings::game().mOnlyAppropriateAmmunitionBypassesResistance
                 || isNormalWeapon(weapon))
                 resistNormalWeapon(victim, attacker, projectile, damage);
             applyWerewolfDamageMult(victim, projectile, damage);
@@ -285,7 +283,7 @@ namespace MWMechanics
                 static const float fProjectileThrownStoreChance
                     = gmst.find("fProjectileThrownStoreChance")->mValue.getFloat();
                 if (Misc::Rng::rollProbability(world->getPrng()) < fProjectileThrownStoreChance / 100.f)
-                    victim.getClass().getContainerStore(victim).add(projectile, 1, victim);
+                    victim.getClass().getContainerStore(victim).add(projectile, 1);
             }
 
             victim.getClass().onHit(victim, damage, true, projectile, attacker, hitPosition, true);
@@ -313,15 +311,17 @@ namespace MWMechanics
             }
             static const float fCombatInvisoMult = gmst.find("fCombatInvisoMult")->mValue.getFloat();
             defenseTerm += std::min(100.f,
-                fCombatInvisoMult * victimStats.getMagicEffects().get(ESM::MagicEffect::Chameleon).getMagnitude());
+                fCombatInvisoMult
+                    * victimStats.getMagicEffects().getOrDefault(ESM::MagicEffect::Chameleon).getMagnitude());
             defenseTerm += std::min(100.f,
-                fCombatInvisoMult * victimStats.getMagicEffects().get(ESM::MagicEffect::Invisibility).getMagnitude());
+                fCombatInvisoMult
+                    * victimStats.getMagicEffects().getOrDefault(ESM::MagicEffect::Invisibility).getMagnitude());
         }
         float attackTerm = skillValue + (stats.getAttribute(ESM::Attribute::Agility).getModified() / 5.0f)
             + (stats.getAttribute(ESM::Attribute::Luck).getModified() / 10.0f);
         attackTerm *= stats.getFatigueTerm();
-        attackTerm += mageffects.get(ESM::MagicEffect::FortifyAttack).getMagnitude()
-            - mageffects.get(ESM::MagicEffect::Blind).getMagnitude();
+        attackTerm += mageffects.getOrDefault(ESM::MagicEffect::FortifyAttack).getMagnitude()
+            - mageffects.getOrDefault(ESM::MagicEffect::Blind).getMagnitude();
 
         return round(attackTerm - defenseTerm);
     }
@@ -338,7 +338,7 @@ namespace MWMechanics
             float magnitude = victim.getClass()
                                   .getCreatureStats(victim)
                                   .getMagicEffects()
-                                  .get(ESM::MagicEffect::FireShield + i)
+                                  .getOrDefault(ESM::MagicEffect::FireShield + i)
                                   .getMagnitude();
 
             if (!magnitude)
@@ -370,9 +370,8 @@ namespace MWMechanics
             x = std::min(100.f, x + elementResistance);
 
             static const float fElementalShieldMult = MWBase::Environment::get()
-                                                          .getWorld()
-                                                          ->getStore()
-                                                          .get<ESM::GameSetting>()
+                                                          .getESMStore()
+                                                          ->get<ESM::GameSetting>()
                                                           .find("fElementalShieldMult")
                                                           ->mValue.getFloat();
             x = fElementalShieldMult * magnitude * (1.f - 0.01f * x);
@@ -409,9 +408,8 @@ namespace MWMechanics
             if (!godmode)
             {
                 const float fWeaponDamageMult = MWBase::Environment::get()
-                                                    .getWorld()
-                                                    ->getStore()
-                                                    .get<ESM::GameSetting>()
+                                                    .getESMStore()
+                                                    ->get<ESM::GameSetting>()
                                                     .find("fWeaponDamageMult")
                                                     ->mValue.getFloat();
                 float x = std::max(1.f, fWeaponDamageMult * damage);
@@ -422,7 +420,7 @@ namespace MWMechanics
 
             // Weapon broken? unequip it
             if (weaphealth == 0)
-                weapon = *attacker.getClass().getInventoryStore(attacker).unequipItem(weapon, attacker);
+                weapon = *attacker.getClass().getInventoryStore(attacker).unequipItem(weapon);
         }
     }
 
@@ -438,15 +436,13 @@ namespace MWMechanics
         }
 
         static const float fDamageStrengthBase = MWBase::Environment::get()
-                                                     .getWorld()
-                                                     ->getStore()
-                                                     .get<ESM::GameSetting>()
+                                                     .getESMStore()
+                                                     ->get<ESM::GameSetting>()
                                                      .find("fDamageStrengthBase")
                                                      ->mValue.getFloat();
         static const float fDamageStrengthMult = MWBase::Environment::get()
-                                                     .getWorld()
-                                                     ->getStore()
-                                                     .get<ESM::GameSetting>()
+                                                     .getESMStore()
+                                                     ->get<ESM::GameSetting>()
                                                      .find("fDamageStrengthMult")
                                                      ->mValue.getFloat();
         damage *= fDamageStrengthBase
@@ -457,7 +453,7 @@ namespace MWMechanics
     void getHandToHandDamage(
         const MWWorld::Ptr& attacker, const MWWorld::Ptr& victim, float& damage, bool& healthdmg, float attackStrength)
     {
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         static const float minstrike = store.get<ESM::GameSetting>().find("fMinHandToHandMult")->mValue.getFloat();
         static const float maxstrike = store.get<ESM::GameSetting>().find("fMaxHandToHandMult")->mValue.getFloat();
         damage = static_cast<float>(attacker.getClass().getSkill(attacker, ESM::Skill::HandToHand));
@@ -471,7 +467,7 @@ namespace MWMechanics
         // 0 = Do not factor strength into hand-to-hand combat.
         // 1 = Factor into werewolf hand-to-hand combat.
         // 2 = Ignore werewolves.
-        int factorStrength = Settings::Manager::getInt("strength influences hand to hand", "Game");
+        const int factorStrength = Settings::game().mStrengthInfluencesHandToHand;
         if (factorStrength == 1 || (factorStrength == 2 && !isWerewolf))
         {
             damage
@@ -483,7 +479,7 @@ namespace MWMechanics
         {
             healthdmg = true;
             // GLOB instead of GMST because it gets updated during a quest
-            damage *= MWBase::Environment::get().getWorld()->getGlobalFloat("werewolfclawmult");
+            damage *= MWBase::Environment::get().getWorld()->getGlobalFloat(MWWorld::Globals::sWerewolfClawMult);
         }
         if (healthdmg)
         {
@@ -508,7 +504,7 @@ namespace MWMechanics
     {
         // somewhat of a guess, but using the weapon weight makes sense
         const MWWorld::Store<ESM::GameSetting>& store
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
         static const float fFatigueAttackBase = store.find("fFatigueAttackBase")->mValue.getFloat();
         static const float fFatigueAttackMult = store.find("fFatigueAttackMult")->mValue.getFloat();
         static const float fWeaponFatigueMult = store.find("fWeaponFatigueMult")->mValue.getFloat();
@@ -536,15 +532,13 @@ namespace MWMechanics
         float d = getAggroDistance(actor1, pos1, pos2);
 
         static const int iFightDistanceBase = MWBase::Environment::get()
-                                                  .getWorld()
-                                                  ->getStore()
-                                                  .get<ESM::GameSetting>()
+                                                  .getESMStore()
+                                                  ->get<ESM::GameSetting>()
                                                   .find("iFightDistanceBase")
                                                   ->mValue.getInteger();
         static const float fFightDistanceMultiplier = MWBase::Environment::get()
-                                                          .getWorld()
-                                                          ->getStore()
-                                                          .get<ESM::GameSetting>()
+                                                          .getESMStore()
+                                                          ->get<ESM::GameSetting>()
                                                           .find("fFightDistanceMultiplier")
                                                           ->mValue.getFloat();
 

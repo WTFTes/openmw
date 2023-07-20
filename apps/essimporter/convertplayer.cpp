@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include <components/esm3/loadcell.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/strings/lower.hpp>
 
@@ -24,11 +25,11 @@ namespace ESSImport
             faction.mReputation = essFaction.mReputation;
             out.mObject.mNpcStats.mFactions[ESM::RefId::stringRefId(essFaction.mFactionName.toString())] = faction;
         }
-        for (int i = 0; i < 3; ++i)
+        for (size_t i = 0; i < out.mObject.mNpcStats.mSpecIncreases.size(); ++i)
             out.mObject.mNpcStats.mSpecIncreases[i] = pcdt.mPNAM.mSpecIncreases[i];
-        for (int i = 0; i < 8; ++i)
+        for (size_t i = 0; i < out.mObject.mNpcStats.mSkillIncrease.size(); ++i)
             out.mObject.mNpcStats.mSkillIncrease[i] = pcdt.mPNAM.mSkillIncreases[i];
-        for (int i = 0; i < 27; ++i)
+        for (size_t i = 0; i < out.mObject.mNpcStats.mSkills.size(); ++i)
             out.mObject.mNpcStats.mSkills[i].mProgress = pcdt.mPNAM.mSkillProgress[i];
         out.mObject.mNpcStats.mLevelProgress = pcdt.mPNAM.mLevelProgress;
 
@@ -60,19 +61,9 @@ namespace ESSImport
 
             const PCDT::PNAM::MarkLocation& mark = pcdt.mPNAM.mMarkLocation;
 
-            ESM::CellId cell;
-            cell.mWorldspace = ESM::CellId::sDefaultWorldspace;
-            cell.mPaged = true;
-
-            cell.mIndex.mX = mark.mCellX;
-            cell.mIndex.mY = mark.mCellY;
-
             // TODO: Figure out a better way to detect interiors. (0, 0) is a valid exterior cell.
-            if (mark.mCellX == 0 && mark.mCellY == 0)
-            {
-                cell.mWorldspace = ESM::RefId::stringRefId(pcdt.mMNAM);
-                cell.mPaged = false;
-            }
+            bool interior = mark.mCellX == 0 && mark.mCellY == 0;
+            ESM::RefId cell = ESM::Cell::generateIdForCell(!interior, pcdt.mMNAM, mark.mCellX, mark.mCellY);
 
             out.mMarkedCell = cell;
             out.mMarkedPosition.pos[0] = mark.mX;

@@ -9,6 +9,7 @@
 #include <osg/Vec3f>
 
 #include "components/esm/fourcc.hpp"
+#include <components/esm/esmcommon.hpp>
 #include <components/esm4/common.hpp>
 
 namespace ESM
@@ -31,13 +32,6 @@ namespace ESM
     // Pixel color value. Standard four-byte rr,gg,bb,aa format.
     typedef uint32_t Color;
 
-    enum Specialization
-    {
-        SPC_Combat = 0,
-        SPC_Magic = 1,
-        SPC_Stealth = 2
-    };
-
     enum RangeType
     {
         RT_Self = 0,
@@ -48,10 +42,10 @@ namespace ESM
     // Position and rotation
     struct Position
     {
-        float pos[3];
+        float pos[3]{};
 
         // In radians
-        float rot[3];
+        float rot[3]{};
 
         osg::Vec3f asVec3() const { return osg::Vec3f(pos[0], pos[1], pos[2]); }
 
@@ -332,6 +326,24 @@ namespace ESM
         REC_ALOC4 = esm4Recname(ESM4::REC_ALOC), // Audio Location Controller
         REC_MSET4 = esm4Recname(ESM4::REC_MSET) // Media Set
     };
+
+    constexpr bool isESM4Rec(RecNameInts RecName)
+    {
+        return RecName & sEsm4RecnameFlag;
+    }
+
+    constexpr inline FixedString<6> getRecNameString(ESM::RecNameInts recName)
+    {
+        ESM::FixedString<6> name;
+        name.mData[5] = '\0';
+
+        ESM::NAME fourCCName(recName & ~ESM::sEsm4RecnameFlag);
+        for (int i = 0; i < 4; i++)
+            name.mData[i] = fourCCName.mData[i];
+
+        name.mData[4] = ESM::isESM4Rec(recName) ? '4' : '\0';
+        return name;
+    }
 
     /// Common subrecords
     enum SubRecNameInts

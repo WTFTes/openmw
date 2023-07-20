@@ -27,8 +27,15 @@ namespace Crash
     class CrashCatcher final
     {
     public:
-        CrashCatcher(int argc, char** argv, const std::filesystem::path& crashLogPath);
+        static CrashCatcher* instance() { return sInstance; }
+
+        CrashCatcher(int argc, char** argv, const std::filesystem::path& dumpPath,
+            const std::filesystem::path& crashDumpName, const std::filesystem::path& freezeDumpName);
         ~CrashCatcher();
+
+        void updateDumpPath(const std::filesystem::path& dumpPath);
+
+        void updateDumpNames(const std::filesystem::path& crashDumpName, const std::filesystem::path& freezeDumpName);
 
     private:
         static CrashCatcher* sInstance;
@@ -54,7 +61,8 @@ namespace Crash
 
         void shmUnlock();
 
-        void startMonitorProcess(const std::filesystem::path& crashLogPath);
+        void startMonitorProcess(const std::filesystem::path& dumpPath, const std::filesystem::path& crashDumpName,
+            const std::filesystem::path& freezeDumpName);
 
         void waitMonitor();
 

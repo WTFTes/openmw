@@ -8,14 +8,12 @@ namespace Files
 {
     Collections::Collections()
         : mDirectories()
-        , mFoldCase(false)
         , mCollections()
     {
     }
 
-    Collections::Collections(const Files::PathContainer& directories, bool foldCase)
+    Collections::Collections(const Files::PathContainer& directories)
         : mDirectories(directories)
-        , mFoldCase(foldCase)
         , mCollections()
     {
     }
@@ -27,7 +25,7 @@ namespace Files
         if (iter == mCollections.end())
         {
             std::pair<MultiDirCollectionContainer::iterator, bool> result
-                = mCollections.emplace(ext, MultiDirCollection(mDirectories, ext, mFoldCase));
+                = mCollections.emplace(ext, MultiDirCollection(mDirectories, ext));
 
             iter = result.first;
         }
@@ -37,19 +35,14 @@ namespace Files
 
     std::filesystem::path Collections::getPath(const std::string& file) const
     {
-        for (const auto& mDirectorie : mDirectories)
+        for (auto iter = mDirectories.rbegin(); iter != mDirectories.rend(); iter++)
         {
-            for (const auto& iter2 : std::filesystem::directory_iterator(mDirectorie))
+            for (const auto& iter2 : std::filesystem::directory_iterator(*iter))
             {
                 const auto& path = iter2.path();
                 const auto str = Files::pathToUnicodeString(path.filename());
 
-                if (mFoldCase)
-                {
-                    if (Misc::StringUtils::ciEqual(file, str))
-                        return path;
-                }
-                else if (str == file)
+                if (Misc::StringUtils::ciEqual(file, str))
                     return path;
             }
         }
@@ -59,19 +52,14 @@ namespace Files
 
     bool Collections::doesExist(const std::string& file) const
     {
-        for (const auto& mDirectorie : mDirectories)
+        for (auto iter = mDirectories.rbegin(); iter != mDirectories.rend(); iter++)
         {
-            for (const auto& iter2 : std::filesystem::directory_iterator(mDirectorie))
+            for (const auto& iter2 : std::filesystem::directory_iterator(*iter))
             {
                 const auto& path = iter2.path();
                 const auto str = Files::pathToUnicodeString(path.filename());
 
-                if (mFoldCase)
-                {
-                    if (Misc::StringUtils::ciEqual(file, str))
-                        return true;
-                }
-                else if (str == file)
+                if (Misc::StringUtils::ciEqual(file, str))
                     return true;
             }
         }

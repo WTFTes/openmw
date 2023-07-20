@@ -10,6 +10,7 @@
 
 #include <components/misc/utf8stream.hpp>
 #include <components/sceneutil/depth.hpp>
+#include <components/settings/values.hpp>
 
 namespace MWGui
 {
@@ -49,8 +50,8 @@ namespace MWGui
                     && partal_match(tstHotColour, tstActiveColour, tstNormalColour, tstInteractiveId);
             }
 
-            bool match(char const* tstFont, const MyGUI::Colour& tstHotColour, const MyGUI::Colour& tstActiveColour,
-                const MyGUI::Colour& tstNormalColour, intptr_t tstInteractiveId)
+            bool match(std::string_view tstFont, const MyGUI::Colour& tstHotColour,
+                const MyGUI::Colour& tstActiveColour, const MyGUI::Colour& tstNormalColour, intptr_t tstInteractiveId)
             {
                 return (mFont->getResourceName() == tstFont)
                     && partal_match(tstHotColour, tstActiveColour, tstNormalColour, tstInteractiveId);
@@ -280,7 +281,7 @@ namespace MWGui
                 fullFontName = "Journalbook " + fullFontName;
 
             for (Styles::iterator i = mBook->mStyles.begin(); i != mBook->mStyles.end(); ++i)
-                if (i->match(fullFontName.c_str(), fontColour, fontColour, fontColour, 0))
+                if (i->match(fullFontName, fontColour, fontColour, fontColour, 0))
                     return &*i;
 
             MyGUI::IFont* font = MyGUI::FontManager::getInstance().getByName(fullFontName);
@@ -551,7 +552,7 @@ namespace MWGui
             if (mPartialWhitespace.empty() && mPartialWord.empty())
                 return;
 
-            int fontHeight = MWBase::Environment::get().getWindowManager()->getFontHeight();
+            const int fontHeight = Settings::gui().mFontSize;
             int space_width = 0;
             int word_width = 0;
 
@@ -768,7 +769,11 @@ namespace MWGui
 
             void reset(float left, float top, MyGUI::Colour colour)
             {
+#if MYGUI_VERSION <= MYGUI_DEFINE_VERSION(3, 4, 1)
                 mC = MyGUI::texture_utility::toColourARGB(colour) | 0xFF000000;
+#else
+                mC = MyGUI::texture_utility::toNativeColour(colour, MyGUI::VertexColourType::ColourARGB) | 0xFF000000;
+#endif
                 MyGUI::texture_utility::convertColour(mC, mVertexColourType);
 
                 mCursor.left = mOrigin.left + left;

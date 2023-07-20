@@ -3,17 +3,18 @@
 
 #include "flags.hpp"
 
-#include <optional>
 #include <osg/Vec3f>
 
-class dtNavMesh;
+#include <optional>
+
+class dtNavMeshQuery;
 
 namespace DetourNavigator
 {
     struct DetourSettings;
 
-    std::optional<osg::Vec3f> findRandomPointAroundCircle(const dtNavMesh& navMesh, const osg::Vec3f& halfExtents,
-        const osg::Vec3f& start, const float maxRadius, const Flags includeFlags, const DetourSettings& settings,
+    std::optional<osg::Vec3f> findRandomPointAroundCircle(const dtNavMeshQuery& navMeshQuery,
+        const osg::Vec3f& halfExtents, const osg::Vec3f& start, const float maxRadius, const Flags includeFlags,
         float (*prng)());
 }
 

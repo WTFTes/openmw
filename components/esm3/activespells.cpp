@@ -11,13 +11,13 @@ namespace ESM
         {
             for (const auto& params : spells)
             {
-                esm.writeHNString(tag, params.mId.getRefIdString());
+                esm.writeHNRefId(tag, params.mId);
 
                 esm.writeHNT("CAST", params.mCasterActorId);
                 esm.writeHNString("DISP", params.mDisplayName);
                 esm.writeHNT("TYPE", params.mType);
                 if (params.mItem.isSet())
-                    params.mItem.save(esm, true, "ITEM");
+                    esm.writeFormId(params.mItem, true, "ITEM");
                 if (params.mWorsenings >= 0)
                 {
                     esm.writeHNT("WORS", params.mWorsenings);
@@ -42,7 +42,7 @@ namespace ESM
 
         void loadImpl(ESMReader& esm, std::vector<ActiveSpells::ActiveSpellParams>& spells, NAME tag)
         {
-            int format = esm.getFormat();
+            const FormatVersion format = esm.getFormatVersion();
 
             while (esm.isNextSub(tag))
             {
@@ -50,14 +50,13 @@ namespace ESM
                 params.mId = esm.getRefId();
                 esm.getHNT(params.mCasterActorId, "CAST");
                 params.mDisplayName = esm.getHNString("DISP");
-                params.mItem.unset();
-                if (format < 17)
+                if (format <= MaxClearModifiersFormatVersion)
                     params.mType = ActiveSpells::Type_Temporary;
                 else
                 {
                     esm.getHNT(params.mType, "TYPE");
                     if (esm.peekNextSub("ITEM"))
-                        params.mItem.load(esm, true, "ITEM");
+                        params.mItem = esm.getFormId(true, "ITEM");
                 }
                 if (esm.isNextSub("WORS"))
                 {
@@ -78,7 +77,7 @@ namespace ESM
                     effect.mArg = -1;
                     esm.getHNOT(effect.mArg, "ARG_");
                     esm.getHNT(effect.mMagnitude, "MAGN");
-                    if (format < 17)
+                    if (format <= MaxClearModifiersFormatVersion)
                     {
                         effect.mMinMagnitude = effect.mMagnitude;
                         effect.mMaxMagnitude = effect.mMagnitude;
@@ -91,11 +90,11 @@ namespace ESM
                     esm.getHNT(effect.mDuration, "DURA");
                     effect.mEffectIndex = -1;
                     esm.getHNOT(effect.mEffectIndex, "EIND");
-                    if (format < 9)
+                    if (format <= MaxOldTimeLeftFormatVersion)
                         effect.mTimeLeft = effect.mDuration;
                     else
                         esm.getHNT(effect.mTimeLeft, "LEFT");
-                    if (format < 17)
+                    if (format <= MaxClearModifiersFormatVersion)
                         effect.mFlags = ActiveEffect::Flag_None;
                     else
                         esm.getHNT(effect.mFlags, "FLAG");

@@ -21,7 +21,7 @@ namespace osg
 namespace ESM
 {
     struct Class;
-    struct RefId;
+    class RefId;
     class ESMReader;
     class ESMWriter;
 }
@@ -127,7 +127,7 @@ namespace MWBase
          * @return was the crime seen?
          */
         virtual bool commitCrime(const MWWorld::Ptr& ptr, const MWWorld::Ptr& victim, OffenseType type,
-            const ESM::RefId& factionId = ESM::RefId::sEmpty, int arg = 0, bool victimAware = false)
+            const ESM::RefId& factionId = ESM::RefId(), int arg = 0, bool victimAware = false)
             = 0;
         /// @return false if the attack was considered a "friendly hit" and forgiven
         virtual bool actorAttacked(const MWWorld::Ptr& victim, const MWWorld::Ptr& attacker) = 0;
@@ -238,8 +238,6 @@ namespace MWBase
         virtual void castSpell(const MWWorld::Ptr& ptr, const ESM::RefId& spellId, bool manualSpell) = 0;
 
         virtual void processChangedSettings(const std::set<std::pair<std::string, std::string>>& settings) = 0;
-
-        virtual float getActorsProcessingRange() const = 0;
 
         virtual void notifyDied(const MWWorld::Ptr& actor) = 0;
 

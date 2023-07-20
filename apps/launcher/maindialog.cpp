@@ -1,24 +1,28 @@
 #include "maindialog.hpp"
 
+#include <components/debug/debuglog.hpp>
+#include <components/files/configurationmanager.hpp>
+#include <components/files/conversion.hpp>
+#include <components/files/qtconversion.hpp>
 #include <components/misc/helpviewer.hpp>
+#include <components/misc/utf8qtextstream.hpp>
 #include <components/version/version.hpp>
 
 #include <QCloseEvent>
-#include <QDebug>
 #include <QDir>
 #include <QMessageBox>
-#include <QTextCodec>
+#include <QStringList>
 #include <QTime>
 
-#include <boost/program_options/options_description.hpp>
-#include <boost/program_options/variables_map.hpp>
+#include <components/debug/debugging.hpp>
 #include <components/files/conversion.hpp>
+#include <components/files/qtconfigpath.hpp>
 #include <components/files/qtconversion.hpp>
+#include <components/misc/utf8qtextstream.hpp>
 
-#include "advancedpage.hpp"
 #include "datafilespage.hpp"
 #include "graphicspage.hpp"
-#include "playpage.hpp"
+#include "importpage.hpp"
 #include "settingspage.hpp"
 
 using namespace Process;
@@ -33,8 +37,9 @@ void cfgError(const QString& title, const QString& msg)
     msgBox.exec();
 }
 
-Launcher::MainDialog::MainDialog(QWidget* parent)
+Launcher::MainDialog::MainDialog(const Files::ConfigurationManager& configurationManager, QWidget* parent)
     : QMainWindow(parent)
+    , mCfgMgr(configurationManager)
     , mGameSettings(mCfgMgr)
 {
     setupUi(this);
@@ -47,21 +52,13 @@ Launcher::MainDialog::MainDialog(QWidget* parent)
     connect(mWizardInvoker->getProcess(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
         &MainDialog::wizardFinished);
 
-    iconWidget->setViewMode(QListView::IconMode);
-    iconWidget->setWrapping(false);
-    iconWidget->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff); // Just to be sure
-    iconWidget->setIconSize(QSize(48, 48));
-    iconWidget->setMovement(QListView::Static);
-
-    iconWidget->setSpacing(4);
-    iconWidget->setCurrentRow(0);
-    iconWidget->setFlow(QListView::LeftToRight);
-
-    auto* helpButton = new QPushButton(tr("Help"));
-    auto* playButton = new QPushButton(tr("Play"));
     buttonBox->button(QDialogButtonBox::Close)->setText(tr("Close"));
-    buttonBox->addButton(helpButton, QDialogButtonBox::HelpRole);
-    buttonBox->addButton(playButton, QDialogButtonBox::AcceptRole);
+    buttonBox->button(QDialogButtonBox::Ok)->setText(tr(" Launch OpenMW "));
+    buttonBox->button(QDialogButtonBox::Help)->setText(tr("Help"));
+
+    // Order of buttons can be different on different setups,
+    // so make sure that the Play button has a focus by default.
+    buttonBox->button(QDialogButtonBox::Ok)->setFocus();
 
     connect(buttonBox, &QDialogButtonBox::rejected, this, &MainDialog::close);
     connect(buttonBox, &QDialogButtonBox::accepted, this, &MainDialog::play);
@@ -84,37 +81,10 @@ void Launcher::MainDialog::createIcons()
     if (!QIcon::hasThemeIcon("document-new"))
         QIcon::setThemeName("tango");
 
-    auto* playButton = new QListWidgetItem(iconWidget);
-    playButton->setIcon(QIcon(":/images/openmw.png"));
-    playButton->setText(tr("Play"));
-    playButton->setTextAlignment(Qt::AlignCenter);
-    playButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
-    auto* dataFilesButton = new QListWidgetItem(iconWidget);
-    dataFilesButton->setIcon(QIcon(":/images/openmw-plugin.png"));
-    dataFilesButton->setText(tr("Data Files"));
-    dataFilesButton->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    dataFilesButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
-    auto* graphicsButton = new QListWidgetItem(iconWidget);
-    graphicsButton->setIcon(QIcon(":/images/preferences-video.png"));
-    graphicsButton->setText(tr("Graphics"));
-    graphicsButton->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom | Qt::AlignAbsolute);
-    graphicsButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
-    auto* settingsButton = new QListWidgetItem(iconWidget);
-    settingsButton->setIcon(QIcon(":/images/preferences.png"));
-    settingsButton->setText(tr("Settings"));
-    settingsButton->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    settingsButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
-    auto* advancedButton = new QListWidgetItem(iconWidget);
-    advancedButton->setIcon(QIcon(":/images/preferences-advanced.png"));
-    advancedButton->setText(tr("Advanced"));
-    advancedButton->setTextAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    advancedButton->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
-    connect(iconWidget, &QListWidget::currentItemChanged, this, &MainDialog::changePage);
+    connect(dataAction, &QAction::triggered, this, &MainDialog::enableDataPage);
+    connect(graphicsAction, &QAction::triggered, this, &MainDialog::enableGraphicsPage);
+    connect(settingsAction, &QAction::triggered, this, &MainDialog::enableSettingsPage);
+    connect(importAction, &QAction::triggered, this, &MainDialog::enableImportPage);
 }
 
 void Launcher::MainDialog::createPages()
@@ -123,33 +93,23 @@ void Launcher::MainDialog::createPages()
     if (pagesWidget->count() != 0)
         return;
 
-    mPlayPage = new PlayPage(this);
     mDataFilesPage = new DataFilesPage(mCfgMgr, mGameSettings, mLauncherSettings, this);
     mGraphicsPage = new GraphicsPage(this);
-    mSettingsPage = new SettingsPage(mCfgMgr, mGameSettings, mLauncherSettings, this);
-    mAdvancedPage = new AdvancedPage(mGameSettings, this);
-
-    // Set the combobox of the play page to imitate the combobox on the datafilespage
-    mPlayPage->setProfilesModel(mDataFilesPage->profilesModel());
-    mPlayPage->setProfilesIndex(mDataFilesPage->profilesIndex());
+    mImportPage = new ImportPage(mCfgMgr, mGameSettings, mLauncherSettings, this);
+    mSettingsPage = new SettingsPage(mGameSettings, this);
 
     // Add the pages to the stacked widget
-    pagesWidget->addWidget(mPlayPage);
     pagesWidget->addWidget(mDataFilesPage);
     pagesWidget->addWidget(mGraphicsPage);
     pagesWidget->addWidget(mSettingsPage);
-    pagesWidget->addWidget(mAdvancedPage);
+    pagesWidget->addWidget(mImportPage);
 
     // Select the first page
-    iconWidget->setCurrentItem(iconWidget->item(0), QItemSelectionModel::Select);
+    dataAction->setChecked(true);
 
-    connect(mPlayPage, &PlayPage::playButtonClicked, this, &MainDialog::play);
-
-    connect(mPlayPage, &PlayPage::signalProfileChanged, mDataFilesPage, &DataFilesPage::slotProfileChanged);
-    connect(mDataFilesPage, &DataFilesPage::signalProfileChanged, mPlayPage, &PlayPage::setProfilesIndex);
     // Using Qt::QueuedConnection because signal is emitted in a subthread and slot is in the main thread
-    connect(mDataFilesPage, &DataFilesPage::signalLoadedCellsChanged, mAdvancedPage,
-        &AdvancedPage::slotLoadedCellsChanged, Qt::QueuedConnection);
+    connect(mDataFilesPage, &DataFilesPage::signalLoadedCellsChanged, mSettingsPage,
+        &SettingsPage::slotLoadedCellsChanged, Qt::QueuedConnection);
 }
 
 Launcher::FirstRunDialogResult Launcher::MainDialog::showFirstRunDialog()
@@ -172,7 +132,7 @@ Launcher::FirstRunDialogResult Launcher::MainDialog::showFirstRunDialog()
         }
     }
 
-    if (mLauncherSettings.value(QString("General/firstrun"), QString("true")) == QLatin1String("true"))
+    if (mLauncherSettings.isFirstRun())
     {
         QMessageBox msgBox;
         msgBox.setWindowTitle(tr("First run"));
@@ -270,7 +230,7 @@ bool Launcher::MainDialog::reloadSettings()
     if (!setupGraphicsSettings())
         return false;
 
-    if (!mSettingsPage->loadSettings())
+    if (!mImportPage->loadSettings())
         return false;
 
     if (!mDataFilesPage->loadSettings())
@@ -279,56 +239,80 @@ bool Launcher::MainDialog::reloadSettings()
     if (!mGraphicsPage->loadSettings())
         return false;
 
-    if (!mAdvancedPage->loadSettings())
+    if (!mSettingsPage->loadSettings())
         return false;
 
     return true;
 }
 
-void Launcher::MainDialog::changePage(QListWidgetItem* current, QListWidgetItem* previous)
+void Launcher::MainDialog::enableDataPage()
 {
-    if (!current)
-        current = previous;
+    pagesWidget->setCurrentIndex(0);
+    mImportPage->resetProgressBar();
+    dataAction->setChecked(true);
+    graphicsAction->setChecked(false);
+    importAction->setChecked(false);
+    settingsAction->setChecked(false);
+}
 
-    int currentIndex = iconWidget->row(current);
-    pagesWidget->setCurrentIndex(currentIndex);
-    mSettingsPage->resetProgressBar();
+void Launcher::MainDialog::enableGraphicsPage()
+{
+    pagesWidget->setCurrentIndex(1);
+    mImportPage->resetProgressBar();
+    dataAction->setChecked(false);
+    graphicsAction->setChecked(true);
+    settingsAction->setChecked(false);
+    importAction->setChecked(false);
+}
+
+void Launcher::MainDialog::enableSettingsPage()
+{
+    pagesWidget->setCurrentIndex(2);
+    mImportPage->resetProgressBar();
+    dataAction->setChecked(false);
+    graphicsAction->setChecked(false);
+    settingsAction->setChecked(true);
+    importAction->setChecked(false);
+}
+
+void Launcher::MainDialog::enableImportPage()
+{
+    pagesWidget->setCurrentIndex(3);
+    mImportPage->resetProgressBar();
+    dataAction->setChecked(false);
+    graphicsAction->setChecked(false);
+    settingsAction->setChecked(false);
+    importAction->setChecked(true);
 }
 
 bool Launcher::MainDialog::setupLauncherSettings()
 {
     mLauncherSettings.clear();
 
-    mLauncherSettings.setMultiValueEnabled(true);
+    const QString path
+        = Files::pathToQString(mCfgMgr.getUserConfigPath() / Config::LauncherSettings::sLauncherConfigFileName);
 
-    const auto userPath = Files::pathToQString(mCfgMgr.getUserConfigPath());
+    if (!QFile::exists(path))
+        return true;
 
-    QStringList paths;
-    paths.append(QString(Config::LauncherSettings::sLauncherConfigFileName));
-    paths.append(userPath + QString(Config::LauncherSettings::sLauncherConfigFileName));
+    Log(Debug::Verbose) << "Loading config file: " << path.toUtf8().constData();
 
-    for (const QString& path : paths)
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
-        qDebug() << "Loading config file:" << path.toUtf8().constData();
-        QFile file(path);
-        if (file.exists())
-        {
-            if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-            {
-                cfgError(tr("Error opening OpenMW configuration file"),
-                    tr("<br><b>Could not open %0 for reading</b><br><br> \
-                             Please make sure you have the right permissions \
-                             and try again.<br>")
-                        .arg(file.fileName()));
-                return false;
-            }
-            QTextStream stream(&file);
-            stream.setCodec(QTextCodec::codecForName("UTF-8"));
-
-            mLauncherSettings.readFile(stream);
-        }
-        file.close();
+        cfgError(tr("Error opening OpenMW configuration file"),
+            tr("<br><b>Could not open %0 for reading:</b><br><br>%1<br><br> \
+                     Please make sure you have the right permissions \
+                     and try again.<br>")
+                .arg(file.fileName())
+                .arg(file.errorString()));
+        return false;
     }
+
+    QTextStream stream(&file);
+    Misc::ensureUtf8Encoding(stream);
+
+    mLauncherSettings.readFile(stream);
 
     return true;
 }
@@ -337,15 +321,10 @@ bool Launcher::MainDialog::setupGameSettings()
 {
     mGameSettings.clear();
 
-    const auto localPath = Files::pathToQString(mCfgMgr.getLocalPath());
-    const auto userPath = Files::pathToQString(mCfgMgr.getUserConfigPath());
-    const auto globalPath = Files::pathToQString(mCfgMgr.getGlobalPath());
-
     QFile file;
 
     auto loadFile = [&](const QString& path, bool (Config::GameSettings::*reader)(QTextStream&, bool),
                         bool ignoreContent = false) -> std::optional<bool> {
-        qDebug() << "Loading config file:" << path.toUtf8().constData();
         file.setFileName(path);
         if (file.exists())
         {
@@ -359,7 +338,7 @@ bool Launcher::MainDialog::setupGameSettings()
                 return {};
             }
             QTextStream stream(&file);
-            stream.setCodec(QTextCodec::codecForName("UTF-8"));
+            Misc::ensureUtf8Encoding(stream);
 
             (mGameSettings.*reader)(stream, ignoreContent);
             file.close();
@@ -370,19 +349,19 @@ bool Launcher::MainDialog::setupGameSettings()
 
     // Load the user config file first, separately
     // So we can write it properly, uncontaminated
-    if (!loadFile(userPath + QLatin1String("openmw.cfg"), &Config::GameSettings::readUserFile))
+    if (!loadFile(Files::getUserConfigPathQString(mCfgMgr), &Config::GameSettings::readUserFile))
         return false;
 
     // Now the rest - priority: user > local > global
-    if (auto result = loadFile(localPath + QString("openmw.cfg"), &Config::GameSettings::readFile, true))
+    if (auto result = loadFile(Files::getLocalConfigPathQString(mCfgMgr), &Config::GameSettings::readFile, true))
     {
         // Load global if local wasn't found
-        if (!*result && !loadFile(globalPath + QString("openmw.cfg"), &Config::GameSettings::readFile, true))
+        if (!*result && !loadFile(Files::getGlobalConfigPathQString(mCfgMgr), &Config::GameSettings::readFile, true))
             return false;
     }
     else
         return false;
-    if (!loadFile(userPath + QString("openmw.cfg"), &Config::GameSettings::readFile))
+    if (!loadFile(Files::getUserConfigPathQString(mCfgMgr), &Config::GameSettings::readFile))
         return false;
 
     return true;
@@ -438,10 +417,6 @@ bool Launcher::MainDialog::setupGraphicsSettings()
     Settings::Manager::clear(); // Ensure to clear previous settings in case we had already loaded settings.
     try
     {
-        boost::program_options::variables_map variables;
-        boost::program_options::options_description desc;
-        mCfgMgr.addCommonOptions(desc);
-        mCfgMgr.readConfiguration(variables, desc, true);
         Settings::Manager::load(mCfgMgr);
         return true;
     }
@@ -457,31 +432,20 @@ bool Launcher::MainDialog::setupGraphicsSettings()
 
 void Launcher::MainDialog::loadSettings()
 {
-    int width = mLauncherSettings.value(QString("General/MainWindow/width")).toInt();
-    int height = mLauncherSettings.value(QString("General/MainWindow/height")).toInt();
-
-    int posX = mLauncherSettings.value(QString("General/MainWindow/posx")).toInt();
-    int posY = mLauncherSettings.value(QString("General/MainWindow/posy")).toInt();
-
-    resize(width, height);
-    move(posX, posY);
+    const auto& mainWindow = mLauncherSettings.getMainWindow();
+    resize(mainWindow.mWidth, mainWindow.mHeight);
+    move(mainWindow.mPosX, mainWindow.mPosY);
 }
 
 void Launcher::MainDialog::saveSettings()
 {
-    QString width = QString::number(this->width());
-    QString height = QString::number(this->height());
-
-    mLauncherSettings.setValue(QString("General/MainWindow/width"), width);
-    mLauncherSettings.setValue(QString("General/MainWindow/height"), height);
-
-    QString posX = QString::number(this->pos().x());
-    QString posY = QString::number(this->pos().y());
-
-    mLauncherSettings.setValue(QString("General/MainWindow/posx"), posX);
-    mLauncherSettings.setValue(QString("General/MainWindow/posy"), posY);
-
-    mLauncherSettings.setValue(QString("General/firstrun"), QString("false"));
+    mLauncherSettings.setMainWindow(Config::LauncherSettings::MainWindow{
+        .mWidth = width(),
+        .mHeight = height(),
+        .mPosX = pos().x(),
+        .mPosY = pos().y(),
+    });
+    mLauncherSettings.resetFirstRun();
 }
 
 bool Launcher::MainDialog::writeSettings()
@@ -490,8 +454,8 @@ bool Launcher::MainDialog::writeSettings()
     saveSettings();
     mDataFilesPage->saveSettings();
     mGraphicsPage->saveSettings();
+    mImportPage->saveSettings();
     mSettingsPage->saveSettings();
-    mAdvancedPage->saveSettings();
 
     const auto& userPath = mCfgMgr.getUserConfigPath();
 
@@ -510,9 +474,9 @@ bool Launcher::MainDialog::writeSettings()
 
     // Game settings
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-    QFile file(userPath / "openmw.cfg");
+    QFile file(userPath / Files::openmwCfgFile);
 #else
-    QFile file(Files::pathToQString(userPath / "openmw.cfg"));
+    QFile file(Files::getUserConfigPathQString(mCfgMgr));
 #endif
 
     if (!file.open(QIODevice::ReadWrite | QIODevice::Text))
@@ -559,7 +523,7 @@ bool Launcher::MainDialog::writeSettings()
 
     QTextStream stream(&file);
     stream.setDevice(&file);
-    stream.setCodec(QTextCodec::codecForName("UTF-8"));
+    Misc::ensureUtf8Encoding(stream);
 
     mLauncherSettings.writeFile(stream);
     file.close();

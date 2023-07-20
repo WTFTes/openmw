@@ -1,9 +1,11 @@
 #include "editor.hpp"
 
 #include <QApplication>
+#include <QFileInfo>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMessageBox>
+#include <QRegularExpression>
 
 #include <boost/program_options.hpp>
 
@@ -21,6 +23,7 @@
 #ifdef _WIN32
 #include <components/windows.hpp>
 #endif
+
 #include <components/debug/debugging.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/esmreader.hpp>
@@ -41,8 +44,8 @@ CS::Editor::Editor(int argc, char** argv)
     : mConfigVariables(readConfiguration())
     , mSettingsState(mCfgMgr)
     , mDocumentManager(mCfgMgr)
-    , mPid("")
-    , mLock()
+    , mPid(std::filesystem::temp_directory_path() / "openmw-cs.pid")
+    , mLockFile(QFileInfo(Files::pathToQString(mPid)).absoluteFilePath() + ".lock")
     , mMerge(mDocumentManager)
     , mIpcServerName("org.openmw.OpenCS")
     , mServer(nullptr)
@@ -59,7 +62,7 @@ CS::Editor::Editor(int argc, char** argv)
 
     NifOsg::Loader::setShowMarkers(true);
 
-    mDocumentManager.setFileData(mFsStrict, config.first, config.second);
+    mDocumentManager.setFileData(config.first, config.second);
 
     mNewGame.setLocalData(mLocal);
     mFileDialog.setLocalData(mLocal);
@@ -94,6 +97,7 @@ CS::Editor::~Editor()
 {
     delete mViewManager;
 
+    mLockFile.unlock();
     mPidFile.close();
 
     if (mServer && std::filesystem::exists(mPid))
@@ -114,7 +118,6 @@ boost::program_options::variables_map CS::Editor::readConfiguration()
     addOption("data-local",
         boost::program_options::value<Files::MaybeQuotedPathContainer::value_type>()->default_value(
             Files::MaybeQuotedPathContainer::value_type(), ""));
-    addOption("fs-strict", boost::program_options::value<bool>()->implicit_value(true)->default_value(false));
     addOption("encoding", boost::program_options::value<std::string>()->default_value("win1252"));
     addOption("resources",
         boost::program_options::value<Files::MaybeQuotedPath>()->default_value(Files::MaybeQuotedPath(), "resources"));
@@ -160,8 +163,6 @@ std::pair<Files::PathContainer, std::vector<std::string>> CS::Editor::readConfig
 
     if (variables["script-blacklist-use"].as<bool>())
         mDocumentManager.setBlacklistedScripts(variables["script-blacklist"].as<std::vector<std::string>>());
-
-    mFsStrict = variables["fs-strict"].as<bool>();
 
     Files::PathContainer dataDirs, dataLocal;
     if (!variables["data"].empty())
@@ -335,14 +336,11 @@ bool CS::Editor::makeIPCServer()
 {
     try
     {
-        mPid = std::filesystem::temp_directory_path();
-        mPid /= "openmw-cs.pid";
         bool pidExists = std::filesystem::exists(mPid);
 
         mPidFile.open(mPid);
 
-        mLock = boost::interprocess::file_lock(mPid.c_str());
-        if (!mLock.try_lock())
+        if (!mLockFile.tryLock())
         {
             Log(Debug::Error) << "Error: OpenMW-CS is already running.";
             return false;
@@ -362,7 +360,7 @@ bool CS::Editor::makeIPCServer()
             mServer->listen("dummy");
             QString fullPath = mServer->fullServerName();
             mServer->close();
-            fullPath.remove(QRegExp("dummy$"));
+            fullPath.remove(QRegularExpression("dummy$"));
             fullPath += mIpcServerName;
             const auto path = Files::pathFromQString(fullPath);
             if (exists(path))

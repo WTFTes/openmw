@@ -11,6 +11,47 @@
 -- @field [parent=#world] openmw.core#ObjectList activeActors
 
 ---
+-- List of players. Currently (since multiplayer is not yet implemented) always has one element.
+-- @field [parent=#world] openmw.core#ObjectList players
+
+---
+-- Functions related to MWScript (see @{#MWScriptFunctions}).
+-- @field [parent=#world] #MWScriptFunctions mwscript
+
+---
+-- Functions related to MWScript.
+-- @type MWScriptFunctions
+
+---
+-- Returns local mwscript on ``object``. Returns `nil` if the script doesn't exist or is not started.
+-- @function [parent=#MWScriptFunctions] getLocalScript
+-- @param openmw.core#GameObject object
+-- @param openmw.core#GameObject player (optional) Will be used in multiplayer mode to get the script if there is a separate instance for each player. Currently has no effect.
+-- @return #MWScript, #nil
+
+---
+-- Returns global mwscript with given recordId. Returns `nil` if the script doesn't exist or is not started.
+-- Currently there can be only one instance of each mwscript, but in multiplayer it will be possible to have a separate instance per player.
+-- @function [parent=#MWScriptFunctions] getGlobalScript
+-- @param #string recordId
+-- @param openmw.core#GameObject player (optional) Will be used in multiplayer mode to get the script if there is a separate instance for each player. Currently has no effect.
+-- @return #MWScript, #nil
+
+---
+-- @type MWScript
+-- @field #string recordId Id of the script
+-- @field openmw.core#GameObject object The object the script is attached to.
+-- @field openmw.core#GameObject player The player the script refers to.
+-- @field #MWScriptVariables variables Local variables of the script (mutable)
+-- @usage
+-- for _, script in ipairs(world.mwscript.getLocalScripts(object)) do
+--   -- print the value of local variable 'something' (0 if there is no such variable)
+--   print(script.variables.something)
+--   -- set the variable 'something' (raises an error if there is no such variable)
+--   script.variables.something = 5
+-- end
+
+---
 -- Loads a named cell
 -- @function [parent=#world] getCellByName
 -- @param #string cellName
@@ -21,7 +62,13 @@
 -- @function [parent=#world] getExteriorCell
 -- @param #number gridX
 -- @param #number gridY
+-- @param #any cellOrName (optional) other cell or cell name in the same exterior world space
 -- @return openmw.core#Cell
+
+---
+-- List of all cells
+-- @field [parent=#world] #list<openmw.core#Cell> cells
+-- @usage for i, cell in ipairs(world.cells) do print(cell) end
 
 ---
 -- Simulation time in seconds.
@@ -59,5 +106,41 @@
 -- @function [parent=#world] isWorldPaused
 -- @return #boolean
 
-return nil
+---
+-- Return an object by RefNum/FormId.
+-- Note: the function always returns @{openmw.core#GameObject} and doesn't validate that
+-- the object exists in the game world. If it doesn't exist or not yet loaded to memory),
+-- then `obj:isValid()` will be `false`.
+-- @function [parent=#world] getObjectByFormId
+-- @param #string formId String returned by `core.getFormId`
+-- @return openmw.core#GameObject
+-- @usage local obj = world.getObjectByFormId(core.getFormId('Morrowind.esm', 128964))
 
+---
+-- Create a new instance of the given record.
+-- After creation the object is in the disabled state. Use :teleport to place to the world or :moveInto to put it into a container or an inventory.
+-- @function [parent=#world] createObject
+-- @param #string recordId Record ID in lowercase
+-- @param #number count (optional, 1 by default) The number of objects in stack
+-- @return openmw.core#GameObject
+-- @usage  -- put 100 gold on the ground at the position of `actor`
+-- money = world.createObject('gold_001', 100)
+-- money:teleport(actor.cell.name, actor.position)
+-- @usage -- put 50 gold into the actor's inventory
+-- money = world.createObject('gold_001', 50)
+-- money:moveInto(types.Actor.inventory(actor))
+
+---
+-- Creates a custom record in the world database.
+-- Eventually meant to support all records, but the current
+-- set of supported types is limited to:
+-- * @{openmw.types#PotionRecord},
+-- * @{openmw.types#ArmorRecord},
+-- * @{openmw.types#BookRecord},
+-- * @{openmw.types#MiscellaneousRecord},
+-- * @{openmw.types#ActivatorRecord}
+-- @function [parent=#world] createRecord
+-- @param #any record A record to be registered in the database. Must be one of the supported types.
+-- @return #any A new record added to the database. The type is the same as the input's.
+
+return nil

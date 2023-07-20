@@ -83,7 +83,7 @@ namespace MWMechanics
         mSpellList->remove(spell);
 
         if (spellId == mSelectedSpell)
-            mSelectedSpell = ESM::RefId::sEmpty;
+            mSelectedSpell = ESM::RefId();
     }
 
     void Spells::removeSpell(const ESM::Spell* spell)
@@ -208,7 +208,7 @@ namespace MWMechanics
         for (const ESM::RefId& id : state.mSpells)
         {
             // Discard spells that are no longer available due to changed content files
-            const ESM::Spell* spell = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(id);
+            const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(id);
             if (spell)
             {
                 addSpell(spell);
@@ -220,15 +220,14 @@ namespace MWMechanics
         // Add spells from the base record
         for (const ESM::RefId& id : baseSpells)
         {
-            const ESM::Spell* spell = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(id);
+            const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(id);
             if (spell)
                 addSpell(spell);
         }
 
         for (auto it = state.mUsedPowers.begin(); it != state.mUsedPowers.end(); ++it)
         {
-            const ESM::Spell* spell
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(it->first);
+            const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(it->first);
             if (!spell)
                 continue;
             mUsedPowers.emplace_back(spell, MWWorld::TimeStamp(it->second));
@@ -238,8 +237,7 @@ namespace MWMechanics
         // only in old saves. Convert data to the new approach.
         for (auto it = state.mPermanentSpellEffects.begin(); it != state.mPermanentSpellEffects.end(); ++it)
         {
-            const ESM::Spell* spell
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(it->first);
+            const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(it->first);
             if (!spell)
                 continue;
 
@@ -248,24 +246,25 @@ namespace MWMechanics
             if (creatureStats->getActorId() != player.getClass().getCreatureStats(player).getActorId())
                 return;
 
-            // Note: if target actor has the Restore attirbute effects, stats will be restored.
-            for (std::vector<ESM::SpellState::PermanentSpellEffectInfo>::const_iterator effectIt = it->second.begin();
-                 effectIt != it->second.end(); ++effectIt)
+            // Note: if target actor has the Restore attribute effects, stats will be restored.
+            for (const ESM::SpellState::PermanentSpellEffectInfo& info : it->second)
             {
                 // Applied corprus effects are already in loaded stats modifiers
-                if (effectIt->mId == ESM::MagicEffect::FortifyAttribute)
+                if (info.mId == ESM::MagicEffect::FortifyAttribute)
                 {
-                    AttributeValue attr = creatureStats->getAttribute(effectIt->mArg);
-                    attr.setModifier(attr.getModifier() - effectIt->mMagnitude);
-                    attr.damage(-effectIt->mMagnitude);
-                    creatureStats->setAttribute(effectIt->mArg, attr);
+                    auto id = static_cast<ESM::Attribute::AttributeID>(info.mArg);
+                    AttributeValue attr = creatureStats->getAttribute(id);
+                    attr.setModifier(attr.getModifier() - info.mMagnitude);
+                    attr.damage(-info.mMagnitude);
+                    creatureStats->setAttribute(id, attr);
                 }
-                else if (effectIt->mId == ESM::MagicEffect::DrainAttribute)
+                else if (info.mId == ESM::MagicEffect::DrainAttribute)
                 {
-                    AttributeValue attr = creatureStats->getAttribute(effectIt->mArg);
-                    attr.setModifier(attr.getModifier() + effectIt->mMagnitude);
-                    attr.damage(effectIt->mMagnitude);
-                    creatureStats->setAttribute(effectIt->mArg, attr);
+                    auto id = static_cast<ESM::Attribute::AttributeID>(info.mArg);
+                    AttributeValue attr = creatureStats->getAttribute(id);
+                    attr.setModifier(attr.getModifier() + info.mMagnitude);
+                    attr.damage(info.mMagnitude);
+                    creatureStats->setAttribute(id, attr);
                 }
             }
         }
@@ -293,7 +292,7 @@ namespace MWMechanics
     bool Spells::setSpells(const ESM::RefId& actorId)
     {
         bool result;
-        std::tie(mSpellList, result) = MWBase::Environment::get().getWorld()->getStore().getSpellList(actorId);
+        std::tie(mSpellList, result) = MWBase::Environment::get().getESMStore()->getSpellList(actorId);
         mSpellList->addListener(this);
         addAllToInstance(mSpellList->getSpells());
         return result;
@@ -303,11 +302,11 @@ namespace MWMechanics
     {
         for (const ESM::RefId& id : spells)
         {
-            const ESM::Spell* spell = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(id);
+            const ESM::Spell* spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(id);
             if (spell)
                 addSpell(spell);
             else
-                Log(Debug::Warning) << "Warning: ignoring nonexistent spell '" << id << "'";
+                Log(Debug::Warning) << "Warning: ignoring nonexistent spell " << id;
         }
     }
 

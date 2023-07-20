@@ -5,7 +5,7 @@
 #include <utility>
 namespace ESM
 {
-    struct RefId;
+    class RefId;
 }
 namespace MWWorld
 {
@@ -16,7 +16,7 @@ namespace MWMechanics
 {
     bool isSummoningEffect(int effectId);
 
-    const ESM::RefId& getSummonedCreature(int effectId);
+    ESM::RefId getSummonedCreature(int effectId);
 
     void purgeSummonEffect(const MWWorld::Ptr& summoner, const std::pair<int, int>& summon);
 

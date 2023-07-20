@@ -27,6 +27,7 @@
 #include "nifkey.hpp"
 #include "niftypes.hpp" // Transformation
 #include "recordptr.hpp"
+#include <components/nif/node.hpp>
 
 namespace Nif
 {
@@ -43,7 +44,15 @@ namespace Nif
         void read(NIFStream* nif) override;
     };
 
-    struct NiTriShapeData : public NiGeometryData
+    // Abstract
+    struct NiTriBasedGeomData : public NiGeometryData
+    {
+        size_t mNumTriangles;
+
+        void read(NIFStream* nif) override;
+    };
+
+    struct NiTriShapeData : public NiTriBasedGeomData
     {
         // Triangles, three vertex indices per triangle
         std::vector<unsigned short> triangles;
@@ -51,7 +60,7 @@ namespace Nif
         void read(NIFStream* nif) override;
     };
 
-    struct NiTriStripsData : public NiGeometryData
+    struct NiTriStripsData : public NiTriBasedGeomData
     {
         // Triangle strips, series of vertex indices.
         std::vector<std::vector<unsigned short>> strips;
@@ -210,10 +219,18 @@ namespace Nif
             std::vector<float> weights;
             std::vector<std::vector<unsigned short>> strips;
             std::vector<unsigned short> triangles;
+            std::vector<unsigned short> trueTriangles;
             std::vector<char> boneIndices;
+            BSVertexDesc mVertexDesc;
             void read(NIFStream* nif);
         };
-        std::vector<Partition> data;
+        unsigned int mPartitionNum;
+        std::vector<Partition> mPartitions;
+
+        unsigned int mDataSize;
+        unsigned int mVertexSize;
+        BSVertexDesc mVertexDesc;
+        std::vector<BSVertexData> mVertexData;
 
         void read(NIFStream* nif) override;
     };
@@ -277,6 +294,36 @@ namespace Nif
     struct NiBoolData : public Record
     {
         ByteKeyMapPtr mKeyList;
+        void read(NIFStream* nif) override;
+    };
+
+    struct BSMultiBound : public Record
+    {
+        BSMultiBoundDataPtr mData;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    // Abstract
+    struct BSMultiBoundData : public Record
+    {
+    };
+
+    struct BSMultiBoundOBB : public BSMultiBoundData
+    {
+        osg::Vec3f mCenter;
+        osg::Vec3f mSize;
+        Nif::Matrix3 mRotation;
+
+        void read(NIFStream* nif) override;
+    };
+
+    struct BSMultiBoundSphere : public BSMultiBoundData
+    {
+        osg::Vec3f mCenter;
+        float mRadius;
+
         void read(NIFStream* nif) override;
     };
 

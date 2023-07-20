@@ -1,6 +1,7 @@
 #include "localscripts.hpp"
 
 #include <components/esm3/loadcell.hpp>
+#include <components/misc/strings/lower.hpp>
 
 #include "../mwmechanics/aicombat.hpp"
 #include "../mwmechanics/aiescort.hpp"
@@ -15,7 +16,6 @@
 #include "../mwworld/ptr.hpp"
 
 #include "context.hpp"
-#include "worldview.hpp"
 
 namespace sol
 {
@@ -24,7 +24,7 @@ namespace sol
     {
     };
     template <>
-    struct is_automagical<MWLua::LocalScripts::SelfObject> : std::false_type
+    struct is_automagical<MWLua::SelfObject> : std::false_type
     {
     };
 }
@@ -120,51 +120,52 @@ namespace MWLua
                 return !keep;
             });
         };
-        selfAPI["_startAiCombat"] = [](SelfObject& self, const LObject& target) {
+        selfAPI["_startAiCombat"] = [](SelfObject& self, const LObject& target, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
-            ai.stack(MWMechanics::AiCombat(target.ptr()), ptr);
+            ai.stack(MWMechanics::AiCombat(target.ptr()), ptr, cancelOther);
         };
-        selfAPI["_startAiPursue"] = [](SelfObject& self, const LObject& target) {
+        selfAPI["_startAiPursue"] = [](SelfObject& self, const LObject& target, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
-            ai.stack(MWMechanics::AiPursue(target.ptr()), ptr);
+            ai.stack(MWMechanics::AiPursue(target.ptr()), ptr, cancelOther);
         };
-        selfAPI["_startAiFollow"] = [](SelfObject& self, const LObject& target) {
+        selfAPI["_startAiFollow"] = [](SelfObject& self, const LObject& target, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
-            ai.stack(MWMechanics::AiFollow(target.ptr()), ptr);
+            ai.stack(MWMechanics::AiFollow(target.ptr()), ptr, cancelOther);
         };
         selfAPI["_startAiEscort"] = [](SelfObject& self, const LObject& target, LCell cell, float duration,
-                                        const osg::Vec3f& dest) {
+                                        const osg::Vec3f& dest, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
             // TODO: change AiEscort implementation to accept ptr instead of a non-unique refId.
             const ESM::RefId& refId = target.ptr().getCellRef().getRefId();
             int gameHoursDuration = static_cast<int>(std::ceil(duration / 3600.0));
-            const ESM::Cell* esmCell = cell.mStore->getCell();
+            auto* esmCell = cell.mStore->getCell();
             if (esmCell->isExterior())
-                ai.stack(MWMechanics::AiEscort(refId, gameHoursDuration, dest.x(), dest.y(), dest.z(), false), ptr);
+                ai.stack(MWMechanics::AiEscort(refId, gameHoursDuration, dest.x(), dest.y(), dest.z(), false), ptr,
+                    cancelOther);
             else
                 ai.stack(MWMechanics::AiEscort(
-                             refId, esmCell->mName, gameHoursDuration, dest.x(), dest.y(), dest.z(), false),
-                    ptr);
+                             refId, esmCell->getNameId(), gameHoursDuration, dest.x(), dest.y(), dest.z(), false),
+                    ptr, cancelOther);
         };
-        selfAPI["_startAiWander"] = [](SelfObject& self, int distance, float duration) {
+        selfAPI["_startAiWander"] = [](SelfObject& self, int distance, float duration, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
             int gameHoursDuration = static_cast<int>(std::ceil(duration / 3600.0));
-            ai.stack(MWMechanics::AiWander(distance, gameHoursDuration, 0, {}, false), ptr);
+            ai.stack(MWMechanics::AiWander(distance, gameHoursDuration, 0, {}, false), ptr, cancelOther);
         };
-        selfAPI["_startAiTravel"] = [](SelfObject& self, const osg::Vec3f& target) {
+        selfAPI["_startAiTravel"] = [](SelfObject& self, const osg::Vec3f& target, bool cancelOther) {
             const MWWorld::Ptr& ptr = self.ptr();
             MWMechanics::AiSequence& ai = ptr.getClass().getCreatureStats(ptr).getAiSequence();
-            ai.stack(MWMechanics::AiTravel(target.x(), target.y(), target.z(), false), ptr);
+            ai.stack(MWMechanics::AiTravel(target.x(), target.y(), target.z(), false), ptr, cancelOther);
         };
     }
 
     LocalScripts::LocalScripts(LuaUtil::LuaState* lua, const LObject& obj)
-        : LuaUtil::ScriptsContainer(lua, "L" + idToString(obj.id()))
+        : LuaUtil::ScriptsContainer(lua, "L" + obj.id().toString())
         , mData(obj)
     {
         this->addPackage("openmw.self", sol::make_object(lua->sol(), &mData));
@@ -172,32 +173,13 @@ namespace MWLua
             { &mOnActiveHandlers, &mOnInactiveHandlers, &mOnConsumeHandlers, &mOnActivatedHandlers });
     }
 
-    void LocalScripts::receiveEngineEvent(const EngineEvent& event)
+    void LocalScripts::setActive(bool active)
     {
-        std::visit(
-            [this](auto&& arg) {
-                using EventT = std::decay_t<decltype(arg)>;
-                if constexpr (std::is_same_v<EventT, OnActive>)
-                {
-                    mData.mIsActive = true;
-                    callEngineHandlers(mOnActiveHandlers);
-                }
-                else if constexpr (std::is_same_v<EventT, OnInactive>)
-                {
-                    mData.mIsActive = false;
-                    callEngineHandlers(mOnInactiveHandlers);
-                }
-                else if constexpr (std::is_same_v<EventT, OnActivated>)
-                {
-                    callEngineHandlers(mOnActivatedHandlers, arg.mActivatingActor);
-                }
-                else
-                {
-                    static_assert(std::is_same_v<EventT, OnConsume>);
-                    callEngineHandlers(mOnConsumeHandlers, arg.mConsumable);
-                }
-            },
-            event);
+        mData.mIsActive = active;
+        if (active)
+            callEngineHandlers(mOnActiveHandlers);
+        else
+            callEngineHandlers(mOnInactiveHandlers);
     }
 
     void LocalScripts::applyStatsCache()

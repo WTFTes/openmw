@@ -10,7 +10,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/actionequip.hpp"
 #include "../mwworld/cellstore.hpp"
@@ -75,7 +74,7 @@ namespace MWClass
         return ref->mBase->mData.mHealth;
     }
 
-    const ESM::RefId& Armor::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Armor::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
@@ -112,7 +111,7 @@ namespace MWClass
         return std::make_pair(slots_, false);
     }
 
-    int Armor::getEquipmentSkill(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Armor::getEquipmentSkill(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
@@ -150,10 +149,10 @@ namespace MWClass
         }
 
         if (typeGmst.empty())
-            return -1;
+            return {};
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         float iWeight = floor(gmst.find(typeGmst)->mValue.getFloat());
 
@@ -178,7 +177,7 @@ namespace MWClass
 
     const ESM::RefId& Armor::getUpSoundId(const MWWorld::ConstPtr& ptr) const
     {
-        int es = getEquipmentSkill(ptr);
+        const ESM::RefId es = getEquipmentSkill(ptr);
         static const ESM::RefId lightUp = ESM::RefId::stringRefId("Item Armor Light Up");
         static const ESM::RefId mediumUp = ESM::RefId::stringRefId("Item Armor Medium Up");
         static const ESM::RefId heavyUp = ESM::RefId::stringRefId("Item Armor Heavy Up");
@@ -193,7 +192,7 @@ namespace MWClass
 
     const ESM::RefId& Armor::getDownSoundId(const MWWorld::ConstPtr& ptr) const
     {
-        int es = getEquipmentSkill(ptr);
+        const ESM::RefId es = getEquipmentSkill(ptr);
         static const ESM::RefId lightDown = ESM::RefId::stringRefId("Item Armor Light Down");
         static const ESM::RefId mediumDown = ESM::RefId::stringRefId("Item Armor Medium Down");
         static const ESM::RefId heavyDown = ESM::RefId::stringRefId("Item Armor Heavy Down");
@@ -232,7 +231,7 @@ namespace MWClass
         }
         else
         {
-            int armorType = getEquipmentSkill(ptr);
+            const ESM::RefId armorType = getEquipmentSkill(ptr);
             if (armorType == ESM::Skill::LightArmor)
                 typeText = "#{sLight}";
             else if (armorType == ESM::Skill::MediumArmor)
@@ -272,7 +271,7 @@ namespace MWClass
         return info;
     }
 
-    const ESM::RefId& Armor::getEnchantment(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Armor::getEnchantment(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
@@ -285,11 +284,11 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
         ESM::Armor newItem = *ref->mBase;
-        newItem.mId = ESM::RefId::sEmpty;
+        newItem.mId = ESM::RefId();
         newItem.mName = newName;
         newItem.mData.mEnchant = enchCharge;
         newItem.mEnchant = enchId;
-        const ESM::Armor* record = MWBase::Environment::get().getWorld()->createRecord(newItem);
+        const ESM::Armor* record = MWBase::Environment::get().getESMStore()->insert(newItem);
         return record->mId;
     }
 
@@ -297,11 +296,14 @@ namespace MWClass
     {
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
-        int armorSkillType = getEquipmentSkill(ptr);
+        const ESM::RefId armorSkillType = getEquipmentSkill(ptr);
         float armorSkill = actor.getClass().getSkill(actor, armorSkillType);
 
-        const MWBase::World* world = MWBase::Environment::get().getWorld();
-        int iBaseArmorSkill = world->getStore().get<ESM::GameSetting>().find("iBaseArmorSkill")->mValue.getInteger();
+        int iBaseArmorSkill = MWBase::Environment::get()
+                                  .getESMStore()
+                                  ->get<ESM::GameSetting>()
+                                  .find("iBaseArmorSkill")
+                                  ->mValue.getInteger();
 
         if (ref->mBase->mData.mWeight == 0)
             return ref->mBase->mData.mArmor;
@@ -327,7 +329,7 @@ namespace MWClass
             const ESM::RefId& npcRace = npc.get<ESM::NPC>()->mBase->mRace;
 
             // Beast races cannot equip shoes / boots, or full helms (head part vs hair part)
-            const ESM::Race* race = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(npcRace);
+            const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(npcRace);
             if (race->mData.mFlags & ESM::Race::Beast)
             {
                 std::vector<ESM::PartReference> parts = ptr.get<ESM::Armor>()->mBase->mParts.mParts;

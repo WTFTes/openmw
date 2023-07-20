@@ -12,7 +12,9 @@
 
 #include "windows_crashcatcher.hpp"
 #include "windows_crashshm.hpp"
+#include "windowscrashdumppathhelpers.hpp"
 #include <components/debug/debuglog.hpp>
+#include <components/misc/strings/conversion.hpp>
 
 namespace Crash
 {
@@ -192,7 +194,7 @@ namespace Crash
                         case CrashSHM::Event::None:
                             break;
                         case CrashSHM::Event::Crashed:
-                            handleCrash();
+                            handleCrash(false);
                             running = false;
                             break;
                         case CrashSHM::Event::Shutdown:
@@ -211,9 +213,10 @@ namespace Crash
 
             if (mFreezeAbort)
             {
+                handleCrash(true);
                 TerminateProcess(mAppProcessHandle, 0xDEAD);
                 std::string message = "OpenMW appears to have frozen.\nCrash log saved to '"
-                    + std::string(mShm->mStartup.mLogFilePath)
+                    + Misc::StringUtils::u8StringToString(getFreezeDumpPath(*mShm).u8string())
                     + "'.\nPlease report this to https://gitlab.com/OpenMW/openmw/issues !";
                 SDL_ShowSimpleMessageBox(0, "Fatal Error", message.c_str(), nullptr);
             }
@@ -225,19 +228,7 @@ namespace Crash
         signalApp();
     }
 
-    static std::wstring utf8ToUtf16(const std::string& utf8)
-    {
-        const int nLenWide = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), utf8.size(), nullptr, 0);
-
-        std::wstring utf16;
-        utf16.resize(nLenWide);
-        if (MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), utf8.size(), utf16.data(), nLenWide) != nLenWide)
-            return {};
-
-        return utf16;
-    }
-
-    void CrashMonitor::handleCrash()
+    void CrashMonitor::handleCrash(bool isFreeze)
     {
         DWORD processId = GetProcessId(mAppProcessHandle);
 
@@ -255,7 +246,7 @@ namespace Crash
             if (miniDumpWriteDump == NULL)
                 return;
 
-            std::wstring utf16Path = utf8ToUtf16(mShm->mStartup.mLogFilePath);
+            std::wstring utf16Path = (isFreeze ? getFreezeDumpPath(*mShm) : getCrashDumpPath(*mShm)).native();
             if (utf16Path.empty())
                 return;
 

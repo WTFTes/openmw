@@ -33,8 +33,7 @@
 
 void ESM4::Light::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
-    reader.adjustFormId(mFormId);
+    mId = reader.getRefIdFromHeader();
     mFlags = reader.hdr().record.flags;
     std::uint32_t esmVer = reader.esmVersion();
     bool isFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
@@ -103,11 +102,14 @@ void ESM4::Light::load(ESM4::Reader& reader)
             case ESM4::SUB_MODT:
             case ESM4::SUB_OBND:
             case ESM4::SUB_VMAD: // Dragonborn only?
-            {
-                // std::cout << "LIGH " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
+            case ESM4::SUB_DEST: // Destruction data start
+            case ESM4::SUB_DSTD:
+            case ESM4::SUB_DMDL:
+            case ESM4::SUB_DMDT:
+            case ESM4::SUB_DMDS:
+            case ESM4::SUB_DSTF: // Destruction data end
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::LIGH::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

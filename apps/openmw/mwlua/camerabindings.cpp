@@ -1,7 +1,7 @@
-#include "luabindings.hpp"
 
+#include <components/lua/luastate.hpp>
 #include <components/lua/utilpackage.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -13,15 +13,15 @@ namespace MWLua
 
     using CameraMode = MWRender::Camera::Mode;
 
-    sol::table initCameraPackage(const Context& context)
+    sol::table initCameraPackage(sol::state_view& lua)
     {
         MWRender::Camera* camera = MWBase::Environment::get().getWorld()->getCamera();
         MWRender::RenderingManager* renderingManager = MWBase::Environment::get().getWorld()->getRenderingManager();
 
-        sol::table api(context.mLua->sol(), sol::create);
+        sol::table api(lua, sol::create);
         api["MODE"] = LuaUtil::makeStrictReadOnly(
-            context.mLua->sol().create_table_with("Static", CameraMode::Static, "FirstPerson", CameraMode::FirstPerson,
-                "ThirdPerson", CameraMode::ThirdPerson, "Vanity", CameraMode::Vanity, "Preview", CameraMode::Preview));
+            lua.create_table_with("Static", CameraMode::Static, "FirstPerson", CameraMode::FirstPerson, "ThirdPerson",
+                CameraMode::ThirdPerson, "Vanity", CameraMode::Vanity, "Preview", CameraMode::Preview));
 
         api["getMode"] = [camera]() -> int { return static_cast<int>(camera->getMode()); };
         api["getQueuedMode"] = [camera]() -> sol::optional<int> {
@@ -81,17 +81,13 @@ namespace MWLua
         api["getCollisionType"] = [camera]() { return camera->getCollisionType(); };
         api["setCollisionType"] = [camera](int collisionType) { camera->setCollisionType(collisionType); };
 
-        api["getBaseFieldOfView"] = []() {
-            return osg::DegreesToRadians(
-                std::clamp(Settings::Manager::getFloat("field of view", "Camera"), 1.f, 179.f));
-        };
+        api["getBaseFieldOfView"] = [] { return osg::DegreesToRadians(Settings::camera().mFieldOfView); };
         api["getFieldOfView"]
             = [renderingManager]() { return osg::DegreesToRadians(renderingManager->getFieldOfView()); };
         api["setFieldOfView"]
             = [renderingManager](float v) { renderingManager->setFieldOfView(osg::RadiansToDegrees(v)); };
 
-        api["getBaseViewDistance"]
-            = []() { return std::max(0.f, Settings::Manager::getFloat("viewing distance", "Camera")); };
+        api["getBaseViewDistance"] = [] { return Settings::camera().mViewingDistance.get(); };
         api["getViewDistance"] = [renderingManager]() { return renderingManager->getViewDistance(); };
         api["setViewDistance"] = [renderingManager](float d) { renderingManager->setViewDistance(d, true); };
 
@@ -107,6 +103,23 @@ namespace MWLua
             float x = (pos.x() * 2 - 1) * aspect * fovTan;
             float y = (1 - pos.y() * 2) * fovTan;
             return invertedViewMatrix.preMult(osg::Vec3f(x, y, -1)) - camera->getPosition();
+        };
+
+        api["worldToViewportVector"] = [camera](osg::Vec3f pos) {
+            double width = Settings::Manager::getInt("resolution x", "Video");
+            double height = Settings::Manager::getInt("resolution y", "Video");
+
+            osg::Matrix windowMatrix
+                = osg::Matrix::translate(1.0, 1.0, 1.0) * osg::Matrix::scale(0.5 * width, 0.5 * height, 0.5);
+            osg::Vec3f vpCoords = pos * (camera->getViewMatrix() * camera->getProjectionMatrix() * windowMatrix);
+
+            // Move 0,0 to top left to match viewportToWorldVector
+            vpCoords.y() = height - vpCoords.y();
+
+            // Set the z component to be distance from camera, in world space units
+            vpCoords.z() = (pos - camera->getPosition()).length();
+
+            return vpCoords;
         };
 
         return LuaUtil::makeReadOnly(api);

@@ -51,10 +51,26 @@ return {
 }
 )X");
 
+    std::string genBigScript()
+    {
+        std::stringstream buf;
+        buf << "return function()\n";
+        buf << "  x = {}\n";
+        for (int i = 0; i < 1000; ++i)
+            buf << "  x[" << i * 2 << "] = " << i << "\n";
+        buf << "  return x\n";
+        buf << "end\n";
+        return buf.str();
+    }
+
+    TestingOpenMW::VFSTestFile bigScriptFile(genBigScript());
+    TestingOpenMW::VFSTestFile requireBigScriptFile("local x = require('big') ; return {x}");
+
     struct LuaStateTest : Test
     {
         std::unique_ptr<VFS::Manager> mVFS = TestingOpenMW::createTestVFS({ { "aaa/counter.lua", &counterFile },
-            { "bbb/tests.lua", &testsFile }, { "invalid.lua", &invalidScriptFile } });
+            { "bbb/tests.lua", &testsFile }, { "invalid.lua", &invalidScriptFile }, { "big.lua", &bigScriptFile },
+            { "requireBig.lua", &requireBigScriptFile } });
 
         LuaUtil::ScriptsConfiguration mCfg;
         LuaUtil::LuaState mLua{ mVFS.get(), &mCfg };
@@ -82,6 +98,23 @@ return {
         EXPECT_EQ(LuaUtil::toString(sol::make_object(mLua.sol(), true)), "true");
         EXPECT_EQ(LuaUtil::toString(sol::nil), "nil");
         EXPECT_EQ(LuaUtil::toString(sol::make_object(mLua.sol(), "something")), "\"something\"");
+    }
+
+    TEST_F(LuaStateTest, Cast)
+    {
+        EXPECT_EQ(LuaUtil::cast<int>(sol::make_object(mLua.sol(), 3.14)), 3);
+        EXPECT_ERROR(
+            LuaUtil::cast<int>(sol::make_object(mLua.sol(), "3.14")), "Value \"\"3.14\"\" can not be casted to int");
+        EXPECT_ERROR(LuaUtil::cast<std::string_view>(sol::make_object(mLua.sol(), sol::nil)),
+            "Value \"nil\" can not be casted to string");
+        EXPECT_ERROR(LuaUtil::cast<std::string>(sol::make_object(mLua.sol(), sol::nil)),
+            "Value \"nil\" can not be casted to string");
+        EXPECT_ERROR(LuaUtil::cast<sol::table>(sol::make_object(mLua.sol(), sol::nil)),
+            "Value \"nil\" can not be casted to sol::table");
+        EXPECT_ERROR(LuaUtil::cast<sol::function>(sol::make_object(mLua.sol(), "3.14")),
+            "Value \"\"3.14\"\" can not be casted to sol::function");
+        EXPECT_ERROR(LuaUtil::cast<sol::protected_function>(sol::make_object(mLua.sol(), "3.14")),
+            "Value \"\"3.14\"\" can not be casted to sol::function");
     }
 
     TEST_F(LuaStateTest, ErrorHandling)
@@ -172,4 +205,22 @@ return {
         EXPECT_THAT(LuaUtil::getLuaVersion(), HasSubstr("Lua"));
     }
 
+    TEST_F(LuaStateTest, RemovedScriptsGarbageCollecting)
+    {
+        auto getMem = [&] {
+            for (int i = 0; i < 5; ++i)
+                lua_gc(mLua.sol(), LUA_GCCOLLECT, 0);
+            return mLua.getTotalMemoryUsage();
+        };
+        int64_t memWithScript;
+        {
+            sol::object s = mLua.runInNewSandbox("requireBig.lua");
+            memWithScript = getMem();
+        }
+        for (int i = 0; i < 100; ++i) // run many times to make small memory leaks visible
+            mLua.runInNewSandbox("requireBig.lua");
+        int64_t memWithoutScript = getMem();
+        // At this moment all instances of the script should be garbage-collected.
+        EXPECT_LT(memWithoutScript, memWithScript);
+    }
 }

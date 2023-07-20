@@ -16,7 +16,7 @@
 #include <osg/Timer>
 #include <osg/ref_ptr>
 
-#include <components/detournavigator/collisionshapetype.hpp>
+#include <components/esm/util.hpp>
 
 #include "../mwworld/ptr.hpp"
 
@@ -189,7 +189,7 @@ namespace MWPhysics
 
         void removeHeightField(int x, int y);
 
-        const HeightField* getHeightField(int x, int y) const;
+        const HeightField* getHeightField(ESM::ExteriorCellLocation cellIndex) const;
 
         bool toggleCollisionMode();
 
@@ -340,8 +340,6 @@ namespace MWPhysics
         osg::ref_ptr<osg::Group> mParentNode;
 
         float mPhysicsDt;
-
-        DetourNavigator::CollisionShapeType mActorCollisionShapeType;
 
         std::size_t mSimulationsCounter = 0;
         std::array<std::vector<Simulation>, 2> mSimulations;

@@ -2,6 +2,7 @@
 #define GAME_MWBASE_WINDOWMANAGER_H
 
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <set>
@@ -16,7 +17,7 @@
 
 namespace ESM
 {
-    struct RefId;
+    class RefId;
 }
 
 namespace Loading
@@ -40,7 +41,6 @@ namespace ESM
 {
     class ESMReader;
     class ESMWriter;
-    struct CellId;
 }
 
 namespace MWMechanics
@@ -225,12 +225,10 @@ namespace MWBase
         virtual const MWWorld::Ptr& getSelectedEnchantItem() const = 0;
         virtual void setSelectedWeapon(const MWWorld::Ptr& item) = 0;
         virtual const MWWorld::Ptr& getSelectedWeapon() const = 0;
-        virtual int getFontHeight() const = 0;
         virtual void unsetSelectedSpell() = 0;
         virtual void unsetSelectedWeapon() = 0;
 
         virtual void showCrosshair(bool show) = 0;
-        virtual bool getSubtitlesEnabled() = 0;
         virtual bool toggleHud() = 0;
 
         virtual void disallowMouse() = 0;
@@ -276,7 +274,7 @@ namespace MWBase
 
         virtual void processChangedSettings(const std::set<std::pair<std::string, std::string>>& changed) = 0;
 
-        virtual void executeInConsole(const std::string& path) = 0;
+        virtual void executeInConsole(const std::filesystem::path& path) = 0;
 
         virtual void enableRest() = 0;
         virtual bool getRestEnabled() = 0;

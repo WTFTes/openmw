@@ -26,18 +26,18 @@
 */
 #include "loadrefr.hpp"
 
-#include <iostream> // FIXME: debug only
 #include <stdexcept>
 
 #include "reader.hpp"
-//#include "writer.hpp"
+// #include "writer.hpp"
 
 void ESM4::Reference::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
-    reader.adjustFormId(mFormId);
+    mId = reader.hdr().record.getFormId();
+    reader.adjustFormId(mId);
     mFlags = reader.hdr().record.flags;
-    mParent = reader.currCell(); // NOTE: only for persistent refs?
+    mParentFormId = reader.currCell(); // NOTE: only for persistent refs?
+    mParent = ESM::RefId::formIdRefId(mParentFormId);
 
     // TODO: Let the engine apply this? Saved games?
     // mInitiallyDisabled = ((mFlags & ESM4::Rec_Disabled) != 0) ? true : false;
@@ -60,7 +60,9 @@ void ESM4::Reference::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_NAME:
             {
-                reader.getFormId(mBaseObj);
+                FormId BaseId;
+                reader.getFormId(BaseId);
+                mBaseObj = ESM::RefId::formIdRefId(BaseId);
 #if 0
                 if (mFlags & ESM4::Rec_Disabled)
                     std::cout << "REFR disable at start " << formIdToString(mFormId) <<
@@ -73,7 +75,7 @@ void ESM4::Reference::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_DATA:
-                reader.get(mPlacement);
+                reader.get(mPos);
                 break;
             case ESM4::SUB_XSCL:
                 reader.get(mScale);
@@ -89,10 +91,10 @@ void ESM4::Reference::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_XESP:
             {
-                reader.get(mEsp);
-                reader.adjustFormId(mEsp.parent);
+                reader.getFormId(mEsp.parent);
+                reader.get(mEsp.flags);
                 // std::cout << "REFR  parent: " << formIdToString(mEsp.parent) << " ref " << formIdToString(mFormId)
-                //<< ", 0x" << std::hex << (mEsp.flags & 0xff) << std::endl;// FIXME
+                // << ", 0x" << std::hex << (mEsp.flags & 0xff) << std::endl;// FIXME
                 break;
             }
             case ESM4::SUB_XTEL:
@@ -101,6 +103,8 @@ void ESM4::Reference::load(ESM4::Reader& reader)
                 reader.get(mDoor.destPos);
                 if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || isFONV)
                     reader.get(mDoor.flags); // not in Obvlivion
+                else
+                    mDoor.flags = 0;
                 // std::cout << "REFR  dest door: " << formIdToString(mDoor.destDoor) << std::endl;// FIXME
                 break;
             }
@@ -194,7 +198,7 @@ void ESM4::Reference::load(ESM4::Reader& reader)
             case ESM4::SUB_FNAM:
             {
                 // std::cout << "REFR " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
+                // << subHdr.dataSize << std::endl;
                 reader.skipSubRecordData();
                 break;
             }
@@ -232,7 +236,9 @@ void ESM4::Reference::load(ESM4::Reader& reader)
                 reader.get(dummy);
                 reader.get(dummy);
                 reader.get(dummy);
-                reader.getFormId(mKey);
+                FormId keyForm;
+                reader.getFormId(keyForm);
+                mKey = ESM::RefId::formIdRefId(keyForm);
                 reader.get(dummy); // flag?
                 reader.get(dummy);
                 reader.get(dummy);
@@ -284,6 +290,7 @@ void ESM4::Reference::load(ESM4::Reader& reader)
             case ESM4::SUB_XNDP:
             case ESM4::SUB_XOCP:
             case ESM4::SUB_XPOD:
+            case ESM4::SUB_XPTL:
             case ESM4::SUB_XPPA:
             case ESM4::SUB_XPRD:
             case ESM4::SUB_XPWR:
@@ -317,13 +324,10 @@ void ESM4::Reference::load(ESM4::Reader& reader)
             case ESM4::SUB_XSRD: // FONV
             case ESM4::SUB_WMI1: // FONV
             case ESM4::SUB_XLRL: // Unofficial Skyrim Patch
-            {
                 // if (mFormId == 0x0007e90f) // XPRM XPOD
                 // if (mBaseObj == 0x17) //XPRM XOCP occlusion plane data XMBO bound half extents
-                // std::cout << "REFR " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::REFR::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

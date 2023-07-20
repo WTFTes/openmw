@@ -12,10 +12,13 @@
 #include <apps/opencs/model/world/cell.hpp>
 #include <components/esm/defs.hpp>
 #include <components/esm3/loadbody.hpp>
+#include <components/esm3/loaddial.hpp>
 #include <components/esm3/loadinfo.hpp>
 #include <components/esm3/loadrace.hpp>
 #include <components/esm3/loadskil.hpp>
 #include <components/esm3/variant.hpp>
+
+#include <optional>
 
 #include <QString>
 #include <QVariant>
@@ -30,6 +33,10 @@
 
 namespace CSMWorld
 {
+    std::optional<std::uint32_t> getSkillIndex(std::string_view value);
+
+    std::string getStringId(ESM::RefId value);
+
     /// \note Shares ID with VarValueColumn. A table can not have both.
     template <typename ESXRecordT>
     struct FloatValueColumn : public Column<ESXRecordT>
@@ -62,7 +69,7 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            return QString::fromUtf8(record.get().mId.getRefIdString().c_str());
+            return QString::fromStdString(getStringId(record.get().mId));
         }
 
         bool isEditable() const override { return false; }
@@ -344,14 +351,14 @@ namespace CSMWorld
 
         QVariant get(const Record<CSMWorld::Cell>& record) const override
         {
-            return QString::fromUtf8(record.get().mName.getRefIdString().c_str());
+            return QString::fromUtf8(record.get().mName.c_str());
         }
 
         void set(Record<CSMWorld::Cell>& record, const QVariant& data) override
         {
             CSMWorld::Cell record2 = record.get();
 
-            record2.mName = ESM::RefId::stringRefId(data.toString().toUtf8().constData());
+            record2.mName = data.toString().toUtf8().constData();
 
             record.setModified(record2);
         }
@@ -402,25 +409,16 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            int skill = record.get().mData.getSkill(mIndex, mMajor);
-
-            return QString::fromUtf8(ESM::Skill::indexToId(skill).c_str());
+            return QString::fromStdString(ESM::Skill::sSkillNames[record.get().mData.getSkill(mIndex, mMajor)]);
         }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override
         {
-            std::istringstream stream(data.toString().toUtf8().constData());
-
-            int index = -1;
-            char c;
-
-            stream >> c >> index;
-
-            if (index != -1)
+            if (const auto index = getSkillIndex(data.toString().toStdString()))
             {
                 ESXRecordT record2 = record.get();
 
-                record2.mData.getSkill(mIndex, mMajor) = index;
+                record2.mData.getSkill(mIndex, mMajor) = static_cast<int>(*index);
 
                 record.setModified(record2);
             }
@@ -871,7 +869,7 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            return QString::fromUtf8(record.get().mCell.getRefIdString().c_str());
+            return QString::fromUtf8(record.get().mCell.toString().c_str());
         }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override
@@ -1147,14 +1145,14 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            return QString::fromUtf8(record.get().mDestCell.getRefIdString().c_str());
+            return QString::fromUtf8(record.get().mDestCell.c_str());
         }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override
         {
             ESXRecordT record2 = record.get();
 
-            record2.mDestCell = ESM::RefId::stringRefId(data.toString().toUtf8().constData());
+            record2.mDestCell = data.toString().toUtf8().constData();
 
             record.setModified(record2);
         }
@@ -1342,7 +1340,7 @@ namespace CSMWorld
         {
             ESXRecordT record2 = record.get();
 
-            record2.mType = data.toInt();
+            record2.mType = static_cast<ESM::Dialogue::Type>(data.toInt());
 
             record.setModified(record2);
         }
@@ -2042,13 +2040,16 @@ namespace CSMWorld
         {
         }
 
-        QVariant get(const Record<ESXRecordT>& record) const override { return record.get().mData.mSchool; }
+        QVariant get(const Record<ESXRecordT>& record) const override
+        {
+            return ESM::MagicSchool::skillRefIdToIndex(record.get().mData.mSchool);
+        }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override
         {
             ESXRecordT record2 = record.get();
 
-            record2.mData.mSchool = data.toInt();
+            record2.mData.mSchool = ESM::MagicSchool::indexToSkillRefId(data.toInt());
 
             record.setModified(record2);
         }
@@ -2232,7 +2233,7 @@ namespace CSMWorld
         {
         }
 
-        QVariant get(const Record<ESXRecordT>& record) const override { return record.get().mFormat; }
+        QVariant get(const Record<ESXRecordT>& record) const override { return record.get().mFormatVersion; }
 
         bool isEditable() const override { return false; }
     };

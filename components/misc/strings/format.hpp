@@ -1,12 +1,14 @@
 #ifndef COMPONENTS_MISC_STRINGS_FORMAT_H
 #define COMPONENTS_MISC_STRINGS_FORMAT_H
 
+#include <MyGUI_UString.h>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace Misc::StringUtils
@@ -18,6 +20,7 @@ namespace Misc::StringUtils
         T argument(T value) noexcept
         {
             static_assert(!std::is_same_v<T, std::string_view>, "std::string_view is not supported");
+            static_assert(!std::is_same_v<T, MyGUI::UString>, "MyGUI::UString is not supported");
             return value;
         }
 
@@ -50,12 +53,11 @@ namespace Misc::StringUtils
         {
             const int size = std::snprintf(nullptr, 0, fmt, argument(args)...);
             if (size < 0)
-                throw std::runtime_error(
-                    std::string("Failed to compute resulting string size: ") + std::strerror(errno));
+                throw std::system_error(errno, std::generic_category(), "Failed to compute resulting string size");
             // Note: sprintf also writes a trailing null character. We should remove it.
             std::string ret(static_cast<std::size_t>(size) + 1, '\0');
             if (std::sprintf(ret.data(), fmt, argument(args)...) < 0)
-                throw std::runtime_error(std::string("Failed to format string: ") + std::strerror(errno));
+                throw std::system_error(errno, std::generic_category(), "Failed to format string");
             ret.erase(static_cast<std::size_t>(size));
             return ret;
         }

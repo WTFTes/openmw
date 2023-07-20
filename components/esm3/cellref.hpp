@@ -1,11 +1,9 @@
 #ifndef OPENMW_ESM_CELLREF_H
 #define OPENMW_ESM_CELLREF_H
 
-#include <limits>
 #include <string>
 
 #include "components/esm/defs.hpp"
-#include "components/esm/esmcommon.hpp"
 #include "components/esm/refid.hpp"
 
 namespace ESM
@@ -13,22 +11,7 @@ namespace ESM
     class ESMWriter;
     class ESMReader;
 
-    const int UnbreakableLock = std::numeric_limits<int>::max();
-
-    struct RefNum
-    {
-        unsigned int mIndex;
-        int mContentFile;
-
-        void load(ESMReader& esm, bool wide = false, NAME tag = "FRMR");
-
-        void save(ESMWriter& esm, bool wide = false, NAME tag = "FRMR") const;
-
-        inline bool hasContentFile() const { return mContentFile >= 0; }
-
-        inline bool isSet() const { return mIndex != 0 || mContentFile != -1; }
-        inline void unset() { *this = { 0, -1 }; }
-    };
+    using RefNum = ESM::FormId;
 
     /* Cell reference. This represents ONE object (of many) inside the
     cell. The cell references are not loaded as part of the normal
@@ -39,6 +22,8 @@ namespace ESM
     class CellRef
     {
     public:
+        static constexpr std::string_view getRecordType() { return "CellRef"; }
+
         // Reference number
         // Note: Currently unused for items in containers
         RefNum mRefNum;
@@ -90,10 +75,11 @@ namespace ESM
         Position mDoorDest;
 
         // Destination cell for doors (optional)
-        ESM::RefId mDestCell;
+        std::string mDestCell;
 
         // Lock level for doors and containers
         int mLockLevel;
+        bool mIsLocked{};
         ESM::RefId mKey, mTrap; // Key and trap ID names, if any
 
         // This corresponds to the "Reference Blocked" checkbox in the construction set,
@@ -118,39 +104,6 @@ namespace ESM
     };
 
     void skipLoadCellRef(ESMReader& esm, bool wideRefNum = false);
-
-    inline bool operator==(const RefNum& left, const RefNum& right)
-    {
-        return left.mIndex == right.mIndex && left.mContentFile == right.mContentFile;
-    }
-
-    inline bool operator<(const RefNum& left, const RefNum& right)
-    {
-        if (left.mIndex < right.mIndex)
-            return true;
-        if (left.mIndex > right.mIndex)
-            return false;
-        return left.mContentFile < right.mContentFile;
-    }
-
-}
-
-namespace std
-{
-
-    // Needed to use ESM::RefNum as a key in std::unordered_map
-    template <>
-    struct hash<ESM::RefNum>
-    {
-        size_t operator()(const ESM::RefNum& refNum) const
-        {
-            assert(sizeof(ESM::RefNum) == sizeof(size_t));
-            size_t s;
-            memcpy(&s, &refNum, sizeof(size_t));
-            return hash<size_t>()(s);
-        }
-    };
-
 }
 
 #endif

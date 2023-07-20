@@ -2,7 +2,6 @@
 
 #include <QFileDialog>
 #include <QMessageBox>
-#include <QTextCodec>
 #include <QThread>
 
 #include "mainwizard.hpp"
@@ -128,15 +127,15 @@ void Wizard::InstallationPage::startInstallation()
 
     if (language == QLatin1String("Polish"))
     {
-        mUnshield->setIniCodec(QTextCodec::codecForName("windows-1250"));
+        mUnshield->setIniEncoding(ToUTF8::FromType::WINDOWS_1250);
     }
     else if (language == QLatin1String("Russian"))
     {
-        mUnshield->setIniCodec(QTextCodec::codecForName("windows-1251"));
+        mUnshield->setIniEncoding(ToUTF8::FromType::WINDOWS_1251);
     }
     else
     {
-        mUnshield->setIniCodec(QTextCodec::codecForName("windows-1252"));
+        mUnshield->setIniEncoding(ToUTF8::FromType::WINDOWS_1252);
     }
 
     mThread->start();

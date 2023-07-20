@@ -152,7 +152,7 @@ namespace OMW
         osg::ref_ptr<SceneUtil::AsyncScreenCaptureOperation> mScreenCaptureOperation;
         osg::ref_ptr<SceneUtil::SelectDepthFormatOperation> mSelectDepthFormatOperation;
         osg::ref_ptr<SceneUtil::Color::SelectColorFormatOperation> mSelectColorFormatOperation;
-        ESM::RefId mCellName;
+        std::string mCellName;
         std::vector<std::string> mContentFiles;
         std::vector<std::string> mGroundcoverFiles;
 
@@ -165,7 +165,7 @@ namespace OMW
         int mWarningsMode;
         std::string mFocusName;
         bool mScriptConsoleMode;
-        std::string mStartupScript;
+        std::filesystem::path mStartupScript;
         int mActivationDistanceOverride;
         std::filesystem::path mSaveGameFile;
         // Grab mouse?
@@ -177,7 +177,6 @@ namespace OMW
         std::unique_ptr<Compiler::Context> mScriptContext;
 
         Files::Collections mFileCollections;
-        bool mFSStrict;
         Translation::Storage mTranslationDataStorage;
         std::vector<ESM::RefId> mScriptBlacklist;
         bool mScriptBlacklistUse;
@@ -200,12 +199,6 @@ namespace OMW
     public:
         Engine(Files::ConfigurationManager& configurationManager);
         virtual ~Engine();
-
-        /// Enable strict filesystem mode (do not fold case)
-        ///
-        /// \attention The strict mode must be specified before any path-related settings
-        /// are given to the engine.
-        void enableFSStrict(bool fsStrict);
 
         /// Set data dirs
         void setDataDirs(const Files::PathContainer& dataDirs);
@@ -253,7 +246,7 @@ namespace OMW
         void setScriptConsoleMode(bool enabled);
 
         /// Set path for a script that is run on startup in the console.
-        void setStartupScript(const std::string& path);
+        void setStartupScript(const std::filesystem::path& path);
 
         /// Override the game setting specified activation distance.
         void setActivationDistanceOverride(int distance);

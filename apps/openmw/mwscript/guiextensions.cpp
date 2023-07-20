@@ -119,14 +119,13 @@ namespace MWScript
                 // "Will match complete or partial cells, so ShowMap, "Vivec" will show cells Vivec and Vivec, Fred's
                 // House as well." http://www.uesp.net/wiki/Tes3Mod:ShowMap
 
-                const MWWorld::Store<ESM::Cell>& cells
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Cell>();
+                const MWWorld::Store<ESM::Cell>& cells = MWBase::Environment::get().getESMStore()->get<ESM::Cell>();
 
                 MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
 
                 for (auto it = cells.extBegin(); it != cells.extEnd(); ++it)
                 {
-                    const auto& cellName = it->mName.getRefIdString();
+                    const auto& cellName = it->mName;
                     if (Misc::StringUtils::ciStartsWith(cellName, cell))
                         winMgr->addVisitedLocation(cellName, it->getGridX(), it->getGridY());
                 }
@@ -138,12 +137,11 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
-                const MWWorld::Store<ESM::Cell>& cells
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Cell>();
+                const MWWorld::Store<ESM::Cell>& cells = MWBase::Environment::get().getESMStore()->get<ESM::Cell>();
 
                 for (auto it = cells.extBegin(); it != cells.extEnd(); ++it)
                 {
-                    const std::string& name = it->mName.getRefIdString();
+                    const std::string& name = it->mName;
                     if (!name.empty())
                         MWBase::Environment::get().getWindowManager()->addVisitedLocation(
                             name, it->getGridX(), it->getGridY());

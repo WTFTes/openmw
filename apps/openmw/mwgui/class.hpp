@@ -1,6 +1,7 @@
 #ifndef MWGUI_CLASS_H
 #define MWGUI_CLASS_H
 
+#include <array>
 #include <memory>
 
 #include <MyGUI_EditBox.h>
@@ -32,7 +33,7 @@ namespace MWGui
         bool exit() override { return false; }
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate1<int> EventHandle_Int;
+        typedef MyGUI::delegates::MultiDelegate<int> EventHandle_Int;
 
         /** Event : Button was clicked.\n
             signature : void method(int index)\n
@@ -76,7 +77,7 @@ namespace MWGui
         bool exit() override { return false; }
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 
         /** Event : Back button clicked.\n
             signature : void method()\n
@@ -113,7 +114,7 @@ namespace MWGui
         bool exit() override { return false; }
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 
         /** Event : Back button clicked.\n
             signature : void method()\n
@@ -157,7 +158,7 @@ namespace MWGui
         ESM::Class::Specialization getSpecializationId() const { return mSpecializationId; }
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 
         /** Event : Cancel button clicked.\n
             signature : void method()\n
@@ -183,14 +184,14 @@ namespace MWGui
     {
     public:
         SelectAttributeDialog();
-        ~SelectAttributeDialog();
+        ~SelectAttributeDialog() override = default;
 
         bool exit() override;
 
         ESM::Attribute::AttributeID getAttributeId() const { return mAttributeId; }
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 
         /** Event : Cancel button clicked.\n
             signature : void method()\n
@@ -218,10 +219,10 @@ namespace MWGui
 
         bool exit() override;
 
-        ESM::Skill::SkillEnum getSkillId() const { return mSkillId; }
+        ESM::RefId getSkillId() const { return mSkillId; }
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 
         /** Event : Cancel button clicked.\n
             signature : void method()\n
@@ -238,11 +239,7 @@ namespace MWGui
         void onCancelClicked(MyGUI::Widget* _sender);
 
     private:
-        Widgets::MWSkillPtr mCombatSkill[9];
-        Widgets::MWSkillPtr mMagicSkill[9];
-        Widgets::MWSkillPtr mStealthSkill[9];
-
-        ESM::Skill::SkillEnum mSkillId;
+        ESM::RefId mSkillId;
     };
 
     class DescriptionDialog : public WindowModal
@@ -278,13 +275,13 @@ namespace MWGui
         std::string getDescription() const;
         ESM::Class::Specialization getSpecializationId() const;
         std::vector<int> getFavoriteAttributes() const;
-        std::vector<ESM::Skill::SkillEnum> getMajorSkills() const;
-        std::vector<ESM::Skill::SkillEnum> getMinorSkills() const;
+        std::vector<ESM::RefId> getMajorSkills() const;
+        std::vector<ESM::RefId> getMinorSkills() const;
 
         void setNextButtonShow(bool shown);
 
         // Events
-        typedef MyGUI::delegates::CMultiDelegate0 EventHandle_Void;
+        typedef MyGUI::delegates::MultiDelegate<> EventHandle_Void;
 
         /** Event : Back button clicked.\n
             signature : void method()\n
@@ -318,8 +315,8 @@ namespace MWGui
         MyGUI::EditBox* mEditName;
         MyGUI::TextBox* mSpecializationName;
         Widgets::MWAttributePtr mFavoriteAttribute0, mFavoriteAttribute1;
-        Widgets::MWSkillPtr mMajorSkill[5];
-        Widgets::MWSkillPtr mMinorSkill[5];
+        std::array<Widgets::MWSkillPtr, 5> mMajorSkill;
+        std::array<Widgets::MWSkillPtr, 5> mMinorSkill;
         std::vector<Widgets::MWSkillPtr> mSkills;
         std::string mDescription;
 

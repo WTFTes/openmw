@@ -23,9 +23,11 @@
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/esm3/loadrace.hpp>
+#include <components/esm4/loadligh.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/pathhelpers.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/sceneutil/lightcommon.hpp>
 
 #include <components/sceneutil/keyframe.hpp>
 
@@ -40,7 +42,7 @@
 #include <components/sceneutil/util.hpp>
 #include <components/sceneutil/visitor.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
@@ -557,7 +559,8 @@ namespace MWRender
             mResetAccumRootCallback->setAccumulate(mAccumulate);
     }
 
-    size_t Animation::detectBlendMask(const osg::Node* node) const
+    // controllerName is used for Collada animated deforming models
+    size_t Animation::detectBlendMask(const osg::Node* node, const std::string& controllerName) const
     {
         static const std::string_view sBlendMaskRoots[sNumBlendMasks] = {
             "", /* Lower body / character root */
@@ -571,7 +574,7 @@ namespace MWRender
             const std::string& name = node->getName();
             for (size_t i = 1; i < sNumBlendMasks; i++)
             {
-                if (name == sBlendMaskRoots[i])
+                if (name == sBlendMaskRoots[i] || controllerName == sBlendMaskRoots[i])
                     return i;
             }
 
@@ -608,13 +611,12 @@ namespace MWRender
     {
         std::string kfname = Misc::StringUtils::lowerCase(model);
 
-        if (kfname.size() > 4 && kfname.compare(kfname.size() - 4, 4, ".nif") == 0)
+        if (kfname.ends_with(".nif"))
             kfname.replace(kfname.size() - 4, 4, ".kf");
 
         addSingleAnimSource(kfname, baseModel);
 
-        static const bool useAdditionalSources = Settings::Manager::getBool("use additional anim sources", "Game");
-        if (useAdditionalSources)
+        if (Settings::game().mUseAdditionalAnimSources)
             loadAllAnimationsInFolder(kfname, baseModel);
     }
 
@@ -646,7 +648,7 @@ namespace MWRender
 
             osg::Node* node = found->second;
 
-            size_t blendMask = detectBlendMask(node);
+            size_t blendMask = detectBlendMask(node, it->second->getName());
 
             // clone the controller, because each Animation needs its own ControllerSource
             osg::ref_ptr<SceneUtil::KeyframeController> cloned
@@ -1385,11 +1387,10 @@ namespace MWRender
         mAccumRoot = nullptr;
         mAccumCtrl = nullptr;
 
-        static const bool useAdditionalSources = Settings::Manager::getBool("use additional anim sources", "Game");
         std::string defaultSkeleton;
         bool inject = false;
 
-        if (useAdditionalSources && mPtr.getClass().isActor())
+        if (Settings::game().mUseAdditionalAnimSources && mPtr.getClass().isActor())
         {
             if (isCreature)
             {
@@ -1410,7 +1411,7 @@ namespace MWRender
                     // given race and gender as well Since it is a quite rare case, there should not be a noticable
                     // performance loss Note: consider that player and werewolves have no custom animation files
                     // attached for now
-                    const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+                    const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
                     const ESM::Race* race = store.get<ESM::Race>().find(ref->mBase->mRace);
 
                     bool isBeast = (race->mData.mFlags & ESM::Race::Beast) != 0;
@@ -1489,11 +1490,6 @@ namespace MWRender
 
     void Animation::addSpellCastGlow(const ESM::MagicEffect* effect, float glowDuration)
     {
-        osg::Vec4f glowColor(1, 1, 1, 1);
-        glowColor.x() = effect->mData.mRed / 255.f;
-        glowColor.y() = effect->mData.mGreen / 255.f;
-        glowColor.z() = effect->mData.mBlue / 255.f;
-
         if (!mGlowUpdater || (mGlowUpdater->isDone() || (mGlowUpdater->isPermanentGlowUpdater() == true)))
         {
             if (mGlowUpdater && mGlowUpdater->isDone())
@@ -1501,15 +1497,16 @@ namespace MWRender
 
             if (mGlowUpdater && mGlowUpdater->isPermanentGlowUpdater())
             {
-                mGlowUpdater->setColor(glowColor);
+                mGlowUpdater->setColor(effect->getColor());
                 mGlowUpdater->setDuration(glowDuration);
             }
             else
-                mGlowUpdater = SceneUtil::addEnchantedGlow(mObjectRoot, mResourceSystem, glowColor, glowDuration);
+                mGlowUpdater
+                    = SceneUtil::addEnchantedGlow(mObjectRoot, mResourceSystem, effect->getColor(), glowDuration);
         }
     }
 
-    void Animation::addExtraLight(osg::ref_ptr<osg::Group> parent, const ESM::Light* esmLight)
+    void Animation::addExtraLight(osg::ref_ptr<osg::Group> parent, const SceneUtil::LightCommon& esmLight)
     {
         bool exterior = mPtr.isInCell() && mPtr.getCell()->getCell()->isExterior();
 
@@ -1853,7 +1850,9 @@ namespace MWRender
                     mObjectRoot, mResourceSystem, ptr.getClass().getEnchantmentColor(ptr));
         }
         if (ptr.getType() == ESM::Light::sRecordId && allowLight)
-            addExtraLight(getOrCreateObjectRoot(), ptr.get<ESM::Light>()->mBase);
+            addExtraLight(getOrCreateObjectRoot(), SceneUtil::LightCommon(*ptr.get<ESM::Light>()->mBase));
+        if (ptr.getType() == ESM4::Light::sRecordId && allowLight)
+            addExtraLight(getOrCreateObjectRoot(), SceneUtil::LightCommon(*ptr.get<ESM4::Light>()->mBase));
 
         if (!allowLight && mObjectRoot)
         {
@@ -1862,8 +1861,7 @@ namespace MWRender
             visitor.remove();
         }
 
-        if (Settings::Manager::getBool("day night switches", "Game")
-            && SceneUtil::hasUserDescription(mObjectRoot, Constants::NightDayLabel))
+        if (Settings::game().mDayNightSwitches && SceneUtil::hasUserDescription(mObjectRoot, Constants::NightDayLabel))
         {
             AddSwitchCallbacksVisitor visitor;
             mObjectRoot->accept(visitor);

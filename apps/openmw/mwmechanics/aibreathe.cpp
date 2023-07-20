@@ -1,7 +1,6 @@
 #include "aibreathe.hpp"
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -14,12 +13,8 @@
 bool MWMechanics::AiBreathe::execute(
     const MWWorld::Ptr& actor, CharacterController& characterController, AiState& state, float duration)
 {
-    static const float fHoldBreathTime = MWBase::Environment::get()
-                                             .getWorld()
-                                             ->getStore()
-                                             .get<ESM::GameSetting>()
-                                             .find("fHoldBreathTime")
-                                             ->mValue.getFloat();
+    static const float fHoldBreathTime
+        = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>().find("fHoldBreathTime")->mValue.getFloat();
 
     const MWWorld::Class& actorClass = actor.getClass();
     if (actorClass.isNpc())

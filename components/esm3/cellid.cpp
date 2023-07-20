@@ -2,15 +2,14 @@
 
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
+#include <components/misc/algorithm.hpp>
 
 namespace ESM
 {
 
-    const ESM::RefId CellId::sDefaultWorldspace = ESM::RefId::stringRefId("sys::default");
-
     void CellId::load(ESMReader& esm)
     {
-        mWorldspace = ESM::RefId::stringRefId(esm.getHNString("SPAC"));
+        mWorldspace = esm.getHNString("SPAC");
 
         if (esm.isNextSub("CIDX"))
         {
@@ -18,15 +17,59 @@ namespace ESM
             mPaged = true;
         }
         else
+        {
             mPaged = false;
+            mIndex.mX = 0;
+            mIndex.mY = 0;
+        }
     }
 
     void CellId::save(ESMWriter& esm) const
     {
-        esm.writeHNString("SPAC", mWorldspace.getRefIdString());
+        esm.writeHNString("SPAC", mWorldspace);
 
         if (mPaged)
             esm.writeHNT("CIDX", mIndex, 8);
+    }
+
+    struct VisitCellRefId
+    {
+        CellId operator()(const ESM::EmptyRefId)
+        {
+            CellId out;
+            out.mPaged = true;
+            out.mIndex = {};
+            return out;
+        }
+
+        CellId operator()(const ESM::StringRefId& id)
+        {
+            CellId out;
+            out.mPaged = false;
+            out.mWorldspace = id.getValue();
+            out.mIndex = { 0, 0 };
+            return out;
+        }
+        CellId operator()(const ESM::ESM3ExteriorCellRefId& id)
+        {
+            CellId out;
+            out.mPaged = true;
+            out.mIndex = { id.getX(), id.getY() };
+            return out;
+        }
+
+        template <typename T>
+        CellId operator()(const T& id)
+        {
+            throw std::runtime_error("cannot extract CellId from this Id type");
+        }
+    };
+
+    CellId CellId::extractFromRefId(const ESM::RefId& id)
+    {
+        // This is bad and that code should not be merged.
+
+        return visit(VisitCellRefId(), id);
     }
 
     bool operator==(const CellId& left, const CellId& right)

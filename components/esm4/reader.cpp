@@ -22,40 +22,133 @@
 */
 #include "reader.hpp"
 
-#ifdef NDEBUG // FIXME: debugging only
-#undef NDEBUG
-#endif
-
 #undef DEBUG_GROUPSTACK
 
-#include <cassert>
-#include <iomanip> // for debugging
-#include <iostream> // for debugging
-#include <sstream> // for debugging
+#include <algorithm>
+#include <iomanip>
+#include <iostream>
+#include <optional>
+#include <span>
+#include <sstream>
 #include <stdexcept>
-#include <unordered_map>
 
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4706)
-#include <boost/iostreams/filter/zlib.hpp>
-#pragma warning(pop)
-#else
-#include <boost/iostreams/filter/zlib.hpp>
-#endif
-#include <boost/iostreams/copy.hpp>
-#include <boost/iostreams/filtering_streambuf.hpp>
+#include <zlib.h>
 
 #include <components/bsa/memorystream.hpp>
+#include <components/debug/debuglog.hpp>
 #include <components/files/constrainedfilestream.hpp>
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/lower.hpp>
 #include <components/to_utf8/to_utf8.hpp>
 
 #include "formid.hpp"
+#include "grouptype.hpp"
 
 namespace ESM4
 {
+    namespace
+    {
+        std::u8string_view getStringsSuffix(LocalizedStringType type)
+        {
+            switch (type)
+            {
+                case LocalizedStringType::Strings:
+                    return u8"_English.STRINGS";
+                case LocalizedStringType::ILStrings:
+                    return u8"_English.ILSTRINGS";
+                case LocalizedStringType::DLStrings:
+                    return u8"_English.DLSTRINGS";
+            }
+
+            throw std::logic_error("Unsupported LocalizedStringType: " + std::to_string(static_cast<int>(type)));
+        }
+
+        struct InflateEnd
+        {
+            void operator()(z_stream* stream) const { inflateEnd(stream); }
+        };
+
+        std::optional<std::string> tryDecompressAll(std::span<char> compressed, std::span<char> decompressed)
+        {
+            z_stream stream{};
+
+            stream.next_in = reinterpret_cast<Bytef*>(compressed.data());
+            stream.next_out = reinterpret_cast<Bytef*>(decompressed.data());
+            stream.avail_in = compressed.size();
+            stream.avail_out = decompressed.size();
+
+            if (const int ec = inflateInit(&stream); ec != Z_OK)
+                return "inflateInit error: " + std::to_string(ec) + " " + std::string(stream.msg);
+
+            const std::unique_ptr<z_stream, InflateEnd> streamPtr(&stream);
+
+            if (const int ec = inflate(&stream, Z_NO_FLUSH); ec != Z_STREAM_END)
+                return "inflate error: " + std::to_string(ec) + " " + std::string(stream.msg);
+
+            return std::nullopt;
+        }
+
+        std::optional<std::string> tryDecompressByBlock(
+            std::span<char> compressed, std::span<char> decompressed, std::size_t blockSize)
+        {
+            z_stream stream{};
+
+            if (const int ec = inflateInit(&stream); ec != Z_OK)
+                return "inflateInit error: " + std::to_string(ec) + " " + std::string(stream.msg);
+
+            const std::unique_ptr<z_stream, InflateEnd> streamPtr(&stream);
+
+            while (!compressed.empty() && !decompressed.empty())
+            {
+                const auto prevTotalIn = stream.total_in;
+                const auto prevTotalOut = stream.total_out;
+                stream.next_in = reinterpret_cast<Bytef*>(compressed.data());
+                stream.avail_in = std::min(blockSize, compressed.size());
+                stream.next_out = reinterpret_cast<Bytef*>(decompressed.data());
+                stream.avail_out = std::min(blockSize, decompressed.size());
+                const int ec = inflate(&stream, Z_NO_FLUSH);
+                if (ec == Z_STREAM_END)
+                    break;
+                if (ec != Z_OK)
+                    return "inflate error after reading " + std::to_string(stream.total_in)
+                        + " bytes: " + std::to_string(ec) + " " + std::string(stream.msg);
+                compressed = compressed.subspan(stream.total_in - prevTotalIn);
+                decompressed = decompressed.subspan(stream.total_out - prevTotalOut);
+            }
+
+            return std::nullopt;
+        }
+
+        std::unique_ptr<Bsa::MemoryInputStream> decompress(
+            std::streamoff position, std::span<char> compressed, std::uint32_t uncompressedSize)
+        {
+            auto result = std::make_unique<Bsa::MemoryInputStream>(uncompressedSize);
+
+            const std::span decompressed(result->getRawData(), uncompressedSize);
+
+            const auto allError = tryDecompressAll(compressed, decompressed);
+            if (!allError.has_value())
+                return result;
+
+            Log(Debug::Warning) << "Failed to decompress record data at 0x" << std::hex << position
+                                << std::resetiosflags(std::ios_base::hex) << " compressed size = " << compressed.size()
+                                << " uncompressed size = " << uncompressedSize << ": " << *allError
+                                << ". Trying to decompress by block...";
+
+            std::memset(result->getRawData(), 0, uncompressedSize);
+
+            constexpr std::size_t blockSize = 4;
+            const auto blockError = tryDecompressByBlock(compressed, decompressed, blockSize);
+            if (!blockError.has_value())
+                return result;
+
+            std::ostringstream s;
+            s << "Failed to decompress record data by block of " << blockSize << " bytes at 0x" << std::hex << position
+              << std::resetiosflags(std::ios_base::hex) << " compressed size = " << compressed.size()
+              << " uncompressed size = " << uncompressedSize << ": " << *blockError;
+            throw std::runtime_error(s.str());
+        }
+    }
 
     ReaderContext::ReaderContext()
         : modIndex(0)
@@ -63,21 +156,22 @@ namespace ESM4
         , filePos(0)
         , fileRead(0)
         , recordRead(0)
-        , currWorld(0)
-        , currCell(0)
+        , currWorld({ 0, 0 })
+        , currCell({ 0, 0 })
+        , currCellGrid(FormId{ 0, 0 })
         , cellGridValid(false)
     {
-        currCellGrid.cellId = 0;
-        currCellGrid.grid.x = 0;
-        currCellGrid.grid.y = 0;
         subRecordHeader.typeId = 0;
         subRecordHeader.dataSize = 0;
     }
 
-    Reader::Reader(Files::IStreamPtr&& esmStream, const std::filesystem::path& filename)
-        : mEncoder(nullptr)
+    Reader::Reader(Files::IStreamPtr&& esmStream, const std::filesystem::path& filename, VFS::Manager const* vfs,
+        const ToUTF8::StatelessUtf8Encoder* encoder, bool ignoreMissingLocalizedStrings)
+        : mVFS(vfs)
+        , mEncoder(encoder)
         , mFileSize(0)
         , mStream(std::move(esmStream))
+        , mIgnoreMissingLocalizedStrings(ignoreMissingLocalizedStrings)
     {
         // used by ESMReader only?
         mCtx.filename = filename;
@@ -133,6 +227,8 @@ namespace ESM4
     ReaderContext Reader::getContext()
     {
         mCtx.filePos = mStream->tellg();
+        if (mCtx.filePos == std::streampos(-1))
+            return mCtx;
         mCtx.filePos -= mCtx.recHeaderSize; // update file position
         return mCtx;
     }
@@ -176,7 +272,8 @@ namespace ESM4
         openRaw(std::move(stream), filename);
 
         // should at least have the size of ESM3 record header (20 or 24 bytes for ESM4)
-        assert(mFileSize >= 16);
+        if (mFileSize < 16)
+            throw std::runtime_error("File too small");
         std::uint32_t modVer = 0;
         if (getExact(modVer)) // get the first 4 bytes of the record header only
         {
@@ -207,56 +304,136 @@ namespace ESM4
         if ((mHeader.mFlags & Rec_ESM) == 0 || (mHeader.mFlags & Rec_Localized) == 0)
             return;
 
-        const auto filename = mCtx.filename.stem().filename().u8string();
+        const std::u8string prefix = mCtx.filename.stem().filename().u8string();
 
-        static const std::filesystem::path s("Strings");
-        buildLStringIndex(s / (filename + u8"_English.STRINGS"), Type_Strings);
-        buildLStringIndex(s / (filename + u8"_English.ILSTRINGS"), Type_ILStrings);
-        buildLStringIndex(s / (filename + u8"_English.DLSTRINGS"), Type_DLStrings);
+        buildLStringIndex(LocalizedStringType::Strings, prefix);
+        buildLStringIndex(LocalizedStringType::ILStrings, prefix);
+        buildLStringIndex(LocalizedStringType::DLStrings, prefix);
     }
 
-    void Reader::buildLStringIndex(const std::filesystem::path& stringFile, LocalizedStringType stringType)
+    void Reader::buildLStringIndex(LocalizedStringType stringType, const std::u8string& prefix)
     {
-        std::uint32_t numEntries;
-        std::uint32_t dataSize;
-        std::uint32_t stringId;
-        LStringOffset sp;
-        sp.type = stringType;
+        static const std::filesystem::path strings("Strings");
+        const std::u8string suffix(getStringsSuffix(stringType));
+        std::filesystem::path path = strings / (prefix + suffix);
 
-        // TODO: possibly check if the resource exists?
-        Files::IStreamPtr filestream = Files::openConstrainedFileStream(stringFile);
-
-        filestream->seekg(0, std::ios::end);
-        std::size_t fileSize = filestream->tellg();
-        filestream->seekg(0, std::ios::beg);
-
-        std::istream* stream = filestream.get();
-        switch (stringType)
+        if (mVFS != nullptr)
         {
-            case Type_Strings:
-                mStrings = std::move(filestream);
-                break;
-            case Type_ILStrings:
-                mILStrings = std::move(filestream);
-                break;
-            case Type_DLStrings:
-                mDLStrings = std::move(filestream);
-                break;
-            default:
-                throw std::runtime_error("ESM4::Reader::unknown localised string type");
+            const std::string vfsPath = Files::pathToUnicodeString(path);
+
+            if (mIgnoreMissingLocalizedStrings && !mVFS->exists(vfsPath))
+            {
+                Log(Debug::Warning) << "Ignore missing VFS strings file: " << vfsPath;
+                return;
+            }
+
+            const Files::IStreamPtr stream = mVFS->get(vfsPath);
+            buildLStringIndex(stringType, *stream);
+            return;
         }
 
-        stream->read((char*)&numEntries, sizeof(numEntries));
-        stream->read((char*)&dataSize, sizeof(dataSize));
-        std::size_t dataStart = fileSize - dataSize;
-        for (unsigned int i = 0; i < numEntries; ++i)
+        const std::filesystem::path fsPath = mCtx.filename.parent_path() / path;
+
+        if (mIgnoreMissingLocalizedStrings && !std::filesystem::exists(fsPath))
         {
-            stream->read((char*)&stringId, sizeof(stringId));
-            stream->read((char*)&sp.offset, sizeof(sp.offset));
-            sp.offset += (std::uint32_t)dataStart;
-            mLStringIndex[stringId] = sp;
+            Log(Debug::Warning) << "Ignore missing strings file: " << fsPath;
+            return;
         }
-        // assert (dataStart - stream->tell() == 0 && "String file start of data section mismatch");
+
+        const Files::IStreamPtr stream = Files::openConstrainedFileStream(fsPath);
+        buildLStringIndex(stringType, *stream);
+    }
+
+    void Reader::buildLStringIndex(LocalizedStringType stringType, std::istream& stream)
+    {
+        stream.seekg(0, std::ios::end);
+        const std::istream::pos_type fileSize = stream.tellg();
+        stream.seekg(0, std::ios::beg);
+
+        std::uint32_t numEntries = 0;
+        stream.read(reinterpret_cast<char*>(&numEntries), sizeof(numEntries));
+
+        std::uint32_t dataSize = 0;
+        stream.read(reinterpret_cast<char*>(&dataSize), sizeof(dataSize));
+
+        const std::istream::pos_type dataStart = fileSize - static_cast<std::istream::pos_type>(dataSize);
+
+        struct LocalizedString
+        {
+            std::uint32_t mOffset = 0;
+            std::uint32_t mStringId = 0;
+        };
+
+        std::vector<LocalizedString> strings;
+        strings.reserve(numEntries);
+
+        for (std::uint32_t i = 0; i < numEntries; ++i)
+        {
+            LocalizedString string;
+
+            stream.read(reinterpret_cast<char*>(&string.mStringId), sizeof(string.mStringId));
+            stream.read(reinterpret_cast<char*>(&string.mOffset), sizeof(string.mOffset));
+
+            strings.push_back(string);
+        }
+
+        std::sort(strings.begin(), strings.end(),
+            [](const LocalizedString& l, const LocalizedString& r) { return l.mOffset < r.mOffset; });
+
+        std::uint32_t lastOffset = 0;
+        std::string_view lastValue;
+
+        for (const LocalizedString& string : strings)
+        {
+            if (string.mOffset == lastOffset)
+            {
+                mLStringIndex.emplace(FormId::fromUint32(string.mStringId), lastValue);
+                continue;
+            }
+
+            const std::istream::pos_type offset = string.mOffset + dataStart;
+            const std::istream::pos_type pos = stream.tellg();
+            if (pos != offset)
+            {
+                char buffer[4096];
+                if (pos < offset && offset - pos < static_cast<std::istream::pos_type>(sizeof(buffer)))
+                    stream.read(buffer, offset - pos);
+                else
+                    stream.seekg(offset);
+            }
+
+            const auto it
+                = mLStringIndex.emplace(FormId::fromUint32(string.mStringId), readLocalizedString(stringType, stream))
+                      .first;
+            lastOffset = string.mOffset;
+            lastValue = it->second;
+        }
+    }
+
+    std::string Reader::readLocalizedString(LocalizedStringType type, std::istream& stream)
+    {
+        if (type == LocalizedStringType::Strings)
+        {
+            std::string data;
+
+            while (true)
+            {
+                char ch = 0;
+                stream.read(&ch, sizeof(ch));
+                if (ch == 0)
+                    break;
+                data.push_back(ch);
+            }
+
+            return data;
+        }
+
+        std::uint32_t size = 0;
+        stream.read(reinterpret_cast<char*>(&size), sizeof(size));
+
+        std::string result;
+        getStringImpl(result, size, stream, true); // expect null terminated string
+        return result;
     }
 
     void Reader::getLocalizedString(std::string& str)
@@ -267,54 +444,23 @@ namespace ESM4
         std::uint32_t stringId; // FormId
         get(stringId);
         if (stringId) // TES5 FoxRace, BOOK
-            getLocalizedStringImpl(stringId, str);
+            getLocalizedStringImpl(FormId::fromUint32(stringId), str);
     }
 
     // FIXME: very messy and probably slow/inefficient
     void Reader::getLocalizedStringImpl(const FormId stringId, std::string& str)
     {
-        const std::map<FormId, LStringOffset>::const_iterator it = mLStringIndex.find(stringId);
+        const auto it = mLStringIndex.find(stringId);
 
-        if (it != mLStringIndex.end())
+        if (it == mLStringIndex.end())
         {
-            std::istream* filestream = nullptr;
-
-            switch (it->second.type)
-            {
-                case Type_Strings: // no string size provided
-                {
-                    filestream = mStrings.get();
-                    filestream->seekg(it->second.offset);
-
-                    char ch;
-                    std::vector<char> data;
-                    do
-                    {
-                        filestream->read(&ch, sizeof(ch));
-                        data.push_back(ch);
-                    } while (ch != 0);
-
-                    str = std::string(data.data());
-                    return;
-                }
-                case Type_ILStrings:
-                    filestream = mILStrings.get();
-                    break;
-                case Type_DLStrings:
-                    filestream = mDLStrings.get();
-                    break;
-                default:
-                    throw std::runtime_error("ESM4::Reader::getLocalizedString unknown string type");
-            }
-
-            // get ILStrings or DLStrings (they provide string size)
-            filestream->seekg(it->second.offset);
-            std::uint32_t size = 0;
-            filestream->read((char*)&size, sizeof(size));
-            getStringImpl(str, size, *filestream, mEncoder, true); // expect null terminated string
+            if (mIgnoreMissingLocalizedStrings)
+                return;
+            throw std::runtime_error(
+                "ESM4::Reader::getLocalizedString localized string not found for " + formIdToString(stringId));
         }
-        else
-            throw std::runtime_error("ESM4::Reader::getLocalizedString localized string not found");
+
+        str = it->second;
     }
 
     bool Reader::getRecordHeader()
@@ -357,25 +503,19 @@ namespace ESM4
         {
             mStream->read(reinterpret_cast<char*>(&uncompressedSize), sizeof(std::uint32_t));
 
-            std::size_t recordSize = mCtx.recordHeader.record.dataSize - sizeof(std::uint32_t);
-            Bsa::MemoryInputStream compressedRecord(recordSize);
-            mStream->read(compressedRecord.getRawData(), recordSize);
-            std::istream* fileStream = (std::istream*)&compressedRecord;
+            const std::streamoff position = mStream->tellg();
+
+            const std::uint32_t recordSize = mCtx.recordHeader.record.dataSize - sizeof(std::uint32_t);
+            std::vector<char> compressed(recordSize);
+            mStream->read(compressed.data(), recordSize);
             mSavedStream = std::move(mStream);
 
             mCtx.recordHeader.record.dataSize = uncompressedSize - sizeof(uncompressedSize);
 
-            auto memoryStreamPtr = std::make_unique<Bsa::MemoryInputStream>(uncompressedSize);
-
-            boost::iostreams::filtering_streambuf<boost::iostreams::input> inputStreamBuf;
-            inputStreamBuf.push(boost::iostreams::zlib_decompressor());
-            inputStreamBuf.push(*fileStream);
-
-            boost::iostreams::basic_array_sink<char> sr(memoryStreamPtr->getRawData(), uncompressedSize);
-            boost::iostreams::copy(inputStreamBuf, sr);
+            auto memoryStreamPtr = decompress(position, compressed, uncompressedSize);
 
             // For debugging only
-            //#if 0
+            // #if 0
             if (dump)
             {
                 std::ostringstream ss;
@@ -393,14 +533,15 @@ namespace ESM4
                 }
                 std::cout << ss.str() << std::endl;
             }
-            //#endif
+            // #endif
             mStream = std::make_unique<Files::StreamWithBuffer<Bsa::MemoryInputStream>>(std::move(memoryStreamPtr));
         }
     }
 
     void Reader::skipRecordData()
     {
-        assert(mCtx.recordRead <= mCtx.recordHeader.record.dataSize && "Skipping after reading more than available");
+        if (mCtx.recordRead > mCtx.recordHeader.record.dataSize)
+            throw std::runtime_error("Skipping after reading more than available");
         mStream->ignore(mCtx.recordHeader.record.dataSize - mCtx.recordRead);
         mCtx.recordRead = mCtx.recordHeader.record.dataSize; // for getSubRecordHeader()
     }
@@ -510,12 +651,14 @@ namespace ESM4
             mCtx.groupStack.back().second += lastGroupSize;
             lastGroupSize = mCtx.groupStack.back().first.groupSize;
 
-            assert(lastGroupSize >= mCtx.groupStack.back().second && "Read more records than available");
-            //#if 0
+            if (lastGroupSize < mCtx.groupStack.back().second)
+                throw std::runtime_error("Read more records than available");
+
+            // #if 0
             if (mCtx.groupStack.back().second > lastGroupSize) // FIXME: debugging only
                 std::cerr << printLabel(mCtx.groupStack.back().first.label, mCtx.groupStack.back().first.type)
                           << " read more records than available" << std::endl;
-            //#endif
+            // #endif
         }
     }
 
@@ -523,14 +666,18 @@ namespace ESM4
     // else the method may try to dereference an element that does not exist
     const GroupTypeHeader& Reader::grp(std::size_t pos) const
     {
-        assert(pos <= mCtx.groupStack.size() - 1 && "ESM4::Reader::grp - exceeded stack depth");
+        if (mCtx.groupStack.size() == 0)
+            throw std::runtime_error("ESM4::Reader::grp mCtx.groupStack.size is zero");
+        if (pos > mCtx.groupStack.size() - 1)
+            throw std::runtime_error("ESM4::Reader::grp - exceeded stack depth");
 
         return (*(mCtx.groupStack.end() - pos - 1)).first;
     }
 
     void Reader::skipGroupData()
     {
-        assert(!mCtx.groupStack.empty() && "Skipping group with an empty stack");
+        if (mCtx.groupStack.empty())
+            throw std::runtime_error("Skipping group with an empty stack");
 
         // subtract what was already read/skipped
         std::uint32_t skipSize = mCtx.groupStack.back().first.groupSize - mCtx.groupStack.back().second;
@@ -565,47 +712,25 @@ namespace ESM4
 
     const CellGrid& Reader::currCellGrid() const
     {
-        // Maybe should throw an exception instead?
-        assert(mCtx.cellGridValid && "Attempt to use an invalid cell grid");
+        if (!mCtx.cellGridValid)
+            throw std::runtime_error("Attempt to use an invalid cell grid");
 
         return mCtx.currCellGrid;
     }
 
-    // NOTE: the parameter 'files' must have the file names in the loaded order
-    void Reader::updateModIndices(const std::vector<std::string>& files)
+    void Reader::updateModIndices(const std::map<std::string, int>& fileToModIndex)
     {
-        if (files.size() >= 0xff)
-            throw std::runtime_error("ESM4::Reader::updateModIndices too many files"); // 0xff is reserved
-
-        // NOTE: this map is rebuilt each time this method is called (i.e. each time a file is loaded)
-        // Perhaps there is an opportunity to optimize this by saving the result somewhere.
-        // But then, the number of files is at most around 250 so perhaps keeping it simple might be better.
-
-        // build a lookup map
-        std::unordered_map<std::string, size_t> fileIndex;
-
-        for (size_t i = 0; i < files.size(); ++i) // ATTENTION: assumes current file is not included
-            fileIndex[Misc::StringUtils::lowerCase(files[i])] = i;
-
         mCtx.parentFileIndices.resize(mHeader.mMaster.size());
         for (unsigned int i = 0; i < mHeader.mMaster.size(); ++i)
         {
             // locate the position of the dependency in already loaded files
-            std::unordered_map<std::string, size_t>::const_iterator it
-                = fileIndex.find(Misc::StringUtils::lowerCase(mHeader.mMaster[i].name));
-
-            if (it != fileIndex.end())
-                mCtx.parentFileIndices[i] = (std::uint32_t)((it->second << 24) & 0xff000000);
+            auto it = fileToModIndex.find(Misc::StringUtils::lowerCase(mHeader.mMaster[i].name));
+            if (it != fileToModIndex.end())
+                mCtx.parentFileIndices[i] = it->second;
             else
-                throw std::runtime_error("ESM4::Reader::updateModIndices required dependency file not loaded");
-#if 0
-        std::cout << "Master Mod: " << mCtx.header.mMaster[i].name << ", " // FIXME: debugging only
-                  << formIdToString(mCtx.parentFileIndices[i]) << std::endl;
-#endif
+                throw std::runtime_error(
+                    "ESM4::Reader::updateModIndices required dependency '" + mHeader.mMaster[i].name + "' not found");
         }
-
-        if (!mCtx.parentFileIndices.empty() && mCtx.parentFileIndices[0] != 0)
-            throw std::runtime_error("ESM4::Reader::updateModIndices base modIndex is not zero");
     }
 
     // ModIndex adjusted formId according to master file dependencies
@@ -618,26 +743,37 @@ namespace ESM4
     // FIXME: Apparently ModIndex '00' in an ESP means the object is defined in one of its masters.
     //        This means we may need to search multiple times to get the correct id.
     //        (see https://www.uesp.net/wiki/Tes4Mod:Formid#ModIndex_Zero)
-    void Reader::adjustFormId(FormId& id)
+    void Reader::adjustFormId(FormId& id) const
     {
-        if (mCtx.parentFileIndices.empty())
-            return;
-
-        std::size_t index = (id >> 24) & 0xff;
-
-        if (index < mCtx.parentFileIndices.size())
-            id = mCtx.parentFileIndices[index] | (id & 0x00ffffff);
+        if (id.hasContentFile() && id.mContentFile < static_cast<int>(mCtx.parentFileIndices.size()))
+            id.mContentFile = mCtx.parentFileIndices[id.mContentFile];
         else
-            id = mCtx.modIndex | (id & 0x00ffffff);
+            id.mContentFile = mCtx.modIndex;
+    }
+
+    void Reader::adjustFormId(FormId32& id) const
+    {
+        FormId formId = FormId::fromUint32(id);
+        adjustFormId(formId);
+        id = formId.toUint32();
     }
 
     bool Reader::getFormId(FormId& id)
     {
-        if (!getExact(id))
+        FormId32 v;
+        if (!getExact(v))
             return false;
+        id = FormId::fromUint32(v);
 
         adjustFormId(id);
         return true;
+    }
+
+    ESM::FormIdRefId Reader::getRefIdFromHeader() const
+    {
+        FormId formId = hdr().record.getFormId();
+        adjustFormId(formId);
+        return ESM::FormIdRefId(formId);
     }
 
     void Reader::adjustGRUPFormId()
@@ -659,19 +795,18 @@ namespace ESM4
         throw std::runtime_error(ss.str());
     }
 
-    bool Reader::getStringImpl(std::string& str, std::size_t size, std::istream& stream,
-        const ToUTF8::StatelessUtf8Encoder* encoder, bool hasNull)
+    bool Reader::getStringImpl(std::string& str, std::size_t size, std::istream& stream, bool hasNull)
     {
         std::size_t newSize = size;
 
-        if (encoder)
+        if (mEncoder != nullptr)
         {
             std::string input(size, '\0');
             stream.read(input.data(), size);
             if (stream.gcount() == static_cast<std::streamsize>(size))
             {
                 const std::string_view result
-                    = encoder->getUtf8(input, ToUTF8::BufferAllocationPolicy::FitToRequiredSize, str);
+                    = mEncoder->getUtf8(input, ToUTF8::BufferAllocationPolicy::FitToRequiredSize, str);
                 if (str.empty() && !result.empty())
                 {
                     str = std::move(input);
@@ -693,7 +828,8 @@ namespace ESM4
                 {
                     char ch;
                     stream.read(&ch, 1); // read the null terminator
-                    assert(ch == '\0' && "ESM4::Reader::getString string is not terminated with a null");
+                    if (ch != '\0')
+                        throw std::runtime_error("ESM4::Reader::getString string is not terminated with a null");
                 }
 #if 0
             else
@@ -737,4 +873,66 @@ namespace ESM4
         return true;
     }
 
+    namespace
+    {
+        constexpr std::string_view sGroupType[] = {
+            "Record Type",
+            "World Child",
+            "Interior Cell",
+            "Interior Sub Cell",
+            "Exterior Cell",
+            "Exterior Sub Cell",
+            "Cell Child",
+            "Topic Child",
+            "Cell Persistent Child",
+            "Cell Temporary Child",
+            "Cell Visible Dist Child",
+            "Unknown",
+        };
+    }
+
+    std::string printLabel(const GroupLabel& label, const std::uint32_t type)
+    {
+        std::ostringstream ss;
+        ss << sGroupType[std::min<std::size_t>(type, std::size(sGroupType))]; // avoid out of range
+
+        switch (type)
+        {
+            case ESM4::Grp_RecordType:
+            {
+                ss << ": " << std::string((char*)label.recordType, 4);
+                break;
+            }
+            case ESM4::Grp_ExteriorCell:
+            case ESM4::Grp_ExteriorSubCell:
+            {
+                // short x, y;
+                // y = label & 0xff;
+                // x = (label >> 16) & 0xff;
+                ss << ": grid (x, y) " << std::dec << label.grid[1] << ", " << label.grid[0];
+
+                break;
+            }
+            case ESM4::Grp_InteriorCell:
+            case ESM4::Grp_InteriorSubCell:
+            {
+                ss << ": block 0x" << std::hex << label.value;
+                break;
+            }
+            case ESM4::Grp_WorldChild:
+            case ESM4::Grp_CellChild:
+            case ESM4::Grp_TopicChild:
+            case ESM4::Grp_CellPersistentChild:
+            case ESM4::Grp_CellTemporaryChild:
+            case ESM4::Grp_CellVisibleDistChild:
+            {
+                ss << ": FormId 0x" << formIdToString(FormId::fromUint32(label.value));
+                break;
+            }
+            default:
+                break;
+        }
+
+        return ss.str();
+    }
 }

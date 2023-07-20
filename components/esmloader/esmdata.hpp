@@ -3,6 +3,7 @@
 
 #include <components/esm/defs.hpp>
 #include <components/esm/refid.hpp>
+
 #include <string_view>
 #include <vector>
 
@@ -16,7 +17,7 @@ namespace ESM
     struct Land;
     struct Static;
     class Variant;
-    struct RefId;
+    class RefId;
 }
 
 namespace EsmLoader
@@ -47,7 +48,7 @@ namespace EsmLoader
 
     std::string_view getModel(const EsmData& content, const ESM::RefId& refId, ESM::RecNameInts type);
 
-    ESM::Variant getGameSetting(const std::vector<ESM::GameSetting>& records, const ESM::RefId& id);
+    ESM::Variant getGameSetting(const std::vector<ESM::GameSetting>& records, std::string_view id);
 }
 
 #endif

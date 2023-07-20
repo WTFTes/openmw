@@ -114,7 +114,7 @@ namespace MWRender
             * osg::Quat(actor.getRefData().getPosition().rot[2], osg::Vec3f(0, 0, -1));
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         MWMechanics::applyFatigueLoss(actor, *weapon, attackStrength);
 
@@ -140,7 +140,7 @@ namespace MWRender
 
             showWeapon(false);
 
-            inv.remove(*weapon, 1, actor);
+            inv.remove(*weapon, 1);
         }
         else
         {
@@ -167,7 +167,7 @@ namespace MWRender
             MWBase::Environment::get().getWorld()->launchProjectile(
                 actor, ammoPtr, launchPos, orient, weaponPtr, speed, attackStrength);
 
-            inv.remove(ammoPtr, 1, actor);
+            inv.remove(ammoPtr, 1);
             mAmmunition.reset();
         }
     }

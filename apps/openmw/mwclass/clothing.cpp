@@ -8,7 +8,6 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/actionequip.hpp"
 #include "../mwworld/cellstore.hpp"
@@ -58,7 +57,7 @@ namespace MWClass
         return defaultItemActivate(ptr, actor);
     }
 
-    const ESM::RefId& Clothing::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Clothing::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
 
@@ -101,14 +100,14 @@ namespace MWClass
         return std::make_pair(slots_, false);
     }
 
-    int Clothing::getEquipmentSkill(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Clothing::getEquipmentSkill(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
 
         if (ref->mBase->mData.mType == ESM::Clothing::Shoes)
             return ESM::Skill::Unarmored;
 
-        return -1;
+        return {};
     }
 
     int Clothing::getValue(const MWWorld::ConstPtr& ptr) const
@@ -123,7 +122,7 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
         static const ESM::RefId ringUp = ESM::RefId::stringRefId("Item Ring Up");
         static const ESM::RefId clothsUp = ESM::RefId::stringRefId("Item Clothes Up");
-        if (ref->mBase->mData.mType == 8)
+        if (ref->mBase->mData.mType == ESM::Clothing::Ring)
         {
             return ringUp;
         }
@@ -135,7 +134,7 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
         static const ESM::RefId ringDown = ESM::RefId::stringRefId("Item Ring Down");
         static const ESM::RefId clothsDown = ESM::RefId::stringRefId("Item Clothes Down");
-        if (ref->mBase->mData.mType == 8)
+        if (ref->mBase->mData.mType == ESM::Clothing::Ring)
         {
             return ringDown;
         }
@@ -179,7 +178,7 @@ namespace MWClass
         return info;
     }
 
-    const ESM::RefId& Clothing::getEnchantment(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Clothing::getEnchantment(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
 
@@ -192,11 +191,11 @@ namespace MWClass
         const MWWorld::LiveCellRef<ESM::Clothing>* ref = ptr.get<ESM::Clothing>();
 
         ESM::Clothing newItem = *ref->mBase;
-        newItem.mId = ESM::RefId::sEmpty;
+        newItem.mId = ESM::RefId();
         newItem.mName = newName;
         newItem.mData.mEnchant = enchCharge;
         newItem.mEnchant = enchId;
-        const ESM::Clothing* record = MWBase::Environment::get().getWorld()->createRecord(newItem);
+        const ESM::Clothing* record = MWBase::Environment::get().getESMStore()->insert(newItem);
         return record->mId;
     }
 
@@ -214,7 +213,7 @@ namespace MWClass
             const ESM::RefId& npcRace = npc.get<ESM::NPC>()->mBase->mRace;
 
             // Beast races cannot equip shoes / boots, or full helms (head part vs hair part)
-            const ESM::Race* race = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(npcRace);
+            const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(npcRace);
             if (race->mData.mFlags & ESM::Race::Beast)
             {
                 std::vector<ESM::PartReference> parts = ptr.get<ESM::Clothing>()->mBase->mParts.mParts;

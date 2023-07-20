@@ -2,8 +2,6 @@
 #define MAINDIALOG_H
 
 #ifndef Q_MOC_RUN
-#include <components/files/configurationmanager.hpp>
-
 #include <components/process/processinvoker.hpp>
 
 #include <components/config/gamesettings.hpp>
@@ -14,18 +12,21 @@
 
 class QListWidgetItem;
 class QStackedWidget;
-class QStringList;
 class QStringListModel;
 class QString;
 
+namespace Files
+{
+    struct ConfigurationManager;
+}
+
 namespace Launcher
 {
-    class PlayPage;
     class GraphicsPage;
     class DataFilesPage;
     class UnshieldThread;
+    class ImportPage;
     class SettingsPage;
-    class AdvancedPage;
 
     enum FirstRunDialogResult
     {
@@ -43,7 +44,7 @@ namespace Launcher
         Q_OBJECT
 
     public:
-        explicit MainDialog(QWidget* parent = nullptr);
+        explicit MainDialog(const Files::ConfigurationManager& configurationManager, QWidget* parent = nullptr);
         ~MainDialog() override;
 
         FirstRunDialogResult showFirstRunDialog();
@@ -52,7 +53,10 @@ namespace Launcher
         bool writeSettings();
 
     public slots:
-        void changePage(QListWidgetItem* current, QListWidgetItem* previous);
+        void enableDataPage();
+        void enableGraphicsPage();
+        void enableSettingsPage();
+        void enableImportPage();
         void play();
         void help();
 
@@ -84,16 +88,15 @@ namespace Launcher
 
         void closeEvent(QCloseEvent* event) override;
 
-        PlayPage* mPlayPage;
         GraphicsPage* mGraphicsPage;
         DataFilesPage* mDataFilesPage;
+        ImportPage* mImportPage;
         SettingsPage* mSettingsPage;
-        AdvancedPage* mAdvancedPage;
 
         Process::ProcessInvoker* mGameInvoker;
         Process::ProcessInvoker* mWizardInvoker;
 
-        Files::ConfigurationManager mCfgMgr;
+        const Files::ConfigurationManager& mCfgMgr;
 
         Config::GameSettings mGameSettings;
         Config::LauncherSettings mLauncherSettings;

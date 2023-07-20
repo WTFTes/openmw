@@ -32,7 +32,7 @@ namespace
             if (effectFilter == -1)
             {
                 const ESM::Spell* spell
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(it->getId());
+                    = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(it->getId());
                 if (!spell || spell->mData.mType != ESM::Spell::ST_Spell)
                     continue;
             }
@@ -44,7 +44,7 @@ namespace
                 if (effectFilter != -1 && effectId != effectFilter)
                     continue;
                 const ESM::MagicEffect* magicEffect
-                    = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(effectId);
+                    = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(effectId);
 
                 if (effect.mDuration <= 3) // Don't attempt to dispel if effect runs out shortly anyway
                     continue;
@@ -127,7 +127,7 @@ namespace MWMechanics
         if (actor.getClass().isNpc())
         {
             const ESM::RefId& raceid = actor.get<ESM::NPC>()->mBase->mRace;
-            const ESM::Race* race = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(raceid);
+            const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(raceid);
             if (race->mPowers.exists(spell->mId))
                 return 0.f;
         }
@@ -147,9 +147,8 @@ namespace MWMechanics
         if (ptr.getClass().getEnchantment(ptr).empty())
             return 0.f;
 
-        const ESM::Enchantment* enchantment
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::Enchantment>().find(
-                ptr.getClass().getEnchantment(ptr));
+        const ESM::Enchantment* enchantment = MWBase::Environment::get().getESMStore()->get<ESM::Enchantment>().find(
+            ptr.getClass().getEnchantment(ptr));
 
         // Spells don't stack, so early out if the spell is still active on the target
         int types = getRangeTypes(enchantment->mEffects);
@@ -172,14 +171,14 @@ namespace MWMechanics
             if (actor.getClass().isNpc() && !store.isEquipped(ptr))
                 return 0.f;
 
-            int castCost = getEffectiveEnchantmentCastCost(static_cast<float>(enchantment->mData.mCost), actor);
+            int castCost = getEffectiveEnchantmentCastCost(*enchantment, actor);
 
             if (ptr.getCellRef().getEnchantmentCharge() != -1 && ptr.getCellRef().getEnchantmentCharge() < castCost)
                 return 0.f;
 
             float rating = rateEffects(enchantment->mEffects, actor, enemy);
 
-            rating *= 1.25f; // prefer rechargable magic items over spells
+            rating *= 1.25f; // prefer rechargeable magic items over spells
             return rating;
         }
 
@@ -266,7 +265,7 @@ namespace MWMechanics
                 const CreatureStats& stats = enemy.getClass().getCreatureStats(enemy);
 
                 // Enemy can't cast spells
-                if (stats.getMagicEffects().get(ESM::MagicEffect::Silence).getMagnitude() > 0)
+                if (stats.getMagicEffects().getOrDefault(ESM::MagicEffect::Silence).getMagnitude() > 0)
                     return 0.f;
 
                 if (stats.isParalyzed() || stats.getKnockedDown())
@@ -372,8 +371,7 @@ namespace MWMechanics
                 {
                     // Beast races can't wear helmets or boots
                     const ESM::RefId& raceid = actor.get<ESM::NPC>()->mBase->mRace;
-                    const ESM::Race* race
-                        = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>().find(raceid);
+                    const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(raceid);
                     if (race->mData.mFlags & ESM::Race::Beast)
                         return 0.f;
                 }
@@ -404,12 +402,6 @@ namespace MWMechanics
             case ESM::MagicEffect::BoundCuirass:
             case ESM::MagicEffect::BoundGloves:
                 if (!actor.getClass().isNpc())
-                    return 0.f;
-                break;
-
-            case ESM::MagicEffect::BoundLongbow:
-                // AI should not summon the bow if there is no suitable ammo.
-                if (rateAmmo(actor, enemy, getWeaponType(ESM::Weapon::MarksmanBow)->mAmmoType) <= 0.f)
                     return 0.f;
                 break;
 
@@ -548,7 +540,11 @@ namespace MWMechanics
             case ESM::MagicEffect::DamageAttribute:
             case ESM::MagicEffect::DrainAttribute:
                 if (!enemy.isEmpty()
-                    && enemy.getClass().getCreatureStats(enemy).getAttribute(effect.mAttribute).getModified() <= 0)
+                    && enemy.getClass()
+                            .getCreatureStats(enemy)
+                            .getAttribute(ESM::Attribute::AttributeID(effect.mAttribute))
+                            .getModified()
+                        <= 0)
                     return 0.f;
                 {
                     if (effect.mAttribute >= 0 && effect.mAttribute < ESM::Attribute::Length)
@@ -573,7 +569,7 @@ namespace MWMechanics
             case ESM::MagicEffect::DrainSkill:
                 if (enemy.isEmpty() || !enemy.getClass().isNpc())
                     return 0.f;
-                if (enemy.getClass().getSkill(enemy, effect.mSkill) <= 0)
+                if (enemy.getClass().getSkill(enemy, ESM::Skill::indexToRefId(effect.mSkill)) <= 0)
                     return 0.f;
                 break;
 
@@ -588,13 +584,51 @@ namespace MWMechanics
 
             if (!creatureStats.getSummonedCreatureMap().empty())
                 return 0.f;
+            // But rate summons higher than other effects
+            rating = 3.f;
         }
         if (effect.mEffectID >= ESM::MagicEffect::BoundDagger && effect.mEffectID <= ESM::MagicEffect::BoundGloves)
         {
+            // Prefer casting bound items over other spells
+            rating = 2.f;
             // While rateSpell prevents actors from recasting the same spell, it doesn't prevent them from casting
             // different spells with the same effect. Multiple instances of the same bound item don't stack so if the
-            // effect is already active, rate it as useless.
-            if (actor.getClass().getCreatureStats(actor).getMagicEffects().get(effect.mEffectID).getMagnitude() > 0.f)
+            // effect is already active, rate it as useless. Likewise, if the actor already has a bound weapon, don't
+            // summon another of a different kind unless what we have is a bow and the actor is out of ammo.
+            // FIXME: This code assumes the summoned item is of the usual type (i.e. a mod hasn't changed Bound Bow to
+            // summon an Axe instead)
+            if (effect.mEffectID <= ESM::MagicEffect::BoundLongbow)
+            {
+                for (int e = ESM::MagicEffect::BoundDagger; e <= ESM::MagicEffect::BoundLongbow; ++e)
+                    if (actor.getClass().getCreatureStats(actor).getMagicEffects().getOrDefault(e).getMagnitude() > 0.f
+                        && (e != ESM::MagicEffect::BoundLongbow || effect.mEffectID == e
+                            || rateAmmo(actor, enemy, getWeaponType(ESM::Weapon::MarksmanBow)->mAmmoType) <= 0.f))
+                        return 0.f;
+                ESM::RefId skill = ESM::Skill::ShortBlade;
+                if (effect.mEffectID == ESM::MagicEffect::BoundLongsword)
+                    skill = ESM::Skill::LongBlade;
+                else if (effect.mEffectID == ESM::MagicEffect::BoundMace)
+                    skill = ESM::Skill::BluntWeapon;
+                else if (effect.mEffectID == ESM::MagicEffect::BoundBattleAxe)
+                    skill = ESM::Skill::Axe;
+                else if (effect.mEffectID == ESM::MagicEffect::BoundSpear)
+                    skill = ESM::Skill::Spear;
+                else if (effect.mEffectID == ESM::MagicEffect::BoundLongbow)
+                {
+                    // AI should not summon the bow if there is no suitable ammo.
+                    if (rateAmmo(actor, enemy, getWeaponType(ESM::Weapon::MarksmanBow)->mAmmoType) <= 0.f)
+                        return 0.f;
+                    skill = ESM::Skill::Marksman;
+                }
+                // Prefer summoning items we know how to use
+                rating *= (50.f + actor.getClass().getSkill(actor, skill)) / 100.f;
+            }
+            else if (actor.getClass()
+                         .getCreatureStats(actor)
+                         .getMagicEffects()
+                         .getOrDefault(effect.mEffectID)
+                         .getMagnitude()
+                > 0.f)
                 return 0.f;
         }
 
@@ -612,7 +646,7 @@ namespace MWMechanics
         }
 
         const ESM::MagicEffect* magicEffect
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(effect.mEffectID);
+            = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(effect.mEffectID);
         if (magicEffect->mData.mFlags & ESM::MagicEffect::Harmful)
         {
             rating *= -1.f;
@@ -636,14 +670,14 @@ namespace MWMechanics
             {
                 CreatureStats& stats = enemy.getClass().getCreatureStats(enemy);
 
-                if (stats.getMagicEffects().get(effect.mEffectID).getMagnitude() > 0)
+                if (stats.getMagicEffects().getOrDefault(effect.mEffectID).getMagnitude() > 0)
                     return 0.f;
             }
             else
             {
                 CreatureStats& stats = actor.getClass().getCreatureStats(actor);
 
-                if (stats.getMagicEffects().get(effect.mEffectID).getMagnitude() > 0)
+                if (stats.getMagicEffects().getOrDefault(effect.mEffectID).getMagnitude() > 0)
                     return 0.f;
             }
         }
@@ -666,7 +700,7 @@ namespace MWMechanics
         float rating = 0.f;
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
         static const float fAIMagicSpellMult = gmst.find("fAIMagicSpellMult")->mValue.getFloat();
         static const float fAIRangeMagicSpellMult = gmst.find("fAIRangeMagicSpellMult")->mValue.getFloat();
 
@@ -688,7 +722,7 @@ namespace MWMechanics
     float vanillaRateSpell(const ESM::Spell* spell, const MWWorld::Ptr& actor, const MWWorld::Ptr& enemy)
     {
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         static const float fAIMagicSpellMult = gmst.find("fAIMagicSpellMult")->mValue.getFloat();
         static const float fAIRangeMagicSpellMult = gmst.find("fAIRangeMagicSpellMult")->mValue.getFloat();

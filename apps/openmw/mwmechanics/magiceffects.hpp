@@ -2,14 +2,17 @@
 #define GAME_MWMECHANICS_MAGICEFFECTS_H
 
 #include <map>
+#include <optional>
 #include <string>
 
 namespace ESM
 {
+    struct Attribute;
     struct ENAMstruct;
     struct EffectList;
-
+    struct MagicEffect;
     struct MagicEffects;
+    struct Skill;
 }
 
 namespace MWMechanics
@@ -28,6 +31,8 @@ namespace MWMechanics
         }
 
         EffectKey(const ESM::ENAMstruct& effect);
+
+        std::string toString() const;
     };
 
     bool operator<(const EffectKey& left, const EffectKey& right);
@@ -102,12 +107,16 @@ namespace MWMechanics
         /// Copy Modifier values from \a effects, but keep original mBase values.
         void setModifiers(const MagicEffects& effects);
 
-        EffectParam get(const EffectKey& key) const;
+        EffectParam getOrDefault(const EffectKey& key) const;
+        std::optional<EffectParam> get(const EffectKey& key) const;
         ///< This function can safely be used for keys that are not present.
 
         static MagicEffects diff(const MagicEffects& prev, const MagicEffects& now);
         ///< Return changes from \a prev to \a now.
     };
+
+    std::string getMagicEffectString(
+        const ESM::MagicEffect& effect, const ESM::Attribute* attribute, const ESM::Skill* skill);
 }
 
 #endif

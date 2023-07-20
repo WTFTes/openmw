@@ -1,6 +1,7 @@
 #include "merchantrepair.hpp"
 
 #include <components/esm3/loadgmst.hpp>
+#include <components/settings/values.hpp>
 
 #include <MyGUI_Button.h>
 #include <MyGUI_Gui.h>
@@ -9,7 +10,6 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
@@ -37,7 +37,7 @@ namespace MWGui
         while (mList->getChildCount())
             MyGUI::Gui::getInstance().destroyWidget(mList->getChildAt(0));
 
-        int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         int currentY = 0;
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
@@ -56,9 +56,8 @@ namespace MWGui
 
                 int basePrice = iter->getClass().getValue(*iter);
                 float fRepairMult = MWBase::Environment::get()
-                                        .getWorld()
-                                        ->getStore()
-                                        .get<ESM::GameSetting>()
+                                        .getESMStore()
+                                        ->get<ESM::GameSetting>()
                                         .find("fRepairMult")
                                         ->mValue.getFloat();
 
@@ -73,12 +72,7 @@ namespace MWGui
 
                 std::string name{ iter->getClass().getName(*iter) };
                 name += " - " + MyGUI::utility::toString(price)
-                    + MWBase::Environment::get()
-                          .getWorld()
-                          ->getStore()
-                          .get<ESM::GameSetting>()
-                          .find("sgp")
-                          ->mValue.getString();
+                    + MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>().find("sgp")->mValue.getString();
 
                 MyGUI::Button* button = mList->createWidget<MyGUI::Button>(price <= playerGold
                         ? "SandTextButton"
@@ -136,7 +130,7 @@ namespace MWGui
 
         MWBase::Environment::get().getWindowManager()->playSound(ESM::RefId::stringRefId("Repair"));
 
-        player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price, player);
+        player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price);
 
         // add gold to NPC trading gold pool
         MWMechanics::CreatureStats& actorStats = mActor.getClass().getCreatureStats(mActor);

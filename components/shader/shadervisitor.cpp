@@ -25,6 +25,7 @@
 #include <components/sceneutil/morphgeometry.hpp>
 #include <components/sceneutil/riggeometry.hpp>
 #include <components/sceneutil/riggeometryosgaextension.hpp>
+#include <components/settings/settings.hpp>
 #include <components/stereo/stereomanager.hpp>
 #include <components/vfs/manager.hpp>
 
@@ -211,15 +212,17 @@ namespace Shader
 
     void ShaderVisitor::apply(osg::Node& node)
     {
-        if (node.getStateSet())
+        bool needPop = false;
+        if (node.getStateSet() || mRequirements.empty())
         {
+            needPop = true;
             pushRequirements(node);
-            applyStateSet(node.getStateSet(), node);
-            traverse(node);
-            popRequirements();
+            if (node.getStateSet())
+                applyStateSet(node.getStateSet(), node);
         }
-        else
-            traverse(node);
+        traverse(node);
+        if (needPop)
+            popRequirements();
     }
 
     osg::StateSet* getWritableStateSet(osg::Node& node)
@@ -675,6 +678,11 @@ namespace Shader
         if (simpleLighting || dynamic_cast<osgParticle::ParticleSystem*>(&node))
             defineMap["forcePPL"] = "0";
 
+        bool particleOcclusion = false;
+        node.getUserValue("particleOcclusion", particleOcclusion);
+        defineMap["particleOcclusion"]
+            = particleOcclusion && Settings::Manager::getBool("weather particle occlusion", "Shaders") ? "1" : "0";
+
         if (reqs.mAlphaBlend && mSupportsNormalsRT)
         {
             if (reqs.mSoftParticles)
@@ -703,30 +711,20 @@ namespace Shader
 
         defineMap["softParticles"] = reqs.mSoftParticles ? "1" : "0";
 
-        Stereo::Manager::instance().shaderStereoDefines(defineMap);
+        Stereo::shaderStereoDefines(defineMap);
 
         std::string shaderPrefix;
         if (!node.getUserValue("shaderPrefix", shaderPrefix))
             shaderPrefix = mDefaultShaderPrefix;
 
-        osg::ref_ptr<osg::Shader> vertexShader(
-            mShaderManager.getShader(shaderPrefix + "_vertex.glsl", defineMap, osg::Shader::VERTEX));
-        osg::ref_ptr<osg::Shader> fragmentShader(
-            mShaderManager.getShader(shaderPrefix + "_fragment.glsl", defineMap, osg::Shader::FRAGMENT));
+        auto program = mShaderManager.getProgram(shaderPrefix, defineMap, mProgramTemplate);
+        writableStateSet->setAttributeAndModes(program, osg::StateAttribute::ON);
+        addedState->setAttributeAndModes(program);
 
-        if (vertexShader && fragmentShader)
+        for (const auto& [unit, name] : reqs.mTextures)
         {
-            auto program = mShaderManager.getProgram(vertexShader, fragmentShader, mProgramTemplate);
-            writableStateSet->setAttributeAndModes(program, osg::StateAttribute::ON);
-            addedState->setAttributeAndModes(program);
-
-            for (std::map<int, std::string>::const_iterator texIt = reqs.mTextures.begin();
-                 texIt != reqs.mTextures.end(); ++texIt)
-            {
-                writableStateSet->addUniform(
-                    new osg::Uniform(texIt->second.c_str(), texIt->first), osg::StateAttribute::ON);
-                addedState->addUniform(texIt->second);
-            }
+            writableStateSet->addUniform(new osg::Uniform(name.c_str(), unit), osg::StateAttribute::ON);
+            addedState->addUniform(name);
         }
 
         if (!addedState->empty())
@@ -869,12 +867,12 @@ namespace Shader
 
     void ShaderVisitor::apply(osg::Geometry& geometry)
     {
-        bool needPop = (geometry.getStateSet() != nullptr);
-        if (geometry.getStateSet()) // TODO: check if stateset affects shader permutation before pushing it
-        {
+        bool needPop = geometry.getStateSet() || mRequirements.empty();
+        if (needPop)
             pushRequirements(geometry);
+
+        if (geometry.getStateSet()) // TODO: check if stateset affects shader permutation before pushing it
             applyStateSet(geometry.getStateSet(), geometry);
-        }
 
         if (!mRequirements.empty())
         {
@@ -893,7 +891,12 @@ namespace Shader
 
     void ShaderVisitor::apply(osg::Drawable& drawable)
     {
-        bool needPop = drawable.getStateSet();
+        bool needPop = drawable.getStateSet() || mRequirements.empty();
+
+        // We need to push and pop a requirements object because particle systems can have
+        // different shader requirements to other drawables, so might need a different shader variant.
+        if (!needPop && dynamic_cast<osgParticle::ParticleSystem*>(&drawable))
+            needPop = true;
 
         if (needPop)
         {
@@ -903,36 +906,31 @@ namespace Shader
                 applyStateSet(drawable.getStateSet(), drawable);
         }
 
-        if (!mRequirements.empty())
-        {
-            const ShaderRequirements& reqs = mRequirements.back();
-            createProgram(reqs);
+        const ShaderRequirements& reqs = mRequirements.back();
+        createProgram(reqs);
 
-            if (auto rig = dynamic_cast<SceneUtil::RigGeometry*>(&drawable))
+        if (auto rig = dynamic_cast<SceneUtil::RigGeometry*>(&drawable))
+        {
+            osg::ref_ptr<osg::Geometry> sourceGeometry = rig->getSourceGeometry();
+            if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
+                rig->setSourceGeometry(sourceGeometry);
+        }
+        else if (auto morph = dynamic_cast<SceneUtil::MorphGeometry*>(&drawable))
+        {
+            osg::ref_ptr<osg::Geometry> sourceGeometry = morph->getSourceGeometry();
+            if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
+                morph->setSourceGeometry(sourceGeometry);
+        }
+        else if (auto osgaRig = dynamic_cast<SceneUtil::RigGeometryHolder*>(&drawable))
+        {
+            osg::ref_ptr<SceneUtil::OsgaRigGeometry> sourceOsgaRigGeometry = osgaRig->getSourceRigGeometry();
+            osg::ref_ptr<osg::Geometry> sourceGeometry = sourceOsgaRigGeometry->getSourceGeometry();
+            if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
             {
-                osg::ref_ptr<osg::Geometry> sourceGeometry = rig->getSourceGeometry();
-                if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
-                    rig->setSourceGeometry(sourceGeometry);
-            }
-            else if (auto morph = dynamic_cast<SceneUtil::MorphGeometry*>(&drawable))
-            {
-                osg::ref_ptr<osg::Geometry> sourceGeometry = morph->getSourceGeometry();
-                if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
-                    morph->setSourceGeometry(sourceGeometry);
-            }
-            else if (auto osgaRig = dynamic_cast<SceneUtil::RigGeometryHolder*>(&drawable))
-            {
-                osg::ref_ptr<SceneUtil::OsgaRigGeometry> sourceOsgaRigGeometry = osgaRig->getSourceRigGeometry();
-                osg::ref_ptr<osg::Geometry> sourceGeometry = sourceOsgaRigGeometry->getSourceGeometry();
-                if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
-                {
-                    sourceOsgaRigGeometry->setSourceGeometry(sourceGeometry);
-                    osgaRig->setSourceRigGeometry(sourceOsgaRigGeometry);
-                }
+                sourceOsgaRigGeometry->setSourceGeometry(sourceGeometry);
+                osgaRig->setSourceRigGeometry(sourceOsgaRigGeometry);
             }
         }
-        else
-            ensureFFP(drawable);
 
         if (needPop)
             popRequirements();

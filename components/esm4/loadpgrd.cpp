@@ -27,10 +27,6 @@
 #include "loadpgrd.hpp"
 
 #include <stdexcept>
-//#include <iostream> // FIXME: for debugging only
-//#include <iomanip>  // FIXME: for debugging only
-
-//#include <boost/scoped_array.hpp> // FIXME for debugging only
 
 #include "formid.hpp" // FIXME: for mEditorId workaround
 #include "reader.hpp"
@@ -38,7 +34,7 @@
 
 void ESM4::Pathgrid::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -111,7 +107,7 @@ void ESM4::Pathgrid::load(ESM4::Reader& reader)
             case ESM4::SUB_PGRL:
             {
                 static PGRL objLink;
-                reader.get(objLink.object);
+                reader.getFormId(objLink.object);
                 //                                        object             linkedNode
                 std::size_t numNodes = (subHdr.dataSize - sizeof(int32_t)) / sizeof(int32_t);
 
@@ -126,8 +122,8 @@ void ESM4::Pathgrid::load(ESM4::Reader& reader)
             case ESM4::SUB_PGAG:
             {
 #if 0
-                boost::scoped_array<unsigned char> mDataBuf(new unsigned char[subHdr.dataSize]);
-                reader.get(mDataBuf.get(), subHdr.dataSize);
+                std::vector<unsigned char> mDataBuf(subHdr.dataSize);
+                reader.get(mDataBuf.data(), subHdr.dataSize);
 
                 std::ostringstream ss;
                 ss << mEditorId << " " << ESM::printName(subHdr.typeId) << ":size " << subHdr.dataSize << "\n";
@@ -144,8 +140,6 @@ void ESM4::Pathgrid::load(ESM4::Reader& reader)
                 }
                 std::cout << ss.str() << std::endl;
 #else
-                // std::cout << "PGRD " << ESM::printName(subHdr.typeId) << " skipping..."
-                //<< subHdr.dataSize << std::endl;
                 reader.skipSubRecordData();
 #endif
                 break;

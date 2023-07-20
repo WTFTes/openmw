@@ -8,8 +8,6 @@
 #include "recastmeshtiles.hpp"
 #include "waitconditiontype.hpp"
 
-#include <components/esm/refid.hpp>
-
 #include <osg/Vec3f>
 
 #include <map>
@@ -22,26 +20,11 @@ namespace DetourNavigator
     class NavMeshManager
     {
     public:
-        class UpdateGuard
-        {
-        public:
-            explicit UpdateGuard(NavMeshManager& manager)
-                : mImpl(manager.mRecastMeshManager)
-            {
-            }
-
-            friend const TileCachedRecastMeshManager::UpdateGuard* getImpl(const UpdateGuard* guard)
-            {
-                return guard == nullptr ? nullptr : &guard->mImpl;
-            }
-
-        private:
-            const TileCachedRecastMeshManager::UpdateGuard mImpl;
-        };
-
         explicit NavMeshManager(const Settings& settings, std::unique_ptr<NavMeshDb>&& db);
 
-        void setWorldspace(const ESM::RefId& worldspace, const UpdateGuard* guard);
+        ScopedUpdateGuard makeUpdateGuard() { return mRecastMeshManager.makeUpdateGuard(); }
+
+        void setWorldspace(std::string_view worldspace, const UpdateGuard* guard);
 
         void updateBounds(const osg::Vec3f& playerPosition, const UpdateGuard* guard);
 
@@ -84,7 +67,7 @@ namespace DetourNavigator
 
     private:
         const Settings& mSettings;
-        ESM::RefId mWorldspace;
+        std::string mWorldspace;
         TileCachedRecastMeshManager mRecastMeshManager;
         OffMeshConnectionsManager mOffMeshConnectionsManager;
         AsyncNavMeshUpdater mAsyncNavMeshUpdater;

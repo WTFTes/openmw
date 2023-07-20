@@ -15,7 +15,7 @@ global map cell size
 --------------------
 
 :Type:		integer
-:Range:		>= 1
+:Range:		1 to 50
 :Default:	18
 
 This setting adjusts the scale of the world map in the GUI mode map window.
@@ -29,7 +29,7 @@ Values from 12 to 36 are recommended. For reference, Vvardenfell is approximatel
 
 .. Warning::
 	Changing this setting affects saved games. The currently explored area is stored as an image
-	in the save file that's overlayed on the default world map in game.
+	in the save file that's overlaid on the default world map in game.
 	When you increase the resolution of the map, the overlay of earlier saved games will be scaled up on load,
 	and appear blurry. When you visit the cell again, the overlay for that cell is regenerated at the new resolution,
 	so the blurry areas can be corrected by revisiting all the cells you've already visited.
@@ -113,7 +113,7 @@ allow zooming
 
 If this setting is true the user can zoom in/out on local and global map with the mouse wheel.
 
-This setting can be controlled in Advanced tab of the launcher.
+This setting can be controlled in the Settings tab of the launcher.
 
 max local viewing distance
 ---------------------------

@@ -9,6 +9,8 @@
 
 #include "luastate.hpp"
 
+#include "shapes/box.hpp"
+
 namespace sol
 {
     template <>
@@ -38,6 +40,11 @@ namespace sol
 
     template <>
     struct is_automagical<LuaUtil::TransformQ> : std::false_type
+    {
+    };
+
+    template <>
+    struct is_automagical<LuaUtil::Box> : std::false_type
     {
     };
 }
@@ -121,6 +128,30 @@ namespace LuaUtil
         vec4Type["w"] = sol::readonly_property([](const Vec4& v) -> float { return v.w(); });
         addVectorMethods<Vec4>(vec4Type);
 
+        // Lua bindings for Box
+        util["box"] = sol::overload([](const Vec3& center, const Vec3& halfSize) { return Box(center, halfSize); },
+            [](const TransformM& transform) { return Box(transform.mM); });
+        sol::usertype<Box> boxType = lua.new_usertype<Box>("Box");
+        boxType["center"] = sol::readonly_property([](const Box& b) { return b.mCenter; });
+        boxType["halfSize"] = sol::readonly_property([](const Box& b) { return b.mHalfSize; });
+        boxType["transform"] = sol::readonly_property([](const Box& b) { return TransformM{ b.asTransform() }; });
+        boxType["vertices"] = sol::readonly_property([lua](const Box& b) {
+            sol::table table(lua, sol::create);
+            const auto vertices = b.vertices();
+            for (size_t i = 0; i < vertices.size(); ++i)
+                table[i + 1] = vertices[i];
+            return table;
+        });
+        boxType[sol::meta_function::equal_to] = [](const Box& a, const Box& b) { return a == b; };
+        boxType[sol::meta_function::to_string] = [](const Box& b) {
+            std::stringstream ss;
+            ss << "Box{ ";
+            ss << "center(" << b.mCenter.x() << ", " << b.mCenter.y() << ", " << b.mCenter.z() << ") ";
+            ss << "halfSize(" << b.mHalfSize.x() << ", " << b.mHalfSize.y() << ", " << b.mHalfSize.z() << ")";
+            ss << " }";
+            return ss.str();
+        };
+
         // Lua bindings for Color
         sol::usertype<Misc::Color> colorType = lua.new_usertype<Misc::Color>("Color");
         colorType["r"] = sol::readonly_property([](const Misc::Color& c) { return c.r(); });
@@ -144,7 +175,7 @@ namespace LuaUtil
         sol::table transforms(lua, sol::create);
         util["transform"] = LuaUtil::makeReadOnly(transforms);
 
-        transforms["identity"] = sol::make_object(lua, TransformM{ osg::Matrixf::identity() });
+        transforms["identity"] = sol::make_object(lua, TransformQ{ osg::Quat() });
         transforms["move"] = sol::overload([](const Vec3& v) { return TransformM{ osg::Matrixf::translate(v) }; },
             [](float x, float y, float z) { return TransformM{ osg::Matrixf::translate(x, y, z) }; });
         transforms["scale"] = sol::overload([](const Vec3& v) { return TransformM{ osg::Matrixf::scale(v) }; },
@@ -185,11 +216,28 @@ namespace LuaUtil
             ss << "}";
             return ss.str();
         };
+        transMType["apply"] = [](const TransformM& a, const Vec3& b) { return a.mM.preMult(b); },
         transMType["inverse"] = [](const TransformM& m) {
             TransformM res;
             if (!res.mM.invert_4x3(m.mM))
                 throw std::runtime_error("This Transform is not invertible");
             return res;
+        };
+        transMType["getYaw"] = [](const TransformM& m) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(m.mM);
+            return angles.z();
+        };
+        transMType["getPitch"] = [](const TransformM& m) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(m.mM);
+            return angles.x();
+        };
+        transMType["getAnglesXZ"] = [](const TransformM& m) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(m.mM);
+            return std::make_tuple(angles.x(), angles.z());
+        };
+        transMType["getAnglesZYX"] = [](const TransformM& m) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(m.mM);
+            return std::make_tuple(angles.z(), angles.y(), angles.x());
         };
 
         transQType[sol::meta_function::multiplication]
@@ -209,14 +257,35 @@ namespace LuaUtil
                << axis.z() << ")) }";
             return ss.str();
         };
+        transQType["apply"] = [](const TransformQ& a, const Vec3& b) { return a.mQ * b; },
         transQType["inverse"] = [](const TransformQ& q) { return TransformQ{ q.mQ.inverse() }; };
+        transQType["getYaw"] = [](const TransformQ& q) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(q.mQ);
+            return angles.z();
+        };
+        transQType["getPitch"] = [](const TransformQ& q) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(q.mQ);
+            return angles.x();
+        };
+        transQType["getAnglesXZ"] = [](const TransformQ& q) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(q.mQ);
+            return std::make_tuple(angles.x(), angles.z());
+        };
+        transQType["getAnglesZYX"] = [](const TransformQ& q) {
+            osg::Vec3f angles = Misc::toEulerAnglesXZ(q.mQ);
+            return std::make_tuple(angles.z(), angles.y(), angles.x());
+        };
 
         // Utility functions
-        util["clamp"] = [](float value, float from, float to) { return std::clamp(value, from, to); };
+        util["clamp"] = [](double value, double from, double to) { return std::clamp(value, from, to); };
         // NOTE: `util["clamp"] = std::clamp<float>` causes error 'AddressSanitizer: stack-use-after-scope'
         util["normalizeAngle"] = &Misc::normalizeAngle;
         util["makeReadOnly"] = [](const sol::table& tbl) { return makeReadOnly(tbl, /*strictIndex=*/false); };
         util["makeStrictReadOnly"] = [](const sol::table& tbl) { return makeReadOnly(tbl, /*strictIndex=*/true); };
+        util["remap"] = [](double value, double min, double max, double newMin, double newMax) {
+            return newMin + (value - min) * (newMax - newMin) / (max - min);
+        };
+        util["round"] = [](double value) { return round(value); };
 
         if (lua["bit32"] != sol::nil)
         {
@@ -230,17 +299,17 @@ namespace LuaUtil
         {
             util["bitOr"] = [](unsigned a, sol::variadic_args va) {
                 for (const auto& v : va)
-                    a |= v.as<unsigned>();
+                    a |= cast<unsigned>(v);
                 return a;
             };
             util["bitAnd"] = [](unsigned a, sol::variadic_args va) {
                 for (const auto& v : va)
-                    a &= v.as<unsigned>();
+                    a &= cast<unsigned>(v);
                 return a;
             };
             util["bitXor"] = [](unsigned a, sol::variadic_args va) {
                 for (const auto& v : va)
-                    a ^= v.as<unsigned>();
+                    a ^= cast<unsigned>(v);
                 return a;
             };
             util["bitNot"] = [](unsigned a) { return ~a; };

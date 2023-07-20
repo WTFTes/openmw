@@ -1,7 +1,6 @@
 #include "topic.hpp"
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/esmstore.hpp"
 
@@ -11,8 +10,7 @@ namespace MWDialogue
 
     Topic::Topic(const ESM::RefId& topic)
         : mTopic(topic)
-        , mName(
-              MWBase::Environment::get().getWorld()->getStore().get<ESM::Dialogue>().find(topic)->mId.getRefIdString())
+        , mName(MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(topic)->mStringId)
     {
     }
 
@@ -21,7 +19,7 @@ namespace MWDialogue
     bool Topic::addEntry(const JournalEntry& entry)
     {
         if (entry.mTopic != mTopic)
-            throw std::runtime_error("topic does not match: " + mTopic.getRefIdString());
+            throw std::runtime_error("topic does not match: " + mTopic.toDebugString());
 
         // bail out if we already have heard this
         for (Topic::TEntryIter it = mEntries.begin(); it != mEntries.end(); ++it)

@@ -27,8 +27,6 @@
 #include "loadrace.hpp"
 
 #include <cstring>
-#include <iomanip> // FIXME: for debugging only
-#include <iostream> // FIXME: for debugging only
 #include <stdexcept>
 
 #include "formid.hpp"
@@ -37,7 +35,7 @@
 
 void ESM4::Race::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
 
@@ -215,16 +213,16 @@ void ESM4::Race::load(ESM4::Reader& reader)
                 else
                 {
                     reader.skipSubRecordData();
-                    std::cout << "RACE " << ESM::printName(subHdr.typeId) << " skipping..." << subHdr.dataSize
-                              << std::endl;
+                    // std::cout << "RACE " << ESM::printName(subHdr.typeId) << " skipping..." << subHdr.dataSize <<
+                    // std::endl;
                 }
 #endif
                 break;
             }
             case ESM4::SUB_DNAM:
             {
-                reader.get(mDefaultHair[0]); // male
-                reader.get(mDefaultHair[1]); // female
+                reader.getFormId(mDefaultHair[0]); // male
+                reader.getFormId(mDefaultHair[1]); // female
 
                 break;
             }
@@ -344,11 +342,11 @@ void ESM4::Race::load(ESM4::Reader& reader)
 
                     // TES5 seems to have no body parts at all, instead keep EGT models
                 }
-                else if (curr_part == 2) // egt
-                {
-                    // std::cout << mEditorId << " egt " << currentIndex << std::endl; // FIXME
-                    reader.skipSubRecordData(); // FIXME TES5 egt
-                }
+                // else if (curr_part == 2) // egt
+                // {
+                //     // std::cout << mEditorId << " egt " << currentIndex << std::endl; // FIXME
+                //     reader.skipSubRecordData(); // FIXME TES5 egt
+                // }
                 else
                 {
                     // std::cout << mEditorId << " hkx " << currentIndex << std::endl; // FIXME
@@ -418,19 +416,19 @@ void ESM4::Race::load(ESM4::Reader& reader)
             //
             case ESM4::SUB_HNAM:
             {
-                std::size_t numHairChoices = subHdr.dataSize / sizeof(FormId);
+                std::size_t numHairChoices = subHdr.dataSize / sizeof(FormId32);
                 mHairChoices.resize(numHairChoices);
                 for (unsigned int i = 0; i < numHairChoices; ++i)
-                    reader.get(mHairChoices.at(i));
+                    reader.getFormId(mHairChoices.at(i));
 
                 break;
             }
             case ESM4::SUB_ENAM:
             {
-                std::size_t numEyeChoices = subHdr.dataSize / sizeof(FormId);
+                std::size_t numEyeChoices = subHdr.dataSize / sizeof(FormId32);
                 mEyeChoices.resize(numEyeChoices);
                 for (unsigned int i = 0; i < numEyeChoices; ++i)
-                    reader.get(mEyeChoices.at(i));
+                    reader.getFormId(mEyeChoices.at(i));
 
                 break;
             }
@@ -495,7 +493,7 @@ void ESM4::Race::load(ESM4::Reader& reader)
             {
                 FormId race;
                 std::int32_t adjustment;
-                reader.get(race);
+                reader.getFormId(race);
                 reader.get(adjustment);
                 mDisposition[race] = adjustment;
 
@@ -505,8 +503,8 @@ void ESM4::Race::load(ESM4::Reader& reader)
             {
                 if (subHdr.dataSize == 8) // TES4
                 {
-                    reader.get(mVNAM[0]); // For TES4 seems to be 2 race formids
-                    reader.get(mVNAM[1]);
+                    reader.getFormId(mVNAM[0]); // For TES4 seems to be 2 race formids
+                    reader.getFormId(mVNAM[1]);
                 }
                 else if (subHdr.dataSize == 4) // TES5
                 {
@@ -518,8 +516,8 @@ void ESM4::Race::load(ESM4::Reader& reader)
                 else
                 {
                     reader.skipSubRecordData();
-                    std::cout << "RACE " << ESM::printName(subHdr.typeId) << " skipping..." << subHdr.dataSize
-                              << std::endl;
+                    // std::cout << "RACE " << ESM::printName(subHdr.typeId) << " skipping..." << subHdr.dataSize <<
+                    // std::endl;
                 }
 
                 break;
@@ -538,7 +536,7 @@ void ESM4::Race::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_KWDA:
             {
-                std::uint32_t formid;
+                FormId formid;
                 for (unsigned int i = 0; i < mNumKeywords; ++i)
                     reader.getFormId(formid);
                 break;
@@ -584,7 +582,7 @@ void ESM4::Race::load(ESM4::Reader& reader)
                     mHeadPartIdsFemale[currentIndex] = formId;
 
                 // std::cout << mEditorId << (isMale ? " male head " : " female head ")
-                //<< formIdToString(formId) << " " << currentIndex << std::endl; // FIXME
+                // << formIdToString(formId) << " " << currentIndex << std::endl; // FIXME
 
                 break;
             }
@@ -677,6 +675,8 @@ void ESM4::Race::load(ESM4::Reader& reader)
             case ESM4::SUB_SPED:
             case ESM4::SUB_SWMV:
             case ESM4::SUB_WKMV:
+            case ESM4::SUB_SPMV:
+            case ESM4::SUB_ATKR:
             //
             case ESM4::SUB_YNAM: // FO3
             case ESM4::SUB_NAM2: // FO3
@@ -684,13 +684,8 @@ void ESM4::Race::load(ESM4::Reader& reader)
             case ESM4::SUB_MODT: // FO3
             case ESM4::SUB_MODD: // FO3
             case ESM4::SUB_ONAM: // FO3
-            {
-
-                // std::cout << "RACE " << ESM::printName(subHdr.typeId) << " skipping..." << subHdr.dataSize <<
-                // std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::RACE::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

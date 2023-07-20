@@ -8,7 +8,7 @@
 #include <components/esm3/loadsndg.hpp>
 #include <components/esm3/loadsoun.hpp>
 #include <components/misc/rng.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/aisetting.hpp"
@@ -91,8 +91,8 @@ namespace MWClass
         static const GMST staticGmst = [] {
             GMST gmst;
 
-            const MWBase::World* world = MWBase::Environment::get().getWorld();
-            const MWWorld::Store<ESM::GameSetting>& store = world->getStore().get<ESM::GameSetting>();
+            const MWWorld::Store<ESM::GameSetting>& store
+                = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
             gmst.fMinWalkSpeedCreature = store.find("fMinWalkSpeedCreature");
             gmst.fMaxWalkSpeedCreature = store.find("fMaxWalkSpeedCreature");
@@ -170,7 +170,7 @@ namespace MWClass
             getContainerStore(ptr).fill(ref->mBase->mInventory, ptr.getCellRef().getRefId(), prng);
 
             if (hasInventory)
-                getInventoryStore(ptr).autoEquip(ptr);
+                getInventoryStore(ptr).autoEquip();
         }
     }
 
@@ -469,7 +469,7 @@ namespace MWClass
     {
         if (actor.getClass().isNpc() && actor.getClass().getNpcStats(actor).isWerewolf())
         {
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
             auto& prng = MWBase::Environment::get().getWorld()->getPrng();
             const ESM::Sound* sound = store.get<ESM::Sound>().searchRandom("WolfCreature", prng);
 
@@ -484,10 +484,8 @@ namespace MWClass
 
         if (stats.isDead())
         {
-            bool canLoot = Settings::Manager::getBool("can loot during death animation", "Game");
-
             // by default user can loot friendly actors during death animation
-            if (canLoot && !stats.getAiSequence().isInCombat())
+            if (Settings::game().mCanLootDuringDeathAnimation && !stats.getAiSequence().isInCombat())
                 return std::make_unique<MWWorld::ActionOpen>(ptr);
 
             // otherwise wait until death animation
@@ -507,14 +505,16 @@ namespace MWClass
     MWWorld::ContainerStore& Creature::getContainerStore(const MWWorld::Ptr& ptr) const
     {
         ensureCustomData(ptr);
-
-        return *ptr.getRefData().getCustomData()->asCreatureCustomData().mContainerStore;
+        auto& store = *ptr.getRefData().getCustomData()->asCreatureCustomData().mContainerStore;
+        if (hasInventoryStore(ptr))
+            static_cast<MWWorld::InventoryStore&>(store).setActor(ptr);
+        return store;
     }
 
     MWWorld::InventoryStore& Creature::getInventoryStore(const MWWorld::Ptr& ptr) const
     {
         if (hasInventoryStore(ptr))
-            return dynamic_cast<MWWorld::InventoryStore&>(getContainerStore(ptr));
+            return static_cast<MWWorld::InventoryStore&>(getContainerStore(ptr));
         else
             throw std::runtime_error("this creature has no inventory store");
     }
@@ -524,7 +524,7 @@ namespace MWClass
         return isFlagBitSet(ptr, ESM::Creature::Weapon);
     }
 
-    const ESM::RefId& Creature::getScript(const MWWorld::ConstPtr& ptr) const
+    ESM::RefId Creature::getScript(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Creature>* ref = ptr.get<ESM::Creature>();
 
@@ -553,11 +553,11 @@ namespace MWClass
         if (getEncumbrance(ptr) > getCapacity(ptr))
             moveSpeed = 0.0f;
         else if (canFly(ptr)
-            || (mageffects.get(ESM::MagicEffect::Levitate).getMagnitude() > 0 && world->isLevitationEnabled()))
+            || (mageffects.getOrDefault(ESM::MagicEffect::Levitate).getMagnitude() > 0 && world->isLevitationEnabled()))
         {
             float flySpeed = 0.01f
                 * (stats.getAttribute(ESM::Attribute::Speed).getModified()
-                    + mageffects.get(ESM::MagicEffect::Levitate).getMagnitude());
+                    + mageffects.getOrDefault(ESM::MagicEffect::Levitate).getMagnitude());
             flySpeed = gmst.fMinFlySpeed->mValue.getFloat()
                 + flySpeed * (gmst.fMaxFlySpeed->mValue.getFloat() - gmst.fMinFlySpeed->mValue.getFloat());
             const float normalizedEncumbrance = getNormalizedEncumbrance(ptr);
@@ -612,7 +612,7 @@ namespace MWClass
     float Creature::getArmorRating(const MWWorld::Ptr& ptr) const
     {
         // Equipment armor rating is deliberately ignored.
-        return getCreatureStats(ptr).getMagicEffects().get(ESM::MagicEffect::Shield).getMagnitude();
+        return getCreatureStats(ptr).getMagicEffects().getOrDefault(ESM::MagicEffect::Shield).getMagnitude();
     }
 
     float Creature::getCapacity(const MWWorld::Ptr& ptr) const
@@ -632,11 +632,11 @@ namespace MWClass
         return (ref->mBase->mRecordFlags & ESM::FLAG_Persistent) != 0;
     }
 
-    const ESM::RefId& Creature::getSoundIdFromSndGen(const MWWorld::Ptr& ptr, std::string_view name) const
+    ESM::RefId Creature::getSoundIdFromSndGen(const MWWorld::Ptr& ptr, std::string_view name) const
     {
         int type = getSndGenTypeFromName(ptr, name);
         if (type < 0)
-            return ESM::RefId::sEmpty;
+            return ESM::RefId();
 
         std::vector<const ESM::SoundGenerator*> sounds;
         std::vector<const ESM::SoundGenerator*> fallbacksounds;
@@ -645,7 +645,7 @@ namespace MWClass
 
         const ESM::RefId& ourId = (ref->mBase->mOriginal.empty()) ? ptr.getCellRef().getRefId() : ref->mBase->mOriginal;
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         auto sound = store.get<ESM::SoundGenerator>().begin();
         while (sound != store.get<ESM::SoundGenerator>().end())
         {
@@ -688,7 +688,7 @@ namespace MWClass
         if (!fallbacksounds.empty())
             return fallbacksounds[Misc::Rng::rollDice(fallbacksounds.size(), prng)]->mSound;
 
-        return ESM::RefId::sEmpty;
+        return ESM::RefId();
     }
 
     MWWorld::Ptr Creature::copyToCellImpl(const MWWorld::ConstPtr& ptr, MWWorld::CellStore& cell) const
@@ -760,11 +760,11 @@ namespace MWClass
         throw std::runtime_error("Unexpected soundgen type: " + std::string(name));
     }
 
-    float Creature::getSkill(const MWWorld::Ptr& ptr, int skill) const
+    float Creature::getSkill(const MWWorld::Ptr& ptr, ESM::RefId id) const
     {
         MWWorld::LiveCellRef<ESM::Creature>* ref = ptr.get<ESM::Creature>();
 
-        const ESM::Skill* skillRecord = MWBase::Environment::get().getWorld()->getStore().get<ESM::Skill>().find(skill);
+        const ESM::Skill* skillRecord = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().find(id);
 
         switch (skillRecord->mData.mSpecialization)
         {
@@ -860,7 +860,7 @@ namespace MWClass
             return;
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
         static const float fCorpseRespawnDelay = gmst.find("fCorpseRespawnDelay")->mValue.getFloat();
         static const float fCorpseClearDelay = gmst.find("fCorpseClearDelay")->mValue.getFloat();
 

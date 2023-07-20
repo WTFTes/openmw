@@ -10,12 +10,10 @@
 #include <string_view>
 #include <vector>
 
-#include <components/esm3/cellid.hpp>
 #include <components/misc/rng.hpp>
 
-#include <osg/Timer>
-
 #include "../mwworld/doorstate.hpp"
+#include "../mwworld/globalvariablename.hpp"
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/spellcaststate.hpp"
 
@@ -56,7 +54,8 @@ namespace ESM
     struct CreatureLevList;
     struct ItemLevList;
     struct TimeStamp;
-    struct RefId;
+    class RefId;
+    struct ExteriorCellLocation;
 }
 
 namespace MWPhysics
@@ -92,6 +91,7 @@ namespace MWWorld
     class TimeStamp;
     class ESMStore;
     class RefData;
+    class Cell;
 
     typedef std::vector<std::pair<MWWorld::Ptr, MWMechanics::Movement>> PtrMovementList;
 }
@@ -112,7 +112,7 @@ namespace MWBase
         {
             std::string name;
             float x, y; // world position
-            ESM::CellId dest;
+            ESM::RefId dest;
         };
 
         World() {}
@@ -146,7 +146,8 @@ namespace MWBase
         virtual MWWorld::Ptr getPlayerPtr() = 0;
         virtual MWWorld::ConstPtr getPlayerConstPtr() const = 0;
 
-        virtual const MWWorld::ESMStore& getStore() const = 0;
+        virtual MWWorld::ESMStore& getStore() = 0;
+        const MWWorld::ESMStore& getStore() const { return const_cast<MWBase::World*>(this)->getStore(); }
 
         virtual const std::vector<int>& getESMVersions() const = 0;
 
@@ -156,22 +157,22 @@ namespace MWBase
 
         virtual bool isCellQuasiExterior() const = 0;
 
-        virtual void getDoorMarkers(MWWorld::CellStore* cell, std::vector<DoorMarker>& out) = 0;
+        virtual void getDoorMarkers(MWWorld::CellStore& cell, std::vector<DoorMarker>& out) = 0;
         ///< get a list of teleport door markers for a given cell, to be displayed on the local map
 
-        virtual void setGlobalInt(std::string_view name, int value) = 0;
+        virtual void setGlobalInt(MWWorld::GlobalVariableName name, int value) = 0;
         ///< Set value independently from real type.
 
-        virtual void setGlobalFloat(std::string_view name, float value) = 0;
+        virtual void setGlobalFloat(MWWorld::GlobalVariableName name, float value) = 0;
         ///< Set value independently from real type.
 
-        virtual int getGlobalInt(std::string_view name) const = 0;
+        virtual int getGlobalInt(MWWorld::GlobalVariableName name) const = 0;
         ///< Get value independently from real type.
 
-        virtual float getGlobalFloat(std::string_view name) const = 0;
+        virtual float getGlobalFloat(MWWorld::GlobalVariableName name) const = 0;
         ///< Get value independently from real type.
 
-        virtual char getGlobalVariableType(std::string_view name) const = 0;
+        virtual char getGlobalVariableType(MWWorld::GlobalVariableName name) const = 0;
         ///< Return ' ', if there is no global variable with this name.
 
         virtual std::string_view getCellName(const MWWorld::CellStore* cell = nullptr) const = 0;
@@ -179,6 +180,8 @@ namespace MWBase
         ///
         /// \note If cell==0, the cell the player is currently in will be used instead to
         /// generate a name.
+        virtual std::string_view getCellName(const MWWorld::Cell& cell) const = 0;
+
         virtual std::string_view getCellName(const ESM::Cell* cell) const = 0;
 
         virtual void removeRefScript(MWWorld::RefData* ref) = 0;
@@ -194,8 +197,6 @@ namespace MWBase
 
         virtual MWWorld::Ptr searchPtrViaActorId(int actorId) = 0;
         ///< Search is limited to the active cells.
-
-        virtual MWWorld::Ptr searchPtrViaRefNum(const ESM::RefId& id, const ESM::RefNum& refNum) = 0;
 
         virtual MWWorld::Ptr findContainer(const MWWorld::ConstPtr& ptr) = 0;
         ///< Return a pointer to a liveCellRef which contains \a ptr.
@@ -245,18 +246,13 @@ namespace MWBase
         virtual void setSimulationTimeScale(float scale) = 0;
 
         virtual void changeToInteriorCell(
-            const ESM::RefId& cellName, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
+            std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
             = 0;
         ///< Move to interior cell.
         ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
-        virtual void changeToExteriorCell(const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
-            = 0;
-        ///< Move to exterior cell.
-        ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
-
         virtual void changeToCell(
-            const ESM::CellId& cellId, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
+            const ESM::RefId& cellId, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
             = 0;
         ///< @param changeEvent If false, do not trigger cell change flag or detect worldspace changes
 
@@ -295,7 +291,7 @@ namespace MWBase
             = 0;
         ///< @return an updated Ptr
 
-        virtual MWWorld::Ptr moveObjectBy(const MWWorld::Ptr& ptr, const osg::Vec3f& vec) = 0;
+        virtual MWWorld::Ptr moveObjectBy(const MWWorld::Ptr& ptr, const osg::Vec3f& vec, bool moveToActive) = 0;
         ///< @return an updated Ptr
 
         virtual void scaleObject(const MWWorld::Ptr& ptr, float scale, bool force = false) = 0;
@@ -316,9 +312,6 @@ namespace MWBase
         ///< placement
         /// relative to \a referenceObject (but the object may be placed somewhere else if the wanted location is
         /// obstructed).
-
-        virtual void indexToPosition(int cellX, int cellY, float& x, float& y, bool centre = false) const = 0;
-        ///< Convert cell numbers to position.
 
         virtual void queueMovement(const MWWorld::Ptr& ptr, const osg::Vec3f& velocity) = 0;
         ///< Queues movement for \a ptr (in local space), to be applied in the next call to
@@ -344,74 +337,17 @@ namespace MWBase
         ///< Toggle a render mode.
         ///< \return Resulting mode
 
-        virtual const ESM::Potion* createRecord(const ESM::Potion& record) = 0;
-        ///< Create a new record (of type potion) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Spell* createRecord(const ESM::Spell& record) = 0;
-        ///< Create a new record (of type spell) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Class* createRecord(const ESM::Class& record) = 0;
-        ///< Create a new record (of type class) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Cell* createRecord(const ESM::Cell& record) = 0;
-        ///< Create a new record (of type cell) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::NPC* createRecord(const ESM::NPC& record) = 0;
-        ///< Create a new record (of type npc) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Armor* createRecord(const ESM::Armor& record) = 0;
-        ///< Create a new record (of type armor) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Weapon* createRecord(const ESM::Weapon& record) = 0;
-        ///< Create a new record (of type weapon) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Clothing* createRecord(const ESM::Clothing& record) = 0;
-        ///< Create a new record (of type clothing) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Enchantment* createRecord(const ESM::Enchantment& record) = 0;
-        ///< Create a new record (of type enchantment) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::Book* createRecord(const ESM::Book& record) = 0;
-        ///< Create a new record (of type book) in the ESM store.
-        /// \return pointer to created record
-
-        virtual const ESM::CreatureLevList* createOverrideRecord(const ESM::CreatureLevList& record) = 0;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        virtual const ESM::ItemLevList* createOverrideRecord(const ESM::ItemLevList& record) = 0;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        virtual const ESM::Creature* createOverrideRecord(const ESM::Creature& record) = 0;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        virtual const ESM::NPC* createOverrideRecord(const ESM::NPC& record) = 0;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        virtual const ESM::Container* createOverrideRecord(const ESM::Container& record) = 0;
-        ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
-        /// \return pointer to created record
-
-        virtual MWWorld::Ptr placeObject(const MWWorld::ConstPtr& object, float cursorX, float cursorY, int amount) = 0;
+        virtual MWWorld::Ptr placeObject(
+            const MWWorld::Ptr& object, float cursorX, float cursorY, int amount, bool copy = true)
+            = 0;
         ///< copy and place an object into the gameworld at the specified cursor position
         /// @param object
         /// @param cursor X (relative 0-1)
         /// @param cursor Y (relative 0-1)
         /// @param number of objects to place
 
-        virtual MWWorld::Ptr dropObjectOnGround(const MWWorld::Ptr& actor, const MWWorld::ConstPtr& object, int amount)
+        virtual MWWorld::Ptr dropObjectOnGround(
+            const MWWorld::Ptr& actor, const MWWorld::Ptr& object, int amount, bool copy = true)
             = 0;
         ///< copy and place an object into the gameworld at the given actor's position
         /// @param actor giving the dropped object position
@@ -512,12 +448,12 @@ namespace MWBase
         virtual bool screenshot360(osg::Image* image) = 0;
 
         /// Find default position inside exterior cell specified by name
-        /// \return false if exterior with given name not exists, true otherwise
-        virtual bool findExteriorPosition(const ESM::RefId& name, ESM::Position& pos) = 0;
+        /// \return empty RefId if exterior with given name not exists, the cell's RefId otherwise
+        virtual ESM::RefId findExteriorPosition(std::string_view name, ESM::Position& pos) = 0;
 
         /// Find default position inside interior cell specified by name
-        /// \return false if interior with given name not exists, true otherwise
-        virtual bool findInteriorPosition(const ESM::RefId& name, ESM::Position& pos) = 0;
+        /// \return empty RefId if interior with given name not exists, the cell's RefId otherwise
+        virtual ESM::RefId findInteriorPosition(std::string_view name, ESM::Position& pos) = 0;
 
         /// Enables or disables use of teleport spell effects (recall, intervention, etc).
         virtual void enableTeleporting(bool enable) = 0;
@@ -639,7 +575,7 @@ namespace MWBase
         virtual void rotateWorldObject(const MWWorld::Ptr& ptr, const osg::Quat& rotate) = 0;
 
         /// Return terrain height at \a worldPos position.
-        virtual float getTerrainHeightAt(const osg::Vec3f& worldPos) const = 0;
+        virtual float getTerrainHeightAt(const osg::Vec3f& worldPos, ESM::RefId worldspace) const = 0;
 
         /// Return physical or rendering half extents of the given actor.
         virtual osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor, bool rendering = false) const = 0;

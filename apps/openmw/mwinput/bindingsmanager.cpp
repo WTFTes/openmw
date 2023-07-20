@@ -11,9 +11,6 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/inputmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
-
-#include "../mwworld/player.hpp"
 
 #include "actions.hpp"
 
@@ -441,13 +438,13 @@ namespace MWInput
         switch (action)
         {
             case A_Screenshot:
-                return "#{SettingsMenu:Screenshot}";
+                return "#{OMWEngine:Screenshot}";
             case A_ZoomIn:
-                return "#{SettingsMenu:CameraZoomIn}";
+                return "#{OMWEngine:CameraZoomIn}";
             case A_ZoomOut:
-                return "#{SettingsMenu:CameraZoomOut}";
+                return "#{OMWEngine:CameraZoomOut}";
             case A_ToggleHUD:
-                return "#{SettingsMenu:ToggleHUD}";
+                return "#{OMWEngine:ToggleHUD}";
             case A_Use:
                 return "#{sUse}";
             case A_Activate:
@@ -473,7 +470,7 @@ namespace MWInput
             case A_CycleWeaponRight:
                 return "#{sNextWeapon}";
             case A_Console:
-                return "#{sConsoleTitle}";
+                return "#{OMWEngine:ConsoleWindow}";
             case A_Run:
                 return "#{sRun}";
             case A_Sneak:
@@ -519,7 +516,7 @@ namespace MWInput
             case A_QuickLoad:
                 return "#{sQuickLoadCmd}";
             case A_TogglePostProcessorHUD:
-                return "#{SettingsMenu:TogglePostProcessorHUD}";
+                return "#{OMWEngine:TogglePostProcessorHUD}";
             default:
                 return {}; // not configurable
         }
@@ -528,7 +525,7 @@ namespace MWInput
     std::string BindingsManager::getActionKeyBindingName(int action)
     {
         if (mInputBinder->getChannel(action)->getControlsCount() == 0)
-            return "#{sNone}";
+            return "#{Interface:None}";
 
         ICS::Control* c = mInputBinder->getChannel(action)->getAttachedControls().front().control;
 
@@ -551,16 +548,16 @@ namespace MWInput
                 case ICS::InputControlSystem::MouseWheelClick::LEFT:
                     return "Mouse Wheel Left";
                 default:
-                    return "#{sNone}";
+                    return "#{Interface:None}";
             }
         else
-            return "#{sNone}";
+            return "#{Interface:None}";
     }
 
     std::string BindingsManager::getActionControllerBindingName(int action)
     {
         if (mInputBinder->getChannel(action)->getControlsCount() == 0)
-            return "#{sNone}";
+            return "#{Interface:None}";
 
         ICS::Control* c = mInputBinder->getChannel(action)->getAttachedControls().front().control;
 
@@ -573,7 +570,7 @@ namespace MWInput
             return SDLUtil::sdlControllerButtonToString(
                 mInputBinder->getJoystickButtonBinding(c, sFakeDeviceId, ICS::Control::INCREASE));
         else
-            return "#{sNone}";
+            return "#{Interface:None}";
     }
 
     const std::initializer_list<int>& BindingsManager::getActionKeySorting()

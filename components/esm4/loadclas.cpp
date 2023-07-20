@@ -26,11 +26,6 @@
 */
 #include "loadclas.hpp"
 
-//#ifdef NDEBUG // FIXME: debugging only
-//#undef NDEBUG
-//#endif
-
-//#include <cassert>
 #include <stdexcept>
 
 #include "reader.hpp"
@@ -39,7 +34,7 @@
 void ESM4::Class::load(ESM4::Reader& reader)
 {
     // mFormId = reader.adjustFormId(reader.hdr().record.id); // FIXME: use master adjusted?
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -60,11 +55,9 @@ void ESM4::Class::load(ESM4::Reader& reader)
                 reader.getZString(mIcon);
                 break;
             case ESM4::SUB_DATA:
-            {
-                // std::cout << "CLAS " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
+            case ESM4::SUB_ATTR:
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::CLAS::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

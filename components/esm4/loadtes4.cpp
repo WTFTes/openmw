@@ -26,14 +26,7 @@
 */
 #include "loadtes4.hpp"
 
-#ifdef NDEBUG // FIXME: debuggigng only
-#undef NDEBUG
-#endif
-
-#include <cassert>
 #include <stdexcept>
-
-#include <iostream> // FIXME: debugging only
 
 #include "common.hpp"
 #include "formid.hpp"
@@ -78,6 +71,9 @@ void ESM4::Header::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_DATA:
             {
+                if (mMaster.empty())
+                    throw std::runtime_error(
+                        "Failed to read TES4 DATA subrecord: there is no preceding MAST subrecord");
                 // WARNING: assumes DATA always follows MAST
                 if (!reader.getExact(mMaster.back().size))
                     throw std::runtime_error("TES4 DATA data read error");
@@ -85,11 +81,13 @@ void ESM4::Header::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_ONAM:
             {
-                mOverrides.resize(subHdr.dataSize / sizeof(FormId));
-                for (unsigned int& mOverride : mOverrides)
+                mOverrides.resize(subHdr.dataSize / sizeof(FormId32));
+                for (FormId& mOverride : mOverrides)
                 {
-                    if (!reader.getExact(mOverride))
+                    uint32_t v;
+                    if (!reader.getExact(v))
                         throw std::runtime_error("TES4 ONAM data read error");
+                    mOverride = FormId::fromUint32(v);
 #if 0
                     std::string padding;
                     padding.insert(0, reader.stackSize()*2, ' ');
@@ -102,11 +100,8 @@ void ESM4::Header::load(ESM4::Reader& reader)
             case ESM4::SUB_INCC:
             case ESM4::SUB_OFST: // Oblivion only?
             case ESM4::SUB_DELE: // Oblivion only?
-            {
-                // std::cout << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::Header::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

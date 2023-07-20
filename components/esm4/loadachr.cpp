@@ -27,14 +27,13 @@
 #include "loadachr.hpp"
 
 #include <stdexcept>
-//#include <iostream>
 
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::ActorCharacter::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.id;
+    mFormId = reader.hdr().record.getFormId();
     reader.adjustFormId(mFormId);
     mFlags = reader.hdr().record.flags;
     mParent = reader.currCell(); // NOTE: only for persistent achr? (aren't they all persistent?)
@@ -60,21 +59,14 @@ void ESM4::ActorCharacter::load(ESM4::Reader& reader)
                 reader.get(mScale);
                 break;
             case ESM4::SUB_XOWN:
-                reader.get(mOwner);
+                reader.getFormId(mOwner);
                 break;
             case ESM4::SUB_XESP:
-            {
-                reader.get(mEsp);
-                reader.adjustFormId(mEsp.parent);
+                reader.getFormId(mEsp.parent);
+                reader.get(mEsp.flags);
                 break;
-            }
             case ESM4::SUB_XRGD: // ragdoll
             case ESM4::SUB_XRGB: // ragdoll biped
-            {
-                // std::cout << "ACHR " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
-                reader.skipSubRecordData();
-                break;
-            }
             case ESM4::SUB_XHRS: // horse formId
             case ESM4::SUB_XMRC: // merchant container formId
             // TES5
@@ -102,11 +94,8 @@ void ESM4::ActorCharacter::load(ESM4::Reader& reader)
             case ESM4::SUB_SCHR: // FO3
             case ESM4::SUB_TNAM: // FO3
             case ESM4::SUB_XATO: // FONV
-            {
-                // std::cout << "ACHR " << ESM::printName(subHdr.typeId) << " skipping..." << std::endl;
                 reader.skipSubRecordData();
                 break;
-            }
             default:
                 throw std::runtime_error("ESM4::ACHR::load - Unknown subrecord " + ESM::printName(subHdr.typeId));
         }

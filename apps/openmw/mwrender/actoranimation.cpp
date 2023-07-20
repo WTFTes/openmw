@@ -13,18 +13,18 @@
 #include <components/resource/scenemanager.hpp>
 
 #include <components/sceneutil/attach.hpp>
+#include <components/sceneutil/lightcommon.hpp>
 #include <components/sceneutil/lightmanager.hpp>
 #include <components/sceneutil/lightutil.hpp>
 #include <components/sceneutil/visitor.hpp>
 
 #include <components/misc/resourcehelpers.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/vfs/manager.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/drawstate.hpp"
@@ -111,7 +111,7 @@ namespace MWRender
         // Try to recover the body part model, use ground model as a fallback otherwise.
         if (!bodyparts.empty())
         {
-            const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+            const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
             const MWWorld::Store<ESM::BodyPart>& partStore = store.get<ESM::BodyPart>();
             for (const auto& part : bodyparts)
             {
@@ -162,8 +162,7 @@ namespace MWRender
 
     bool ActorAnimation::updateCarriedLeftVisible(const int weaptype) const
     {
-        static const bool shieldSheathing = Settings::Manager::getBool("shield sheathing", "Game");
-        if (shieldSheathing)
+        if (Settings::game().mShieldSheathing)
         {
             const MWWorld::Class& cls = mPtr.getClass();
             MWMechanics::CreatureStats& stats = cls.getCreatureStats(mPtr);
@@ -188,8 +187,7 @@ namespace MWRender
 
     void ActorAnimation::updateHolsteredShield(bool showCarriedLeft)
     {
-        static const bool shieldSheathing = Settings::Manager::getBool("shield sheathing", "Game");
-        if (!shieldSheathing)
+        if (!Settings::game().mShieldSheathing)
             return;
 
         if (!mPtr.getClass().hasInventoryStore(mPtr))
@@ -255,8 +253,7 @@ namespace MWRender
 
     bool ActorAnimation::useShieldAnimations() const
     {
-        static const bool shieldSheathing = Settings::Manager::getBool("shield sheathing", "Game");
-        if (!shieldSheathing)
+        if (!Settings::game().mShieldSheathing)
             return false;
 
         const MWWorld::Class& cls = mPtr.getClass();
@@ -324,8 +321,7 @@ namespace MWRender
 
     void ActorAnimation::updateHolsteredWeapon(bool showHolsteredWeapons)
     {
-        static const bool weaponSheathing = Settings::Manager::getBool("weapon sheathing", "Game");
-        if (!weaponSheathing)
+        if (!Settings::game().mWeaponSheathing)
             return;
 
         if (!mPtr.getClass().hasInventoryStore(mPtr))
@@ -404,8 +400,7 @@ namespace MWRender
 
     void ActorAnimation::updateQuiver()
     {
-        static const bool weaponSheathing = Settings::Manager::getBool("weapon sheathing", "Game");
-        if (!weaponSheathing)
+        if (!Settings::game().mWeaponSheathing)
             return;
 
         if (!mPtr.getClass().hasInventoryStore(mPtr))
@@ -557,7 +552,7 @@ namespace MWRender
 
         osg::Vec4f ambient(1, 1, 1, 1);
         osg::ref_ptr<SceneUtil::LightSource> lightSource
-            = SceneUtil::createLightSource(esmLight, Mask_Lighting, exterior, ambient);
+            = SceneUtil::createLightSource(SceneUtil::LightCommon(*esmLight), Mask_Lighting, exterior, ambient);
 
         mInsert->addChild(lightSource);
 

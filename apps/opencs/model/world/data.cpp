@@ -27,10 +27,12 @@
 #include <apps/opencs/model/world/subcellcollection.hpp>
 #include <apps/opencs/model/world/universalid.hpp>
 
+#include <components/debug/debuglog.hpp>
 #include <components/esm/defs.hpp>
 #include <components/esm/esmcommon.hpp>
 #include <components/esm3/cellref.hpp>
 #include <components/esm3/esmreader.hpp>
+#include <components/esm3/infoorder.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loaddoor.hpp>
 #include <components/esm3/loadglob.hpp>
@@ -54,6 +56,45 @@
 #include "regionmap.hpp"
 #include "resourcesmanager.hpp"
 #include "resourcetable.hpp"
+
+namespace CSMWorld
+{
+    namespace
+    {
+        void removeDialogueInfos(
+            const ESM::RefId& dialogueId, InfoOrderByTopic& infoOrders, InfoCollection& infoCollection)
+        {
+            const auto topicInfoOrder = infoOrders.find(dialogueId);
+
+            if (topicInfoOrder == infoOrders.end())
+                return;
+
+            std::vector<int> erasedRecords;
+
+            for (const OrderedInfo& info : topicInfoOrder->second.getOrderedInfo())
+            {
+                const ESM::RefId id = makeCompositeInfoRefId(dialogueId, info.mId);
+                const Record<Info>& record = infoCollection.getRecord(id);
+
+                if (record.mState == RecordBase::State_ModifiedOnly)
+                {
+                    erasedRecords.push_back(infoCollection.searchId(id));
+                    continue;
+                }
+
+                auto deletedRecord = std::make_unique<Record<Info>>(record);
+                deletedRecord->mState = RecordBase::State_Deleted;
+                infoCollection.setRecord(infoCollection.searchId(id), std::move(deletedRecord));
+            }
+
+            while (!erasedRecords.empty())
+            {
+                infoCollection.removeRows(erasedRecords.back(), 1);
+                erasedRecords.pop_back();
+            }
+        }
+    }
+}
 
 void CSMWorld::Data::addModel(QAbstractItemModel* model, UniversalId::Type type, bool update)
 {
@@ -91,7 +132,7 @@ int CSMWorld::Data::count(RecordBase::State state, const CollectionBase& collect
     return number;
 }
 
-CSMWorld::Data::Data(ToUTF8::FromType encoding, bool fsStrict, const Files::PathContainer& dataPaths,
+CSMWorld::Data::Data(ToUTF8::FromType encoding, const Files::PathContainer& dataPaths,
     const std::vector<std::string>& archives, const std::filesystem::path& resDir)
     : mEncoder(encoding)
     , mPathgrids(mCells)
@@ -99,12 +140,11 @@ CSMWorld::Data::Data(ToUTF8::FromType encoding, bool fsStrict, const Files::Path
     , mReader(nullptr)
     , mDialogue(nullptr)
     , mReaderIndex(1)
-    , mFsStrict(fsStrict)
     , mDataPaths(dataPaths)
     , mArchives(archives)
 {
-    mVFS = std::make_unique<VFS::Manager>(mFsStrict);
-    VFS::registerArchives(mVFS.get(), Files::Collections(mDataPaths, !mFsStrict), mArchives, true);
+    mVFS = std::make_unique<VFS::Manager>();
+    VFS::registerArchives(mVFS.get(), Files::Collections(mDataPaths), mArchives, true);
 
     mResourcesManager.setVFS(mVFS.get());
     mResourceSystem = std::make_unique<Resource::ResourceSystem>(mVFS.get());
@@ -328,6 +368,7 @@ CSMWorld::Data::Data(ToUTF8::FromType encoding, bool fsStrict, const Files::Path
     mTopicInfos.addColumn(new RecordStateColumn<Info>);
     mTopicInfos.addColumn(new FixedRecordTypeColumn<Info>(UniversalId::Type_TopicInfo));
     mTopicInfos.addColumn(new TopicColumn<Info>(false));
+    mTopicInfos.addColumn(new ResponseColumn<Info>);
     mTopicInfos.addColumn(new ActorColumn<Info>);
     mTopicInfos.addColumn(new RaceColumn<Info>);
     mTopicInfos.addColumn(new ClassColumn<Info>);
@@ -339,7 +380,6 @@ CSMWorld::Data::Data(ToUTF8::FromType encoding, bool fsStrict, const Files::Path
     mTopicInfos.addColumn(new PcFactionColumn<Info>);
     mTopicInfos.addColumn(new PcRankColumn<Info>);
     mTopicInfos.addColumn(new SoundFileColumn<Info>);
-    mTopicInfos.addColumn(new ResponseColumn<Info>);
     // Result script
     mTopicInfos.addColumn(new NestedParentColumn<Info>(
         Columns::ColumnId_InfoList, ColumnBase::Flag_Dialogue | ColumnBase::Flag_Dialogue_List));
@@ -985,12 +1025,12 @@ int CSMWorld::Data::getTotalRecords(const std::vector<std::filesystem::path>& fi
 
     std::unique_ptr<ESM::ESMReader> reader = std::make_unique<ESM::ESMReader>();
 
-    for (unsigned int i = 0; i < files.size(); ++i)
+    for (const auto& file : files)
     {
-        if (!std::filesystem::exists(files[i]))
+        if (!std::filesystem::exists(file))
             continue;
 
-        reader->open(files[i]);
+        reader->open(file);
         records += reader->getRecordCount();
         reader->close();
     }
@@ -1000,6 +1040,8 @@ int CSMWorld::Data::getTotalRecords(const std::vector<std::filesystem::path>& fi
 
 int CSMWorld::Data::startLoading(const std::filesystem::path& path, bool base, bool project)
 {
+    Log(Debug::Info) << "Loading content file " << path;
+
     // Don't delete the Reader yet. Some record types store a reference to the Reader to handle on-demand loading
     std::shared_ptr<ESM::ESMReader> ptr(mReader);
     mReaders.push_back(ptr);
@@ -1037,13 +1079,14 @@ void CSMWorld::Data::loadFallbackEntries()
 
     std::pair<std::string, std::string> doorMarkers[] = { std::make_pair("PrisonMarker", "marker_prison.nif") };
 
-    for (const auto& marker : staticMarkers)
+    for (const auto& [id, model] : staticMarkers)
     {
-        if (mReferenceables.searchId(marker.first) == -1)
+        const ESM::RefId refId = ESM::RefId::stringRefId(id);
+        if (mReferenceables.searchId(refId) == -1)
         {
             ESM::Static newMarker;
-            newMarker.mId = ESM::RefId::stringRefId(marker.first);
-            newMarker.mModel = marker.second;
+            newMarker.mId = refId;
+            newMarker.mModel = model;
             newMarker.mRecordFlags = 0;
             auto record = std::make_unique<CSMWorld::Record<ESM::Static>>();
             record->mBase = newMarker;
@@ -1052,13 +1095,14 @@ void CSMWorld::Data::loadFallbackEntries()
         }
     }
 
-    for (const auto& marker : doorMarkers)
+    for (const auto& [id, model] : doorMarkers)
     {
-        if (mReferenceables.searchId(marker.first) == -1)
+        const ESM::RefId refId = ESM::RefId::stringRefId(id);
+        if (mReferenceables.searchId(refId) == -1)
         {
             ESM::Door newMarker;
-            newMarker.mId = ESM::RefId::stringRefId(marker.first);
-            newMarker.mModel = marker.second;
+            newMarker.mId = refId;
+            newMarker.mModel = model;
             newMarker.mRecordFlags = 0;
             auto record = std::make_unique<CSMWorld::Record<ESM::Door>>();
             record->mBase = newMarker;
@@ -1172,9 +1216,8 @@ bool CSMWorld::Data::continueLoading(CSMDoc::Messages& messages)
                 messages.add(id, "Logic error: cell index out of bounds", "", CSMDoc::Message::Severity_Error);
                 index = mCells.getSize() - 1;
             }
-            const std::string& cellId = mCells.getId(index).getRefIdString();
 
-            mRefs.load(*mReader, index, mBase, mRefLoadCache[cellId], messages);
+            mRefs.load(*mReader, index, mBase, mRefLoadCache[mCells.getId(index)], messages);
             break;
         }
 
@@ -1242,7 +1285,6 @@ bool CSMWorld::Data::continueLoading(CSMDoc::Messages& messages)
         case ESM::REC_DIAL:
         {
             ESM::Dialogue record;
-            const std::string& recordIdString = record.mId.getRefIdString();
             bool isDeleted = false;
 
             record.load(*mReader, isDeleted);
@@ -1252,18 +1294,18 @@ bool CSMWorld::Data::continueLoading(CSMDoc::Messages& messages)
                 // record vector can be shuffled around which would make pointer to record invalid
                 mDialogue = nullptr;
 
-                if (mJournals.tryDelete(recordIdString))
+                if (mJournals.tryDelete(record.mId))
                 {
-                    mJournalInfos.removeDialogueInfos(recordIdString);
+                    removeDialogueInfos(record.mId, mJournalInfoOrder, mJournalInfos);
                 }
-                else if (mTopics.tryDelete(recordIdString))
+                else if (mTopics.tryDelete(record.mId))
                 {
-                    mTopicInfos.removeDialogueInfos(recordIdString);
+                    removeDialogueInfos(record.mId, mTopicInfoOrder, mTopicInfos);
                 }
                 else
                 {
                     messages.add(UniversalId::Type_None,
-                        "Trying to delete dialogue record " + recordIdString + " which does not exist", "",
+                        "Trying to delete dialogue record " + record.mId.getRefIdString() + " which does not exist", "",
                         CSMDoc::Message::Severity_Warning);
                 }
             }
@@ -1296,9 +1338,9 @@ bool CSMWorld::Data::continueLoading(CSMDoc::Messages& messages)
             }
 
             if (mDialogue->mType == ESM::Dialogue::Journal)
-                mJournalInfos.load(*mReader, mBase, *mDialogue);
+                mJournalInfos.load(*mReader, mBase, *mDialogue, mJournalInfoOrder);
             else
-                mTopicInfos.load(*mReader, mBase, *mDialogue);
+                mTopicInfos.load(*mReader, mBase, *mDialogue, mTopicInfoOrder);
 
             break;
         }
@@ -1341,15 +1383,23 @@ bool CSMWorld::Data::continueLoading(CSMDoc::Messages& messages)
     return false;
 }
 
+void CSMWorld::Data::finishLoading()
+{
+    mTopicInfos.sort(mTopicInfoOrder);
+    mJournalInfos.sort(mJournalInfoOrder);
+}
+
 bool CSMWorld::Data::hasId(const std::string& id) const
 {
-    return getGlobals().searchId(id) != -1 || getGmsts().searchId(id) != -1 || getSkills().searchId(id) != -1
-        || getClasses().searchId(id) != -1 || getFactions().searchId(id) != -1 || getRaces().searchId(id) != -1
-        || getSounds().searchId(id) != -1 || getScripts().searchId(id) != -1 || getRegions().searchId(id) != -1
-        || getBirthsigns().searchId(id) != -1 || getSpells().searchId(id) != -1 || getTopics().searchId(id) != -1
-        || getJournals().searchId(id) != -1 || getCells().searchId(id) != -1 || getEnchantments().searchId(id) != -1
-        || getBodyParts().searchId(id) != -1 || getSoundGens().searchId(id) != -1
-        || getMagicEffects().searchId(id) != -1 || getReferenceables().searchId(id) != -1;
+    const ESM::RefId refId = ESM::RefId::stringRefId(id);
+    return getGlobals().searchId(refId) != -1 || getGmsts().searchId(refId) != -1 || getSkills().searchId(refId) != -1
+        || getClasses().searchId(refId) != -1 || getFactions().searchId(refId) != -1 || getRaces().searchId(refId) != -1
+        || getSounds().searchId(refId) != -1 || getScripts().searchId(refId) != -1 || getRegions().searchId(refId) != -1
+        || getBirthsigns().searchId(refId) != -1 || getSpells().searchId(refId) != -1
+        || getTopics().searchId(refId) != -1 || getJournals().searchId(refId) != -1 || getCells().searchId(refId) != -1
+        || getEnchantments().searchId(refId) != -1 || getBodyParts().searchId(refId) != -1
+        || getSoundGens().searchId(refId) != -1 || getMagicEffects().searchId(refId) != -1
+        || getReferenceables().searchId(refId) != -1;
 }
 
 int CSMWorld::Data::count(RecordBase::State state) const
@@ -1393,7 +1443,7 @@ std::vector<ESM::RefId> CSMWorld::Data::getIds(bool listDeleted) const
 void CSMWorld::Data::assetsChanged()
 {
     mVFS.get()->reset();
-    VFS::registerArchives(mVFS.get(), Files::Collections(mDataPaths, !mFsStrict), mArchives, true);
+    VFS::registerArchives(mVFS.get(), Files::Collections(mDataPaths), mArchives, true);
 
     const UniversalId assetTableIds[] = { UniversalId::Type_Meshes, UniversalId::Type_Icons, UniversalId::Type_Musics,
         UniversalId::Type_SoundsRes, UniversalId::Type_Textures, UniversalId::Type_Videos };

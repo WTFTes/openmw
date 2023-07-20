@@ -8,14 +8,13 @@
 #include <osg/Texture2D>
 
 #include <components/debug/debuglog.hpp>
-#include <components/myguiplatform/myguitexture.hpp>
-
 #include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadrace.hpp>
+#include <components/myguiplatform/myguitexture.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 #include "../mwrender/characterpreview.hpp"
 #include "../mwworld/esmstore.hpp"
 
@@ -163,13 +162,13 @@ namespace MWGui
         setGender(proto.isMale() ? GM_Male : GM_Female);
         recountParts();
 
-        for (unsigned int i = 0; i < mAvailableHeads.size(); ++i)
+        for (size_t i = 0; i < mAvailableHeads.size(); ++i)
         {
             if (mAvailableHeads[i] == proto.mHead)
                 mFaceIndex = i;
         }
 
-        for (unsigned int i = 0; i < mAvailableHairs.size(); ++i)
+        for (size_t i = 0; i < mAvailableHairs.size(); ++i)
         {
             if (mAvailableHairs[i] == proto.mHair)
                 mHairIndex = i;
@@ -316,12 +315,10 @@ namespace MWGui
     void RaceDialog::getBodyParts(int part, std::vector<ESM::RefId>& out)
     {
         out.clear();
-        const MWWorld::Store<ESM::BodyPart>& store
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::BodyPart>();
+        const MWWorld::Store<ESM::BodyPart>& store = MWBase::Environment::get().getESMStore()->get<ESM::BodyPart>();
 
         for (const ESM::BodyPart& bodypart : store)
         {
-            const std::string& idString = bodypart.mId.getRefIdString();
             if (bodypart.mData.mFlags & ESM::BodyPart::BPF_NotPlayable)
                 continue;
             if (bodypart.mData.mType != ESM::BodyPart::MT_Skin)
@@ -330,8 +327,7 @@ namespace MWGui
                 continue;
             if (mGenderIndex != (bodypart.mData.mFlags & ESM::BodyPart::BPF_Female))
                 continue;
-            bool firstPerson = Misc::StringUtils::ciEndsWith(idString, "1st");
-            if (firstPerson)
+            if (ESM::isFirstPersonBodyPart(bodypart))
                 continue;
             if (bodypart.mRace == mCurrentRaceId)
                 out.push_back(bodypart.mId);
@@ -375,7 +371,7 @@ namespace MWGui
     {
         mRaceList->removeAllItems();
 
-        const MWWorld::Store<ESM::Race>& races = MWBase::Environment::get().getWorld()->getStore().get<ESM::Race>();
+        const MWWorld::Store<ESM::Race>& races = MWBase::Environment::get().getESMStore()->get<ESM::Race>();
 
         std::vector<std::pair<ESM::RefId, std::string>> items; // ID, name
         for (const ESM::Race& race : races)
@@ -410,25 +406,21 @@ namespace MWGui
             return;
 
         Widgets::MWSkillPtr skillWidget;
-        const int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         MyGUI::IntCoord coord1(0, 0, mSkillList->getWidth(), 18);
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Race* race = store.get<ESM::Race>().find(mCurrentRaceId);
-        int count = sizeof(race->mData.mBonus)
-            / sizeof(race->mData.mBonus[0]); // TODO: Find a portable macro for this ARRAYSIZE?
-        for (int i = 0; i < count; ++i)
+        for (const auto& bonus : race->mData.mBonus)
         {
-            int skillId = race->mData.mBonus[i].mSkill;
-            if (skillId < 0 || skillId > ESM::Skill::Length) // Skip unknown skill indexes
+            ESM::RefId skill = ESM::Skill::indexToRefId(bonus.mSkill);
+            if (skill.empty()) // Skip unknown skill indexes
                 continue;
 
-            skillWidget = mSkillList->createWidget<Widgets::MWSkill>(
-                "MW_StatNameValue", coord1, MyGUI::Align::Default, std::string("Skill") + MyGUI::utility::toString(i));
-            skillWidget->setSkillNumber(skillId);
-            skillWidget->setSkillValue(
-                Widgets::MWSkill::SkillValue(static_cast<float>(race->mData.mBonus[i].mBonus), 0.f));
-            ToolTips::createSkillToolTip(skillWidget, skillId);
+            skillWidget = mSkillList->createWidget<Widgets::MWSkill>("MW_StatNameValue", coord1, MyGUI::Align::Default);
+            skillWidget->setSkillId(skill);
+            skillWidget->setSkillValue(Widgets::MWSkill::SkillValue(static_cast<float>(bonus.mBonus), 0.f));
+            ToolTips::createSkillToolTip(skillWidget, skill);
 
             mSkillItems.push_back(skillWidget);
 
@@ -447,20 +439,20 @@ namespace MWGui
         if (mCurrentRaceId.empty())
             return;
 
-        const int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         MyGUI::IntCoord coord(0, 0, mSpellPowerList->getWidth(), lineHeight);
 
-        const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Race* race = store.get<ESM::Race>().find(mCurrentRaceId);
 
         int i = 0;
-        for (const auto& spellpower : race->mPowers.mList)
+        for (const ESM::RefId& spellpower : race->mPowers.mList)
         {
             Widgets::MWSpellPtr spellPowerWidget = mSpellPowerList->createWidget<Widgets::MWSpell>(
                 "MW_StatName", coord, MyGUI::Align::Default, std::string("SpellPower") + MyGUI::utility::toString(i));
             spellPowerWidget->setSpellId(spellpower);
             spellPowerWidget->setUserString("ToolTipType", "Spell");
-            spellPowerWidget->setUserString("Spell", spellpower.getRefIdString());
+            spellPowerWidget->setUserString("Spell", spellpower.serialize());
 
             mSpellPowerItems.push_back(spellPowerWidget);
 

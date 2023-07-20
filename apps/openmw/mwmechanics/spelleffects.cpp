@@ -8,7 +8,7 @@
 #include <components/esm3/loadstat.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/rng.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -79,33 +79,36 @@ namespace
     void damageAttribute(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect, float magnitude)
     {
         auto& creatureStats = target.getClass().getCreatureStats(target);
-        auto attr = creatureStats.getAttribute(effect.mArg);
+        auto attribute = static_cast<ESM::Attribute::AttributeID>(effect.mArg);
+        auto attr = creatureStats.getAttribute(attribute);
         if (effect.mEffectId == ESM::MagicEffect::DamageAttribute)
             magnitude = std::min(attr.getModified(), magnitude);
         attr.damage(magnitude);
-        creatureStats.setAttribute(effect.mArg, attr);
+        creatureStats.setAttribute(attribute, attr);
     }
 
     void restoreAttribute(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect, float magnitude)
     {
         auto& creatureStats = target.getClass().getCreatureStats(target);
-        auto attr = creatureStats.getAttribute(effect.mArg);
+        auto attribute = static_cast<ESM::Attribute::AttributeID>(effect.mArg);
+        auto attr = creatureStats.getAttribute(attribute);
         attr.restore(magnitude);
-        creatureStats.setAttribute(effect.mArg, attr);
+        creatureStats.setAttribute(attribute, attr);
     }
 
     void fortifyAttribute(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect, float magnitude)
     {
         auto& creatureStats = target.getClass().getCreatureStats(target);
-        auto attr = creatureStats.getAttribute(effect.mArg);
+        auto attribute = static_cast<ESM::Attribute::AttributeID>(effect.mArg);
+        auto attr = creatureStats.getAttribute(attribute);
         attr.setModifier(attr.getModifier() + magnitude);
-        creatureStats.setAttribute(effect.mArg, attr);
+        creatureStats.setAttribute(attribute, attr);
     }
 
     void damageSkill(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect, float magnitude)
     {
         auto& npcStats = target.getClass().getNpcStats(target);
-        auto& skill = npcStats.getSkill(effect.mArg);
+        auto& skill = npcStats.getSkill(ESM::Skill::indexToRefId(effect.mArg));
         if (effect.mEffectId == ESM::MagicEffect::DamageSkill)
             magnitude = std::min(skill.getModified(), magnitude);
         skill.damage(magnitude);
@@ -114,14 +117,14 @@ namespace
     void restoreSkill(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect, float magnitude)
     {
         auto& npcStats = target.getClass().getNpcStats(target);
-        auto& skill = npcStats.getSkill(effect.mArg);
+        auto& skill = npcStats.getSkill(ESM::Skill::indexToRefId(effect.mArg));
         skill.restore(magnitude);
     }
 
     void fortifySkill(const MWWorld::Ptr& target, const ESM::ActiveEffect& effect, float magnitude)
     {
         auto& npcStats = target.getClass().getNpcStats(target);
-        auto& skill = npcStats.getSkill(effect.mArg);
+        auto& skill = npcStats.getSkill(ESM::Skill::indexToRefId(effect.mArg));
         skill.setModifier(skill.getModifier() + magnitude);
     }
 
@@ -151,9 +154,9 @@ namespace
             {
                 // Will unequip the broken item and try to find a replacement
                 if (ptr != MWMechanics::getPlayer())
-                    inv.autoEquip(ptr);
+                    inv.autoEquip();
                 else
-                    inv.unequipItem(*item, ptr);
+                    inv.unequipItem(*item);
             }
 
             return true;
@@ -173,7 +176,7 @@ namespace
     void addBoundItem(const ESM::RefId& itemId, const MWWorld::Ptr& actor)
     {
         MWWorld::InventoryStore& store = actor.getClass().getInventoryStore(actor);
-        MWWorld::Ptr boundPtr = *store.MWWorld::ContainerStore::add(itemId, 1, actor);
+        MWWorld::Ptr boundPtr = *store.MWWorld::ContainerStore::add(itemId, 1);
 
         int slot = getBoundItemSlot(boundPtr);
         auto prevItem = slot >= 0 ? store.getSlot(slot) : store.end();
@@ -217,9 +220,9 @@ namespace
         bool wasEquipped = currentItem != store.end() && currentItem->getCellRef().getRefId() == itemId;
 
         if (wasEquipped)
-            store.remove(*currentItem, 1, actor);
+            store.remove(*currentItem, 1);
         else
-            store.remove(itemId, 1, actor);
+            store.remove(itemId, 1);
 
         if (actor != MWMechanics::getPlayer())
         {
@@ -240,7 +243,7 @@ namespace
             if (actor.getClass().isNpc() && actor.getClass().getNpcStats(actor).isWerewolf())
                 return;
 
-            actor.getClass().getInventoryStore(actor).autoEquip(actor);
+            actor.getClass().getInventoryStore(actor).autoEquip();
 
             return;
         }
@@ -267,7 +270,7 @@ namespace
         if (effect.mFlags & ESM::ActiveEffect::Flag_Applied && effect.mEffectId != ESM::MagicEffect::Corprus)
         {
             const auto* magicEffect
-                = MWBase::Environment::get().getWorld()->getStore().get<ESM::MagicEffect>().find(effect.mEffectId);
+                = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(effect.mEffectId);
             if (magicEffect->mData.mFlags & ESM::MagicEffect::Flags::AppliedOnce
                 && (!harmfulOnly || magicEffect->mData.mFlags & ESM::MagicEffect::Flags::Harmful))
                 return true;
@@ -277,7 +280,7 @@ namespace
 
     void absorbSpell(const ESM::RefId& spellId, const MWWorld::Ptr& caster, const MWWorld::Ptr& target)
     {
-        const auto& esmStore = MWBase::Environment::get().getWorld()->getStore();
+        const auto& esmStore = *MWBase::Environment::get().getESMStore();
         const ESM::Static* absorbStatic = esmStore.get<ESM::Static>().find(ESM::RefId::stringRefId("VFX_Absorb"));
         MWRender::Animation* animation = MWBase::Environment::get().getWorld()->getAnimation(target);
         if (animation && !absorbStatic->mModel.empty())
@@ -296,8 +299,7 @@ namespace
         {
             const ESM::Enchantment* enchantment = esmStore.get<ESM::Enchantment>().search(spellId);
             if (enchantment)
-                spellCost = MWMechanics::getEffectiveEnchantmentCastCost(
-                    static_cast<float>(enchantment->mData.mCost), caster);
+                spellCost = MWMechanics::getEffectiveEnchantmentCastCost(*enchantment, caster);
         }
 
         // Magicka is increased by the cost of the spell
@@ -319,9 +321,9 @@ namespace
         {
             bool canReflect = !(magicEffect->mData.mFlags & ESM::MagicEffect::Unreflectable)
                 && !(effect.mFlags & ESM::ActiveEffect::Flag_Ignore_Reflect)
-                && magnitudes.get(ESM::MagicEffect::Reflect).getMagnitude() > 0.f && !caster.isEmpty();
+                && magnitudes.getOrDefault(ESM::MagicEffect::Reflect).getMagnitude() > 0.f && !caster.isEmpty();
             bool canAbsorb = !(effect.mFlags & ESM::ActiveEffect::Flag_Ignore_SpellAbsorption)
-                && magnitudes.get(ESM::MagicEffect::SpellAbsorption).getMagnitude() > 0.f;
+                && magnitudes.getOrDefault(ESM::MagicEffect::SpellAbsorption).getMagnitude() > 0.f;
             if (canReflect || canAbsorb)
             {
                 auto& prng = MWBase::Environment::get().getWorld()->getPrng();
@@ -359,7 +361,7 @@ namespace
         {
             const ESM::Spell* spell = nullptr;
             if (spellParams.getType() == ESM::ActiveSpells::Type_Temporary)
-                spell = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(spellParams.getId());
+                spell = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(spellParams.getId());
             float magnitudeMult
                 = MWMechanics::getEffectMultiplier(effect.mEffectId, target, caster, spell, &magnitudes);
             if (magnitudeMult == 0)
@@ -431,8 +433,7 @@ namespace MWMechanics
                         if (params.getType() == ESM::ActiveSpells::Type_Temporary)
                         {
                             const ESM::Spell* spell
-                                = MWBase::Environment::get().getWorld()->getStore().get<ESM::Spell>().search(
-                                    params.getId());
+                                = MWBase::Environment::get().getESMStore()->get<ESM::Spell>().search(params.getId());
                             if (spell && spell->mData.mType == ESM::Spell::ST_Spell)
                             {
                                 auto& prng = MWBase::Environment::get().getWorld()->getPrng();
@@ -487,9 +488,7 @@ namespace MWMechanics
                     world->getPlayer().getMarkedPosition(markedCell, markedPosition);
                     if (markedCell)
                     {
-                        ESM::RefId dest;
-                        if (!markedCell->isExterior())
-                            dest = markedCell->getCell()->mName;
+                        ESM::RefId dest = markedCell->getCell()->getId();
                         MWWorld::ActionTeleport action(dest, markedPosition, false);
                         action.execute(target);
                         if (!caster.isEmpty())
@@ -517,7 +516,7 @@ namespace MWMechanics
                 if (target.getClass().hasInventoryStore(target))
                 {
                     auto& store = target.getClass().getInventoryStore(target);
-                    store.unequipAll(target);
+                    store.unequipAll();
                 }
                 else
                     invalid = true;
@@ -564,7 +563,8 @@ namespace MWMechanics
                 {
                     const auto& magnitudes = target.getClass().getCreatureStats(target).getMagicEffects();
                     float volume = std::clamp(
-                        (magnitudes.get(effect.mEffectId).getModifier() + effect.mMagnitude) / 100.f, 0.f, 1.f);
+                        (magnitudes.getOrDefault(effect.mEffectId).getModifier() + effect.mMagnitude) / 100.f, 0.f,
+                        1.f);
                     MWBase::Environment::get().getSoundManager()->playSound3D(target,
                         ESM::RefId::stringRefId("magic sound"), volume, 1.f, MWSound::Type::Sfx,
                         MWSound::PlayMode::LoopNoEnv);
@@ -649,9 +649,8 @@ namespace MWMechanics
                         modDynamicStat(target, index, -effect.mMagnitude);
                     else
                     {
-                        static const bool uncappedDamageFatigue
-                            = Settings::Manager::getBool("uncapped damage fatigue", "Game");
-                        adjustDynamicStat(target, index, -effect.mMagnitude, index == 2 && uncappedDamageFatigue);
+                        adjustDynamicStat(
+                            target, index, -effect.mMagnitude, index == 2 && Settings::game().mUncappedDamageFatigue);
                         if (index == 0)
                             receivedMagicDamage = affectedHealth = true;
                     }
@@ -670,7 +669,7 @@ namespace MWMechanics
                     if (spellParams.getType() == ESM::ActiveSpells::Type_Ability)
                     {
                         auto& npcStats = target.getClass().getNpcStats(target);
-                        SkillValue& skill = npcStats.getSkill(effect.mArg);
+                        SkillValue& skill = npcStats.getSkill(ESM::Skill::indexToRefId(effect.mArg));
                         // Damage Skill abilities reduce base skill :todd:
                         skill.setBase(std::max(skill.getBase() - effect.mMagnitude, 0.f));
                     }
@@ -716,10 +715,9 @@ namespace MWMechanics
             case ESM::MagicEffect::DrainFatigue:
                 if (!godmode)
                 {
-                    static const bool uncappedDamageFatigue
-                        = Settings::Manager::getBool("uncapped damage fatigue", "Game");
                     int index = effect.mEffectId - ESM::MagicEffect::DrainHealth;
-                    adjustDynamicStat(target, index, -effect.mMagnitude, uncappedDamageFatigue && index == 2);
+                    adjustDynamicStat(
+                        target, index, -effect.mMagnitude, Settings::game().mUncappedDamageFatigue && index == 2);
                     if (index == 0)
                         receivedMagicDamage = affectedHealth = true;
                 }
@@ -742,9 +740,10 @@ namespace MWMechanics
                 if (spellParams.getType() == ESM::ActiveSpells::Type_Ability)
                 {
                     auto& creatureStats = target.getClass().getCreatureStats(target);
-                    AttributeValue attr = creatureStats.getAttribute(effect.mArg);
+                    auto attribute = static_cast<ESM::Attribute::AttributeID>(effect.mArg);
+                    AttributeValue attr = creatureStats.getAttribute(attribute);
                     attr.setBase(attr.getBase() + effect.mMagnitude);
-                    creatureStats.setAttribute(effect.mArg, attr);
+                    creatureStats.setAttribute(attribute, attr);
                 }
                 else
                     fortifyAttribute(target, effect, effect.mMagnitude);
@@ -762,7 +761,7 @@ namespace MWMechanics
                 {
                     // Abilities affect base stats, but not for drain
                     auto& npcStats = target.getClass().getNpcStats(target);
-                    auto& skill = npcStats.getSkill(effect.mArg);
+                    auto& skill = npcStats.getSkill(ESM::Skill::indexToRefId(effect.mArg));
                     skill.setBase(skill.getBase() + effect.mMagnitude);
                 }
                 else
@@ -949,15 +948,15 @@ namespace MWMechanics
                 int magnitude = static_cast<int>(roll(effect));
                 if (target.getCellRef().getLockLevel() <= magnitude)
                 {
-                    if (target.getCellRef().getLockLevel() > 0)
+                    if (target.getCellRef().isLocked())
                     {
                         MWBase::Environment::get().getSoundManager()->playSound3D(
                             target, ESM::RefId::stringRefId("Open Lock"), 1.f, 1.f);
 
                         if (caster == getPlayer())
                             MWBase::Environment::get().getWindowManager()->messageBox("#{sMagicOpenSuccess}");
+                        target.getCellRef().unlock();
                     }
-                    target.getCellRef().unlock();
                 }
                 else
                 {
@@ -974,6 +973,13 @@ namespace MWMechanics
         }
         else
         {
+            // Morrowind.exe doesn't apply magic effects while the menu is open, we do because we like to see stats
+            // updated instantly. We don't want to teleport instantly though
+            if (!dt
+                && (effect.mEffectId == ESM::MagicEffect::Recall
+                    || effect.mEffectId == ESM::MagicEffect::DivineIntervention
+                    || effect.mEffectId == ESM::MagicEffect::AlmsiviIntervention))
+                return { MagicApplicationResult::Type::APPLIED, receivedMagicDamage, affectedHealth };
             auto& stats = target.getClass().getCreatureStats(target);
             auto& magnitudes = stats.getMagicEffects();
             if (spellParams.getType() != ESM::ActiveSpells::Type_Ability
@@ -1054,7 +1060,7 @@ namespace MWMechanics
         {
             case ESM::MagicEffect::CommandCreature:
             case ESM::MagicEffect::CommandHumanoid:
-                if (magnitudes.get(effect.mEffectId).getMagnitude() <= 0.f)
+                if (magnitudes.getOrDefault(effect.mEffectId).getMagnitude() <= 0.f)
                 {
                     auto& seq = target.getClass().getCreatureStats(target).getAiSequence();
                     seq.erasePackageIf([&](const auto& package) {
@@ -1064,8 +1070,8 @@ namespace MWMechanics
                 }
                 break;
             case ESM::MagicEffect::ExtraSpell:
-                if (magnitudes.get(effect.mEffectId).getMagnitude() <= 0.f)
-                    target.getClass().getInventoryStore(target).autoEquip(target);
+                if (magnitudes.getOrDefault(effect.mEffectId).getMagnitude() <= 0.f)
+                    target.getClass().getInventoryStore(target).autoEquip();
                 break;
             case ESM::MagicEffect::TurnUndead:
             {
@@ -1092,7 +1098,7 @@ namespace MWMechanics
                 break;
             case ESM::MagicEffect::NightEye:
             {
-                const MWMechanics::EffectParam nightEye = magnitudes.get(effect.mEffectId);
+                const MWMechanics::EffectParam nightEye = magnitudes.getOrDefault(effect.mEffectId);
                 if (nightEye.getMagnitude() < 0.f && nightEye.getBase() < 0)
                 {
                     // The PCVisionBonus functions are different from every other magic effect function in that they
@@ -1111,7 +1117,7 @@ namespace MWMechanics
                     target, effect, ESM::MagicEffect::RallyCreature, AiSetting::Flee, effect.mMagnitude, invalid);
                 break;
             case ESM::MagicEffect::Sound:
-                if (magnitudes.get(effect.mEffectId).getModifier() <= 0.f && target == getPlayer())
+                if (magnitudes.getOrDefault(effect.mEffectId).getModifier() <= 0.f && target == getPlayer())
                     MWBase::Environment::get().getSoundManager()->stopSound3D(
                         target, ESM::RefId::stringRefId("magic sound"));
                 break;
@@ -1198,9 +1204,10 @@ namespace MWMechanics
                 if (spellParams.getType() == ESM::ActiveSpells::Type_Ability)
                 {
                     auto& creatureStats = target.getClass().getCreatureStats(target);
-                    AttributeValue attr = creatureStats.getAttribute(effect.mArg);
+                    auto attribute = static_cast<ESM::Attribute::AttributeID>(effect.mArg);
+                    AttributeValue attr = creatureStats.getAttribute(attribute);
                     attr.setBase(attr.getBase() - effect.mMagnitude);
-                    creatureStats.setAttribute(effect.mArg, attr);
+                    creatureStats.setAttribute(attribute, attr);
                 }
                 else
                     fortifyAttribute(target, effect, -effect.mMagnitude);
@@ -1213,7 +1220,7 @@ namespace MWMechanics
                 if (spellParams.getType() == ESM::ActiveSpells::Type_Ability)
                 {
                     auto& npcStats = target.getClass().getNpcStats(target);
-                    auto& skill = npcStats.getSkill(effect.mArg);
+                    auto& skill = npcStats.getSkill(ESM::Skill::indexToRefId(effect.mArg));
                     skill.setBase(skill.getBase() - effect.mMagnitude);
                 }
                 else
@@ -1271,7 +1278,7 @@ namespace MWMechanics
         auto& magnitudes = target.getClass().getCreatureStats(target).getMagicEffects();
         magnitudes.add(EffectKey(effect.mEffectId, effect.mArg), EffectParam(-effect.mMagnitude));
         removeMagicEffect(target, spellParams, effect);
-        if (magnitudes.get(effect.mEffectId).getMagnitude() <= 0.f)
+        if (magnitudes.getOrDefault(effect.mEffectId).getMagnitude() <= 0.f)
         {
             auto anim = MWBase::Environment::get().getWorld()->getAnimation(target);
             if (anim)

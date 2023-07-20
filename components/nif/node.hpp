@@ -1,6 +1,9 @@
 #ifndef OPENMW_COMPONENTS_NIF_NODE_HPP
 #define OPENMW_COMPONENTS_NIF_NODE_HPP
 
+#include <array>
+#include <unordered_map>
+
 #include <osg/Plane>
 
 #include "base.hpp"
@@ -27,6 +30,7 @@ namespace Nif
         {
             osg::Vec3f center;
             float radius{ 0.f };
+            void read(NIFStream* nif);
         };
 
         struct NiBoxBV
@@ -273,5 +277,120 @@ namespace Nif
         void read(NIFStream* nif) override;
     };
 
+    struct NiDefaultAVObjectPalette : Record
+    {
+        NodePtr mScene;
+        std::unordered_map<std::string, NodePtr> mObjects;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    struct BSTreeNode : NiNode
+    {
+        NodeList mBones1, mBones2;
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    struct BSMultiBoundNode : NiNode
+    {
+        BSMultiBoundPtr mMultiBound;
+        unsigned int mType{ 0 };
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    struct BSVertexDesc
+    {
+        unsigned char mVertexDataSize;
+        unsigned char mDynamicVertexSize;
+        unsigned char mUV1Offset;
+        unsigned char mUV2Offset;
+        unsigned char mNormalOffset;
+        unsigned char mTangentOffset;
+        unsigned char mColorOffset;
+        unsigned char mSkinningDataOffset;
+        unsigned char mLandscapeDataOffset;
+        unsigned char mEyeDataOffset;
+        unsigned short mFlags;
+
+        enum VertexAttribute
+        {
+            Vertex = 0x0001,
+            UVs = 0x0002,
+            UVs_2 = 0x0004,
+            Normals = 0x0008,
+            Tangents = 0x0010,
+            Vertex_Colors = 0x0020,
+            Skinned = 0x0040,
+            Land_Data = 0x0080,
+            Eye_Data = 0x0100,
+            Instance = 0x0200,
+            Full_Precision = 0x0400,
+        };
+
+        void read(NIFStream* nif);
+    };
+
+    struct BSVertexData
+    {
+        osg::Vec3f mVertex;
+        float mBitangentX;
+        unsigned int mUnusedW;
+        std::array<Misc::float16_t, 2> mUV;
+
+        std::array<char, 3> mNormal;
+        char mBitangentY;
+        std::array<char, 3> mTangent;
+        char mBitangentZ;
+        std::array<char, 4> mVertColors;
+        std::array<Misc::float16_t, 4> mBoneWeights;
+        std::array<char, 4> mBoneIndices;
+        float mEyeData;
+
+        void read(NIFStream* nif, uint16_t flags);
+    };
+
+    struct BSTriShape : Node
+    {
+        NiBoundingVolume::NiSphereBV mBoundingSphere;
+        std::vector<float> mBoundMinMax;
+
+        NiSkinInstancePtr mSkin;
+        BSShaderPropertyPtr mShaderProperty;
+        NiAlphaPropertyPtr mAlphaProperty;
+
+        BSVertexDesc mVertDesc;
+
+        unsigned int mDataSize;
+        unsigned int mParticleDataSize;
+
+        std::vector<BSVertexData> mVertData;
+        std::vector<unsigned short> mTriangles;
+        std::vector<unsigned short> mParticleTriangles;
+        std::vector<osg::Vec3f> mParticleVerts;
+        std::vector<osg::Vec3f> mParticleNormals;
+
+        void read(NIFStream* nif) override;
+        void post(Reader& nif) override;
+    };
+
+    struct BSValueNode : NiNode
+    {
+        unsigned int mValue;
+        char mValueFlags;
+
+        void read(NIFStream* nif) override;
+    };
+
+    struct BSOrderedNode : NiNode
+    {
+        osg::Vec4f mAlphaSortBound;
+        char mStaticBound;
+
+        void read(NIFStream* nif) override;
+    };
 } // Namespace
 #endif

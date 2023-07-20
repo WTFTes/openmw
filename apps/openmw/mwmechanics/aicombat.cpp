@@ -112,7 +112,7 @@ namespace MWMechanics
 
         MWWorld::Ptr target = MWBase::Environment::get().getWorld()->searchPtrViaActorId(mTargetActorId);
         if (target.isEmpty())
-            return false;
+            return true;
 
         if (!target.getRefData().getCount()
             || !target.getRefData().isEnabled() // Really we should be checking whether the target is currently
@@ -283,7 +283,8 @@ namespace MWMechanics
             const auto agentBounds = world->getPathfindingAgentBounds(actor);
             const auto navigatorFlags = getNavigatorFlags(actor);
             const auto areaCosts = getAreaCosts(actor);
-            const auto pathGridGraph = getPathGridGraph(actor.getCell());
+            const ESM::Pathgrid* pathgrid = world->getStore().get<ESM::Pathgrid>().search(*actor.getCell()->getCell());
+            const auto& pathGridGraph = getPathGridGraph(pathgrid);
             mPathFinder.buildPath(actor, vActorPos, vTargetPos, actor.getCell(), pathGridGraph, agentBounds,
                 navigatorFlags, areaCosts, storage.mAttackRange, PathType::Full);
 
@@ -357,12 +358,11 @@ namespace MWMechanics
             case AiCombatStorage::FleeState_Idle:
             {
                 float triggerDist = getMaxAttackDistance(target);
-
+                const MWWorld::Cell* cellVariant = storage.mCell->getCell();
                 if (storage.mLOS && (triggerDist >= 1000 || getDistanceMinusHalfExtents(actor, target) <= triggerDist))
                 {
                     const ESM::Pathgrid* pathgrid
-                        = MWBase::Environment::get().getWorld()->getStore().get<ESM::Pathgrid>().search(
-                            *storage.mCell->getCell());
+                        = MWBase::Environment::get().getESMStore()->get<ESM::Pathgrid>().search(*cellVariant);
 
                     bool runFallback = true;
 
@@ -370,7 +370,7 @@ namespace MWMechanics
                         && !actor.getClass().isPureWaterCreature(actor))
                     {
                         ESM::Pathgrid::PointList points;
-                        Misc::CoordinateConverter coords(storage.mCell->getCell());
+                        Misc::CoordinateConverter coords(*storage.mCell->getCell());
 
                         osg::Vec3f localPos = actor.getRefData().getPosition().asVec3();
                         coords.toLocal(localPos);
@@ -379,7 +379,7 @@ namespace MWMechanics
                         for (int i = 0; i < static_cast<int>(pathgrid->mPoints.size()); i++)
                         {
                             if (i != closestPointIndex
-                                && getPathGridGraph(storage.mCell).isPointConnected(closestPointIndex, i))
+                                && getPathGridGraph(pathgrid).isPointConnected(closestPointIndex, i))
                             {
                                 points.push_back(pathgrid->mPoints[static_cast<size_t>(i)]);
                             }
@@ -429,9 +429,8 @@ namespace MWMechanics
             case AiCombatStorage::FleeState_RunToDestination:
             {
                 static const float fFleeDistance = MWBase::Environment::get()
-                                                       .getWorld()
-                                                       ->getStore()
-                                                       .get<ESM::GameSetting>()
+                                                       .getESMStore()
+                                                       ->get<ESM::GameSetting>()
                                                        .find("fFleeDistance")
                                                        ->mValue.getFloat();
 
@@ -573,7 +572,7 @@ namespace MWMechanics
         {
             // Backing up behaviour
             // Actor backs up slightly further away than opponent's weapon range
-            // (in vanilla - only as far as oponent's weapon range),
+            // (in vanilla - only as far as opponent's weapon range),
             // or not at all if opponent is using a ranged weapon
 
             if (targetUsesRanged
@@ -649,7 +648,7 @@ namespace MWMechanics
                 auto& prng = MWBase::Environment::get().getWorld()->getPrng();
                 mStrength = Misc::Rng::rollClosedProbability(prng);
 
-                const MWWorld::ESMStore& store = MWBase::Environment::get().getWorld()->getStore();
+                const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
 
                 float baseDelay = store.get<ESM::GameSetting>().find("fCombatDelayCreature")->mValue.getFloat();
                 if (actor.getClass().isNpc())
@@ -741,7 +740,7 @@ namespace
     {
         float projSpeed;
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         // get projectile speed (depending on weapon type)
         if (MWMechanics::getWeaponType(weapType)->mWeaponClass == ESM::WeaponType::Thrown)

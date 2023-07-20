@@ -6,6 +6,8 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwworld/globals.hpp"
+
 #include <set>
 
 namespace ESM
@@ -39,22 +41,25 @@ namespace MWLua
         // Note that game time generally goes faster than the simulation time.
         double getGameTime() const;
         double getGameTimeScale() const { return MWBase::Environment::get().getWorld()->getTimeScaleFactor(); }
-        void setGameTimeScale(double s) { MWBase::Environment::get().getWorld()->setGlobalFloat("timescale", s); }
+        void setGameTimeScale(double s)
+        {
+            MWBase::Environment::get().getWorld()->setGlobalFloat(MWWorld::Globals::sTimeScale, s);
+        }
 
         ObjectIdList getActivatorsInScene() const { return mActivatorsInScene.mList; }
         ObjectIdList getActorsInScene() const { return mActorsInScene.mList; }
         ObjectIdList getContainersInScene() const { return mContainersInScene.mList; }
         ObjectIdList getDoorsInScene() const { return mDoorsInScene.mList; }
         ObjectIdList getItemsInScene() const { return mItemsInScene.mList; }
+        ObjectIdList getPlayers() const { return mPlayers; }
 
         void objectAddedToScene(const MWWorld::Ptr& ptr);
         void objectRemovedFromScene(const MWWorld::Ptr& ptr);
 
+        void setPlayer(const MWWorld::Ptr& player) { *mPlayers = { getId(player) }; }
+
         void load(ESM::ESMReader& esm);
         void save(ESM::ESMWriter& esm) const;
-
-        // TODO: move this functionality to MWClass
-        bool isItem(const MWWorld::Ptr& ptr) { return chooseGroup(ptr) == &mItemsInScene; }
 
     private:
         struct ObjectGroup
@@ -76,6 +81,7 @@ namespace MWLua
         ObjectGroup mContainersInScene;
         ObjectGroup mDoorsInScene;
         ObjectGroup mItemsInScene;
+        ObjectIdList mPlayers = std::make_shared<std::vector<ObjectId>>();
 
         double mSimulationTime = 0;
         bool mPaused = false;

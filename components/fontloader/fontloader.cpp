@@ -25,19 +25,17 @@
 
 #include <components/myguiplatform/scalinglayer.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 namespace
 {
-    MyGUI::xml::ElementPtr getProperty(MyGUI::xml::ElementPtr resourceNode, const std::string propertyName)
+    MyGUI::xml::ElementPtr getProperty(MyGUI::xml::ElementPtr resourceNode, std::string_view propertyName)
     {
         MyGUI::xml::ElementPtr propertyNode = nullptr;
         MyGUI::xml::ElementEnumerator propertyIterator = resourceNode->getElementEnumerator();
         while (propertyIterator.next("Property"))
         {
-            std::string key = propertyIterator->findAttribute("key");
-
-            if (key == propertyName)
+            if (propertyIterator->findAttribute("key") == propertyName)
             {
                 propertyNode = propertyIterator.current();
                 break;
@@ -55,15 +53,15 @@ namespace
         MyGUI::xml::ElementEnumerator layersIterator = root->getElementEnumerator();
         while (layersIterator.next("Layer"))
         {
-            std::string name = layersIterator->findAttribute("name");
-
-            if (name == "JournalBooks")
+            if (layersIterator->findAttribute("name") == "JournalBooks")
             {
                 MyGUI::xml::ElementPtr sizeProperty = getProperty(layersIterator.current(), "Size");
-                const std::string& sizeValue
-                    = sizeProperty != nullptr ? sizeProperty->findAttribute("value") : std::string();
-                if (!sizeValue.empty())
-                    return MyGUI::IntSize::parse(sizeValue);
+                if (sizeProperty != nullptr)
+                {
+                    std::string sizeValue = sizeProperty->findAttribute("value");
+                    if (!sizeValue.empty())
+                        return MyGUI::IntSize::parse(sizeValue);
+                }
             }
         }
 
@@ -215,7 +213,7 @@ namespace
         }
     }
 
-    [[noreturn]] void fail(std::istream& stream, const std::string& fileName, const std::string& message)
+    [[noreturn]] void fail(std::istream& stream, std::string_view fileName, std::string_view message)
     {
         std::stringstream error;
         error << "Font loading error: " << message;
@@ -231,7 +229,6 @@ namespace Gui
 
     FontLoader::FontLoader(ToUTF8::FromType encoding, const VFS::Manager* vfs, float scalingFactor)
         : mVFS(vfs)
-        , mFontHeight(std::clamp(Settings::Manager::getInt("font size", "GUI"), 12, 18))
         , mScalingFactor(scalingFactor)
     {
         if (encoding == ToUTF8::WINDOWS_1252)
@@ -291,7 +288,7 @@ namespace Gui
         MyGUI::IntSize bookSize = getBookSize(layersStream.get());
         float bookScale = osgMyGUI::ScalingLayer::getScaleFactor(bookSize);
 
-        const auto oldDataPath = dataManager->getDataPath("");
+        const auto oldDataPath = dataManager->getDataPath({});
         dataManager->setResourcePath("fonts");
         std::unique_ptr<MyGUI::IDataStream> dataStream(dataManager->getData(fileName));
 
@@ -303,8 +300,7 @@ namespace Gui
         bool valid = false;
         if (resourceNode.next("Resource"))
         {
-            std::string type = resourceNode->findAttribute("type");
-            valid = (type == "ResourceTrueTypeFont");
+            valid = resourceNode->findAttribute("type") == "ResourceTrueTypeFont";
         }
 
         if (valid == false)
@@ -328,7 +324,7 @@ namespace Gui
 
         MyGUI::xml::ElementPtr sizeNode = resourceNode->createChild("Property");
         sizeNode->addAttribute("key", "Size");
-        sizeNode->addAttribute("value", std::to_string(mFontHeight));
+        sizeNode->addAttribute("value", std::to_string(Settings::gui().mFontSize));
 
         MyGUI::ResourceTrueTypeFont* font = static_cast<MyGUI::ResourceTrueTypeFont*>(
             MyGUI::FactoryManager::getInstance().createObject("Resource", "ResourceTrueTypeFont"));
@@ -450,7 +446,7 @@ namespace Gui
         defaultHeight->addAttribute("value", fontSize);
         MyGUI::xml::ElementPtr source = root->createChild("Property");
         source->addAttribute("key", "Source");
-        source->addAttribute("value", std::string(bitmapFilename));
+        source->addAttribute("value", bitmapFilename);
         MyGUI::xml::ElementPtr codes = root->createChild("Codes");
 
         for (int i = 0; i < 256; i++)
@@ -532,12 +528,12 @@ namespace Gui
             additional.insert(std::make_pair(84, 0x2122)); // trademark sign
             additional.insert(std::make_pair(45, 0x2212)); // minus sign
 
-            for (std::multimap<int, int>::iterator it = additional.begin(); it != additional.end(); ++it)
+            for (const auto& [key, value] : additional)
             {
-                if (it->first != i)
+                if (key != i)
                     continue;
                 code = codes->createChild("Code");
-                code->addAttribute("index", it->second);
+                code->addAttribute("index", value);
                 code->addAttribute("coord",
                     MyGUI::utility::toString(x1) + " " + MyGUI::utility::toString(y1) + " "
                         + MyGUI::utility::toString(w) + " " + MyGUI::utility::toString(h));
@@ -626,22 +622,16 @@ namespace Gui
                 // We should adjust line height for MyGUI widgets depending on font size
                 MyGUI::xml::ElementPtr heightNode = resourceNode->createChild("Property");
                 heightNode->addAttribute("key", "HeightLine");
-                heightNode->addAttribute("value", std::to_string(mFontHeight + 2));
+                heightNode->addAttribute("value", std::to_string(Settings::gui().mFontSize + 2));
             }
         }
 
         MyGUI::ResourceManager::getInstance().loadFromXmlNode(_node, _file, _version);
     }
 
-    int FontLoader::getFontHeight()
+    std::string_view FontLoader::getFontForFace(std::string_view face)
     {
-        return mFontHeight;
-    }
-
-    std::string FontLoader::getFontForFace(const std::string& face)
-    {
-        const std::string lowerFace = Misc::StringUtils::lowerCase(face);
-        if (lowerFace == "daedric")
+        if (Misc::StringUtils::ciEqual(face, "daedric"))
             return "ScrollFont";
 
         return "DefaultFont";

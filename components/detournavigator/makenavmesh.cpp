@@ -13,14 +13,12 @@
 #include "recastparams.hpp"
 #include "settings.hpp"
 #include "settingsutils.hpp"
-#include "sharednavmesh.hpp"
 
 #include "components/debug/debuglog.hpp"
 
 #include <DetourNavMesh.h>
 #include <DetourNavMeshBuilder.h>
 #include <Recast.h>
-#include <RecastAlloc.h>
 
 #include <algorithm>
 #include <array>
@@ -31,6 +29,8 @@ namespace DetourNavigator
 {
     namespace
     {
+        constexpr int walkableRadiusUpperLimit = 255;
+
         struct Rectangle
         {
             TileBounds mBounds;
@@ -114,6 +114,16 @@ namespace DetourNavigator
             return waterLevel - settings.mSwimHeightScale * agentHalfExtentsZ - agentHalfExtentsZ;
         }
 
+        int getWalkableHeight(const RecastSettings& settings, const AgentBounds& agentBounds)
+        {
+            return static_cast<int>(std::ceil(getHeight(settings, agentBounds) / settings.mCellHeight));
+        }
+
+        int getWalkableRadius(const RecastSettings& settings, const AgentBounds& agentBounds)
+        {
+            return static_cast<int>(std::ceil(getRadius(settings, agentBounds) / settings.mCellSize));
+        }
+
         struct RecastParams
         {
             float mSampleDist = 0;
@@ -128,10 +138,9 @@ namespace DetourNavigator
         {
             RecastParams result;
 
-            result.mWalkableHeight
-                = static_cast<int>(std::ceil(getHeight(settings, agentBounds) / settings.mCellHeight));
+            result.mWalkableHeight = getWalkableHeight(settings, agentBounds);
             result.mWalkableClimb = static_cast<int>(std::floor(getMaxClimb(settings) / settings.mCellHeight));
-            result.mWalkableRadius = static_cast<int>(std::ceil(getRadius(settings, agentBounds) / settings.mCellSize));
+            result.mWalkableRadius = getWalkableRadius(settings, agentBounds);
             result.mMaxEdgeLen
                 = static_cast<int>(std::round(static_cast<float>(settings.mMaxEdgeLen) / settings.mCellSize));
             result.mSampleDist
@@ -288,10 +297,15 @@ namespace DetourNavigator
                     context, realTileBounds, recastMesh.getFlatHeightfields(), settings, params, solid);
         }
 
+        bool isValidWalkableHeight(int value)
+        {
+            return value >= 3;
+        }
+
         [[nodiscard]] bool buildCompactHeightfield(RecastContext& context, const int walkableHeight,
             const int walkableClimb, rcHeightfield& solid, rcCompactHeightfield& compact)
         {
-            if (walkableHeight < 3)
+            if (!isValidWalkableHeight(walkableHeight))
             {
                 Log(Debug::Warning) << context.getPrefix()
                                     << "Invalid walkableHeight to build compact heightfield: " << walkableHeight;
@@ -308,9 +322,14 @@ namespace DetourNavigator
             return rcBuildCompactHeightfield(&context, walkableHeight, walkableClimb, solid, compact);
         }
 
+        bool isValidWalkableRadius(int value)
+        {
+            return 0 < value && value < walkableRadiusUpperLimit;
+        }
+
         [[nodiscard]] bool erodeWalkableArea(RecastContext& context, int walkableRadius, rcCompactHeightfield& compact)
         {
-            if (walkableRadius <= 0 || 255 <= walkableRadius)
+            if (!isValidWalkableRadius(walkableRadius))
             {
                 Log(Debug::Warning) << context.getPrefix()
                                     << "Invalid walkableRadius to erode walkable area: " << walkableRadius;
@@ -498,9 +517,10 @@ namespace DetourNavigator
 namespace DetourNavigator
 {
     std::unique_ptr<PreparedNavMeshData> prepareNavMeshTileData(const RecastMesh& recastMesh,
-        const TilePosition& tilePosition, const AgentBounds& agentBounds, const RecastSettings& settings)
+        std::string_view worldspace, const TilePosition& tilePosition, const AgentBounds& agentBounds,
+        const RecastSettings& settings)
     {
-        RecastContext context(tilePosition, agentBounds);
+        RecastContext context(worldspace, tilePosition, agentBounds);
 
         const auto [minZ, maxZ] = getBoundsByZ(recastMesh, agentBounds.mHalfExtents.z(), settings);
 
@@ -583,7 +603,7 @@ namespace DetourNavigator
         return NavMeshData(navMeshData, navMeshDataSize);
     }
 
-    NavMeshPtr makeEmptyNavMesh(const Settings& settings)
+    void initEmptyNavMesh(const Settings& settings, dtNavMesh& navMesh)
     {
         // Max tiles and max polys affect how the tile IDs are caculated.
         // There are 22 bits available for identifying a tile and a polygon.
@@ -602,16 +622,15 @@ namespace DetourNavigator
         params.maxTiles = 1 << tilesBits;
         params.maxPolys = 1 << polysBits;
 
-        NavMeshPtr navMesh(dtAllocNavMesh(), &dtFreeNavMesh);
-
-        if (navMesh == nullptr)
-            throw NavigatorException("Failed to allocate navmesh");
-
-        const auto status = navMesh->init(&params);
+        const auto status = navMesh.init(&params);
 
         if (!dtStatusSucceed(status))
             throw NavigatorException("Failed to init navmesh");
+    }
 
-        return navMesh;
+    bool isSupportedAgentBounds(const RecastSettings& settings, const AgentBounds& agentBounds)
+    {
+        return isValidWalkableHeight(getWalkableHeight(settings, agentBounds))
+            && isValidWalkableRadius(getWalkableRadius(settings, agentBounds));
     }
 }

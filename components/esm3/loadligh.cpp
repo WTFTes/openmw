@@ -57,7 +57,7 @@ namespace ESM
     }
     void Light::save(ESMWriter& esm, bool isDeleted) const
     {
-        esm.writeHNCString("NAME", mId.getRefIdString());
+        esm.writeHNCRefId("NAME", mId);
 
         if (isDeleted)
         {
@@ -69,8 +69,8 @@ namespace ESM
         esm.writeHNOCString("FNAM", mName);
         esm.writeHNOCString("ITEX", mIcon);
         esm.writeHNT("LHDT", mData, 24);
-        esm.writeHNOCString("SCRI", mScript.getRefIdString());
-        esm.writeHNOCString("SNAM", mSound.getRefIdString());
+        esm.writeHNOCRefId("SCRI", mScript);
+        esm.writeHNOCRefId("SNAM", mSound);
     }
 
     void Light::blank()
@@ -82,8 +82,8 @@ namespace ESM
         mData.mRadius = 0;
         mData.mColor = 0;
         mData.mFlags = 0;
-        mSound = ESM::RefId::sEmpty;
-        mScript = ESM::RefId::sEmpty;
+        mSound = ESM::RefId();
+        mScript = ESM::RefId();
         mModel.clear();
         mIcon.clear();
         mName.clear();

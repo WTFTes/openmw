@@ -7,7 +7,7 @@
 #include <MyGUI_ScrollView.h>
 
 #include <components/misc/strings/format.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/widgets/list.hpp>
 
 #include <components/esm3/loadgmst.hpp>
@@ -15,7 +15,6 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
@@ -140,7 +139,7 @@ namespace MWGui
 
     void EnchantingDialog::setPtr(const MWWorld::Ptr& ptr)
     {
-        mName->setCaption("");
+        mName->setCaption({});
 
         if (ptr.getClass().isActor())
         {
@@ -158,8 +157,7 @@ namespace MWGui
             mEnchanting.setSelfEnchanting(true);
             mEnchanting.setEnchanter(MWMechanics::getPlayer());
             mBuyButton->setCaptionWithReplacing("#{sCreate}");
-            bool enabled = Settings::Manager::getBool("show enchant chance", "Game");
-            mChanceLayout->setVisible(enabled);
+            mChanceLayout->setVisible(Settings::game().mShowEnchantChance);
             mPtr = MWMechanics::getPlayer();
             setSoulGem(ptr);
             mPrice->setVisible(false);
@@ -342,9 +340,8 @@ namespace MWGui
                         item.getCellRef().getRefId(), mPtr))
                 {
                     std::string msg = MWBase::Environment::get()
-                                          .getWorld()
-                                          ->getStore()
-                                          .get<ESM::GameSetting>()
+                                          .getESMStore()
+                                          ->get<ESM::GameSetting>()
                                           .find("sNotifyMessage49")
                                           ->mValue.getString();
                     msg = Misc::StringUtils::format(msg, item.getClass().getName(item));

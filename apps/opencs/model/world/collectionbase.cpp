@@ -7,13 +7,9 @@
 
 #include "columnbase.hpp"
 
-CSMWorld::CollectionBase::CollectionBase() {}
-
-CSMWorld::CollectionBase::~CollectionBase() {}
-
-int CSMWorld::CollectionBase::getInsertIndex(const std::string& id, UniversalId::Type type, RecordBase* record) const
+int CSMWorld::CollectionBase::getInsertIndex(const ESM::RefId& id, UniversalId::Type type, RecordBase* record) const
 {
-    return getAppendIndex(ESM::RefId::stringRefId(id), type);
+    return getAppendIndex(id, type);
 }
 
 int CSMWorld::CollectionBase::searchColumnIndex(Columns::ColumnId id) const

@@ -127,6 +127,7 @@ namespace MWRender
         }
         cam->setViewMatrixAsLookAt(pos, pos + forward, up);
         mViewMatrix = cam->getViewMatrix();
+        mProjectionMatrix = cam->getProjectionMatrix();
     }
 
     void Camera::update(float duration, bool paused)
@@ -213,7 +214,10 @@ namespace MWRender
     void Camera::setMode(Mode newMode, bool force)
     {
         if (mMode == newMode)
+        {
+            mQueuedMode = std::nullopt;
             return;
+        }
         Mode oldMode = mMode;
         if (!force && (newMode == Mode::FirstPerson || oldMode == Mode::FirstPerson) && mAnimation
             && !mAnimation->upperBodyReady())

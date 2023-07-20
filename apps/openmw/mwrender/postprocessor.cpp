@@ -164,6 +164,8 @@ namespace MWRender
                     mTextures[i][Tex_OpaqueDepth] = new osg::Texture2DArray;
                 else
                     mTextures[i][Tex_OpaqueDepth] = new osg::Texture2D;
+                mTextures[i][Tex_OpaqueDepth]->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+                mTextures[i][Tex_OpaqueDepth]->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
             }
         }
 
@@ -340,7 +342,6 @@ namespace MWRender
             mTransparentDepthPostPass->mFbo[frameId] = mFbos[frameId][FBO_Primary];
             mTransparentDepthPostPass->mMsaaFbo[frameId] = mFbos[frameId][FBO_Multisample];
             mTransparentDepthPostPass->mOpaqueFbo[frameId] = mFbos[frameId][FBO_OpaqueDepth];
-            mTransparentDepthPostPass->dirtyFrame(frameId);
         }
 
         size_t frame = cv->getTraversalNumber();

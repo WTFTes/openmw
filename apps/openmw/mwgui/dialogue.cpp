@@ -8,6 +8,7 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadcrea.hpp>
+#include <components/settings/values.hpp>
 #include <components/translation/translation.hpp>
 #include <components/widgets/box.hpp>
 #include <components/widgets/list.hpp>
@@ -32,7 +33,7 @@
 
 namespace MWGui
 {
-    void ResponseCallback::addResponse(const std::string& title, const std::string& text)
+    void ResponseCallback::addResponse(std::string_view title, std::string_view text)
     {
         mWindow->addResponse(title, text, mNeedMargin);
     }
@@ -88,7 +89,7 @@ namespace MWGui
 
     void PersuasionDialog::adjustAction(MyGUI::Widget* action, int& totalHeight)
     {
-        const int lineHeight = MWBase::Environment::get().getWindowManager()->getFontHeight() + 2;
+        const int lineHeight = Settings::gui().mFontSize + 2;
         auto currentCoords = action->getCoord();
         action->setCoord(currentCoords.left, totalHeight, currentCoords.width, lineHeight);
         totalHeight += lineHeight;
@@ -150,7 +151,7 @@ namespace MWGui
 
     // --------------------------------------------------------------------------------------------------
 
-    Response::Response(const std::string& text, const std::string& title, bool needMargin)
+    Response::Response(std::string_view text, std::string_view title, bool needMargin)
         : mTitle(title)
         , mNeedMargin(needMargin)
     {
@@ -167,7 +168,7 @@ namespace MWGui
         {
             const MyGUI::Colour& headerColour = windowManager->getTextColours().header;
             BookTypesetter::Style* title = typesetter->createStyle({}, headerColour, false);
-            typesetter->write(title, to_utf8_span(mTitle.c_str()));
+            typesetter->write(title, to_utf8_span(mTitle));
             typesetter->sectionBreak();
         }
 
@@ -206,14 +207,14 @@ namespace MWGui
                 break;
         }
 
-        typesetter->addContent(to_utf8_span(text.c_str()));
+        typesetter->addContent(to_utf8_span(text));
 
         if (hyperLinks.size()
             && MWBase::Environment::get().getWindowManager()->getTranslationDataStorage().hasTranslation())
         {
             const TextColours& textColours = MWBase::Environment::get().getWindowManager()->getTextColours();
 
-            BookTypesetter::Style* style = typesetter->createStyle("", textColours.normal, false);
+            BookTypesetter::Style* style = typesetter->createStyle({}, textColours.normal, false);
             size_t formatted = 0; // points to the first character that is not laid out yet
             for (auto& hyperLink : hyperLinks)
             {
@@ -252,7 +253,7 @@ namespace MWGui
     {
         const TextColours& textColours = MWBase::Environment::get().getWindowManager()->getTextColours();
 
-        BookTypesetter::Style* style = typesetter->createStyle("", textColours.normal, false);
+        BookTypesetter::Style* style = typesetter->createStyle({}, textColours.normal, false);
 
         if (topicId)
             style = typesetter->createHotStyle(
@@ -260,7 +261,7 @@ namespace MWGui
         typesetter->write(style, begin, end);
     }
 
-    Message::Message(const std::string& text)
+    Message::Message(std::string_view text)
     {
         mText = text;
     }
@@ -269,9 +270,9 @@ namespace MWGui
         std::map<std::string, std::unique_ptr<Link>>& topicLinks) const
     {
         const MyGUI::Colour& textColour = MWBase::Environment::get().getWindowManager()->getTextColours().notify;
-        BookTypesetter::Style* title = typesetter->createStyle("", textColour, false);
+        BookTypesetter::Style* title = typesetter->createStyle({}, textColour, false);
         typesetter->sectionBreak(9);
-        typesetter->write(title, to_utf8_span(mText.c_str()));
+        typesetter->write(title, to_utf8_span(mText));
     }
 
     // --------------------------------------------------------------------------------------------------
@@ -326,7 +327,7 @@ namespace MWGui
         mScrollBar->eventScrollChangePosition += MyGUI::newDelegate(this, &DialogueWindow::onScrollbarMoved);
         mHistory->eventMouseWheel += MyGUI::newDelegate(this, &DialogueWindow::onMouseWheel);
 
-        BookPage::ClickCallback callback = std::bind(&DialogueWindow::notifyLinkClicked, this, std::placeholders::_1);
+        BookPage::ClickCallback callback = [this](TypesetBook::InteractiveId link) { notifyLinkClicked(link); };
         mHistory->adviseLinkClicked(callback);
 
         mMainWidget->castType<MyGUI::Window>()->eventWindowChangeCoord
@@ -335,7 +336,8 @@ namespace MWGui
 
     void DialogueWindow::onTradeComplete()
     {
-        addResponse("", MyGUI::LanguageManager::getInstance().replaceTags("#{sBarterDialog5}"));
+        MyGUI::UString message = MyGUI::LanguageManager::getInstance().replaceTags("#{sBarterDialog5}");
+        addResponse({}, message.asUTF8());
     }
 
     bool DialogueWindow::exit()
@@ -390,7 +392,7 @@ namespace MWGui
             return;
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         const std::string& sPersuasion = gmst.find("sPersuasion")->mValue.getString();
         const std::string& sCompanionShare = gmst.find("sCompanionShare")->mValue.getString();
@@ -492,9 +494,8 @@ namespace MWGui
     {
         MWMechanics::CreatureStats& sellerStats = mPtr.getClass().getCreatureStats(mPtr);
         float delay = MWBase::Environment::get()
-                          .getWorld()
-                          ->getStore()
-                          .get<ESM::GameSetting>()
+                          .getESMStore()
+                          ->get<ESM::GameSetting>()
                           .find("fBarterGoldResetDelay")
                           ->mValue.getFloat();
 
@@ -545,7 +546,7 @@ namespace MWGui
                 && !mPtr.get<ESM::Creature>()->mBase->getTransport().empty());
 
         const MWWorld::Store<ESM::GameSetting>& gmst
-            = MWBase::Environment::get().getWorld()->getStore().get<ESM::GameSetting>();
+            = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
 
         if (mPtr.getType() == ESM::NPC::sRecordId)
             mTopicsList->addItem(gmst.find("sPersuasion")->mValue.getString());
@@ -612,7 +613,7 @@ namespace MWGui
         for (const auto& text : mHistoryContents)
             text->write(typesetter, &mKeywordSearch, mTopicLinks);
 
-        BookTypesetter::Style* body = typesetter->createStyle("", MyGUI::Colour::White, false);
+        BookTypesetter::Style* body = typesetter->createStyle({}, MyGUI::Colour::White, false);
 
         typesetter->sectionBreak(9);
         // choices
@@ -628,7 +629,7 @@ namespace MWGui
             typesetter->lineBreak();
             BookTypesetter::Style* questionStyle = typesetter->createHotStyle(
                 body, textColours.answer, textColours.answerOver, textColours.answerPressed, interactiveId);
-            typesetter->write(questionStyle, to_utf8_span(choice.first.c_str()));
+            typesetter->write(questionStyle, to_utf8_span(choice.first));
         }
 
         mGoodbye = MWBase::Environment::get().getDialogueManager()->isGoodbye();
@@ -639,15 +640,14 @@ namespace MWGui
             auto interactiveId = TypesetBook::InteractiveId(link.get());
             mLinks.push_back(std::move(link));
             const std::string& goodbye = MWBase::Environment::get()
-                                             .getWorld()
-                                             ->getStore()
-                                             .get<ESM::GameSetting>()
+                                             .getESMStore()
+                                             ->get<ESM::GameSetting>()
                                              .find("sGoodbye")
                                              ->mValue.getString();
             BookTypesetter::Style* questionStyle = typesetter->createHotStyle(
                 body, textColours.answer, textColours.answerOver, textColours.answerPressed, interactiveId);
             typesetter->lineBreak();
-            typesetter->write(questionStyle, to_utf8_span(goodbye.c_str()));
+            typesetter->write(questionStyle, to_utf8_span(goodbye));
         }
 
         TypesetBook::Ptr book = typesetter->complete();
@@ -718,13 +718,13 @@ namespace MWGui
         mHistory->setPosition(0, static_cast<int>(pos) * -1);
     }
 
-    void DialogueWindow::addResponse(const std::string& title, const std::string& text, bool needMargin)
+    void DialogueWindow::addResponse(std::string_view title, std::string_view text, bool needMargin)
     {
         mHistoryContents.push_back(std::make_unique<Response>(text, title, needMargin));
         updateHistory();
     }
 
-    void DialogueWindow::addMessageBox(const std::string& text)
+    void DialogueWindow::addMessageBox(std::string_view text)
     {
         mHistoryContents.push_back(std::make_unique<Message>(text));
         updateHistory();
@@ -783,21 +783,21 @@ namespace MWGui
 
     void DialogueWindow::updateTopicFormat()
     {
-        if (!Settings::Manager::getBool("color topic enable", "GUI"))
+        if (!Settings::gui().mColorTopicEnable)
             return;
 
-        const std::string& specialColour = Settings::Manager::getString("color topic specific", "GUI");
-        const std::string& oldColour = Settings::Manager::getString("color topic exhausted", "GUI");
+        const MyGUI::Colour& specialColour = Settings::gui().mColorTopicSpecific;
+        const MyGUI::Colour& oldColour = Settings::gui().mColorTopicExhausted;
 
         for (const std::string& keyword : mKeywords)
         {
             int flag = MWBase::Environment::get().getDialogueManager()->getTopicFlag(ESM::RefId::stringRefId(keyword));
             MyGUI::Button* button = mTopicsList->getItemWidget(keyword);
 
-            if (!specialColour.empty() && flag & MWBase::DialogueManager::TopicType::Specific)
-                button->getSubWidgetText()->setTextColour(MyGUI::Colour::parse(specialColour));
-            else if (!oldColour.empty() && flag & MWBase::DialogueManager::TopicType::Exhausted)
-                button->getSubWidgetText()->setTextColour(MyGUI::Colour::parse(oldColour));
+            if (flag & MWBase::DialogueManager::TopicType::Specific)
+                button->getSubWidgetText()->setTextColour(specialColour);
+            else if (flag & MWBase::DialogueManager::TopicType::Exhausted)
+                button->getSubWidgetText()->setTextColour(oldColour);
         }
     }
 
