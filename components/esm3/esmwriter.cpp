@@ -325,7 +325,10 @@ namespace ESM
     void ESMWriter::writeHRefId(RefId value)
     {
         if (mHeader.mFormatVersion <= MaxStringRefIdFormatVersion)
-            return writeHString(value.getRefIdString());
+        {
+            writeHString(value.getRefIdString());
+            return;
+        }
         writeRefId(value);
     }
 
