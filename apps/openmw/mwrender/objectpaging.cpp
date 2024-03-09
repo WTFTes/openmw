@@ -33,7 +33,7 @@
 #include <components/sceneutil/morphgeometry.hpp>
 #include <components/sceneutil/riggeometry.hpp>
 #include <components/sceneutil/riggeometryosgaextension.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "apps/openmw/mwbase/environment.hpp"
 #include "apps/openmw/mwbase/world.hpp"
@@ -437,7 +437,7 @@ namespace MWRender
     class AddRefnumMarkerVisitor : public osg::NodeVisitor
     {
     public:
-        AddRefnumMarkerVisitor(const ESM::RefNum& refnum)
+        AddRefnumMarkerVisitor(ESM::RefNum refnum)
             : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
             , mRefnum(refnum)
         {
@@ -454,17 +454,17 @@ namespace MWRender
     };
 
     ObjectPaging::ObjectPaging(Resource::SceneManager* sceneManager, ESM::RefId worldspace)
-        : GenericResourceManager<ChunkId>(nullptr)
+        : GenericResourceManager<ChunkId>(nullptr, Settings::cells().mCacheExpiryDelay)
         , Terrain::QuadTreeWorld::ChunkManager(worldspace)
         , mSceneManager(sceneManager)
+        , mActiveGrid(Settings::terrain().mObjectPagingActiveGrid)
+        , mDebugBatches(Settings::terrain().mDebugChunks)
+        , mMergeFactor(Settings::terrain().mObjectPagingMergeFactor)
+        , mMinSize(Settings::terrain().mObjectPagingMinSize)
+        , mMinSizeMergeFactor(Settings::terrain().mObjectPagingMinSizeMergeFactor)
+        , mMinSizeCostMultiplier(Settings::terrain().mObjectPagingMinSizeCostMultiplier)
         , mRefTrackerLocked(false)
     {
-        mActiveGrid = Settings::Manager::getBool("object paging active grid", "Terrain");
-        mDebugBatches = Settings::Manager::getBool("debug chunks", "Terrain");
-        mMergeFactor = Settings::Manager::getFloat("object paging merge factor", "Terrain");
-        mMinSize = Settings::Manager::getFloat("object paging min size", "Terrain");
-        mMinSizeMergeFactor = Settings::Manager::getFloat("object paging min size merge factor", "Terrain");
-        mMinSizeCostMultiplier = Settings::Manager::getFloat("object paging min size cost multiplier", "Terrain");
     }
 
     std::map<ESM::RefNum, ESM::CellRef> ObjectPaging::collectESM3References(
@@ -623,7 +623,7 @@ namespace MWRender
             std::string model = getModel(type, ref.mRefID, store);
             if (model.empty())
                 continue;
-            model = Misc::ResourceHelpers::correctMeshPath(model, mSceneManager->getVFS());
+            model = Misc::ResourceHelpers::correctMeshPath(model);
 
             if (activeGrid && type != ESM::REC_STAT)
             {
@@ -896,7 +896,7 @@ namespace MWRender
     };
 
     bool ObjectPaging::enableObject(
-        int type, const ESM::RefNum& refnum, const osg::Vec3f& pos, const osg::Vec2i& cell, bool enabled)
+        int type, ESM::RefNum refnum, const osg::Vec3f& pos, const osg::Vec2i& cell, bool enabled)
     {
         if (!typeFilter(type, false))
             return false;
@@ -923,8 +923,7 @@ namespace MWRender
         return true;
     }
 
-    bool ObjectPaging::blacklistObject(
-        int type, const ESM::RefNum& refnum, const osg::Vec3f& pos, const osg::Vec2i& cell)
+    bool ObjectPaging::blacklistObject(int type, ESM::RefNum refnum, const osg::Vec3f& pos, const osg::Vec2i& cell)
     {
         if (!typeFilter(type, false))
             return false;

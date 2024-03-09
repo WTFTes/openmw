@@ -16,7 +16,7 @@
 #ifdef _WIN32
 #include <components/crashcatcher/windows_crashcatcher.hpp>
 #include <components/files/conversion.hpp>
-#include <components/windows.hpp>
+#include <components/misc/windows.hpp>
 
 #include <Knownfolders.h>
 
@@ -352,8 +352,7 @@ int wrapApplication(int (*innerApplication)(int argc, char* argv[]), int argc, c
 #else
             const std::string crashLogName = Misc::StringUtils::lowerCase(appName) + "-crash.log";
             // install the crash handler as soon as possible.
-            crashCatcherInstall(
-                argc, argv, Files::pathToUnicodeString(std::filesystem::temp_directory_path() / crashLogName));
+            crashCatcherInstall(argc, argv, std::filesystem::temp_directory_path() / crashLogName);
 #endif
             ret = innerApplication(argc, argv);
         }

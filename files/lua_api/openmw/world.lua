@@ -23,11 +23,21 @@
 -- @type MWScriptFunctions
 
 ---
+-- @type MWScriptVariables
+-- @map <#string, #number>
+
+---
 -- Returns local mwscript on ``object``. Returns `nil` if the script doesn't exist or is not started.
 -- @function [parent=#MWScriptFunctions] getLocalScript
 -- @param openmw.core#GameObject object
 -- @param openmw.core#GameObject player (optional) Will be used in multiplayer mode to get the script if there is a separate instance for each player. Currently has no effect.
 -- @return #MWScript, #nil
+
+---
+-- Returns mutable global variables. In multiplayer, these may be specific to the provided player.
+-- @function [parent=#MWScriptFunctions] getGlobalVariables
+-- @param openmw.core#GameObject player (optional) Will be used in multiplayer mode to get the globals if there is a separate instance for each player. Currently has no effect.
+-- @return #MWScriptVariables
 
 ---
 -- Returns global mwscript with given recordId. Returns `nil` if the script doesn't exist or is not started.
@@ -102,9 +112,29 @@
 -- @param #number ratio
 
 ---
+-- Frame duration in seconds
+-- @function [parent=#world] getRealFrameDuration
+-- @return #number
+
+---
 -- Whether the world is paused (onUpdate doesn't work when the world is paused).
 -- @function [parent=#world] isWorldPaused
 -- @return #boolean
+
+---
+-- Pause the game starting from the next frame.
+-- @function [parent=#world] pause
+-- @param #string tag (optional, empty string by default) The game will be paused until `unpause` is called with the same tag.
+
+---
+-- Remove given tag from the list of pause tags. Resume the game starting from the next frame if the list became empty.
+-- @function [parent=#world] unpause
+-- @param #string tag (optional, empty string by default) Needed to undo `pause` called with this tag.
+
+---
+-- The tags that are currently pausing the game.
+-- @function [parent=#world] getPausedTags
+-- @return #table
 
 ---
 -- Return an object by RefNum/FormId.
@@ -119,6 +149,7 @@
 ---
 -- Create a new instance of the given record.
 -- After creation the object is in the disabled state. Use :teleport to place to the world or :moveInto to put it into a container or an inventory.
+-- Note that dynamically created creatures, NPCs, and container inventories will not respawn.
 -- @function [parent=#world] createObject
 -- @param #string recordId Record ID in lowercase
 -- @param #number count (optional, 1 by default) The number of objects in stack
@@ -134,10 +165,13 @@
 -- Creates a custom record in the world database.
 -- Eventually meant to support all records, but the current
 -- set of supported types is limited to:
+--
 -- * @{openmw.types#PotionRecord},
 -- * @{openmw.types#ArmorRecord},
 -- * @{openmw.types#BookRecord},
 -- * @{openmw.types#MiscellaneousRecord},
+-- * @{openmw.types#ClothingRecord},
+-- * @{openmw.types#WeaponRecord},
 -- * @{openmw.types#ActivatorRecord}
 -- @function [parent=#world] createRecord
 -- @param #any record A record to be registered in the database. Must be one of the supported types.

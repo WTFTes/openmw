@@ -31,11 +31,10 @@
 #include <string>
 #include <vector>
 
-#include "formid.hpp"
-#include "grid.hpp"
-
 #include <components/esm/defs.hpp>
-#include <components/esm/refid.hpp>
+#include <components/esm/formid.hpp>
+
+#include "grid.hpp"
 
 namespace ESM4
 {
@@ -56,9 +55,21 @@ namespace ESM4
             WLD_NoGrass = 0x80 //                      No Grass
         };
 
+        enum UseFlags
+        {
+            UseFlag_Land = 0x01,
+            UseFlag_LOD = 0x02,
+            UseFlag_Map = 0x04,
+            UseFlag_Water = 0x08,
+            UseFlag_Climate = 0x10,
+            UseFlag_Imagespace = 0x20, // Unused in TES5
+            UseFlag_SkyCell = 0x40,
+            // cc9cii: 0x80 == needs water adjustment? Set for WastelandNV
+        };
+
         struct REFRcoord
         {
-            FormId formId;
+            ESM::FormId formId;
             std::int16_t unknown1;
             std::int16_t unknown2;
         };
@@ -84,15 +95,15 @@ namespace ESM4
             float initialPitch;
         };
 
-        ESM::RefId mId; // from the header
+        ESM::FormId mId; // from the header
         std::uint32_t mFlags; // from the header, see enum type RecordFlag for details
 
         std::string mEditorId;
         std::string mFullName;
-        FormId mParent; // parent worldspace formid
+        ESM::FormId mParent; // parent worldspace formid
         std::uint8_t mWorldFlags;
-        FormId mClimate;
-        FormId mWater;
+        ESM::FormId mClimate;
+        ESM::FormId mWater;
         float mLandLevel;
         float mWaterLevel;
 
@@ -114,21 +125,13 @@ namespace ESM4
         RNAMstruct mData;
 
         // ----------------------
-        FormId mMusic;
+        ESM::FormId mMusic;
 
-        // 0x01 use Land data
-        // 0x02 use LOD data
-        // 0x04 use Map data
-        // 0x08 use Water data
-        // 0x10 use Climate data
-        // 0x20 use Image Space data (Climate for TES5)
-        // 0x40 use SkyCell (TES5)
-        // 0x80 needs water adjustment (this isn't for parent I think? FONV only set for wastelandnv)
-        std::uint16_t mParentUseFlags; // FO3/FONV
+        std::uint16_t mParentUseFlags{ 0 };
 
         // cache formId's of children (e.g. CELL, ROAD)
-        std::vector<FormId> mCells;
-        std::vector<FormId> mRoads;
+        std::vector<ESM::FormId> mCells;
+        std::vector<ESM::FormId> mRoads;
 
         void load(ESM4::Reader& reader);
         // void save(ESM4::Writer& writer) const;

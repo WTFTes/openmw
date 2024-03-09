@@ -1,6 +1,7 @@
 #include "shadermanager.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <components/debug/debuglog.hpp>
 #include <components/files/conversion.hpp>
@@ -472,9 +473,15 @@ namespace Shader
                     {
                         ShaderManager::ShaderMap::iterator shaderIt
                             = Manager.mShaders.find(std::make_pair(templateName, shaderDefines));
+                        if (shaderIt == Manager.mShaders.end())
+                        {
+                            Log(Debug::Error) << "Failed to find shader " << templateName;
+                            continue;
+                        }
 
                         ShaderManager::TemplateMap::iterator templateIt = Manager.mShaderTemplates.find(
                             templateName); // Can't be Null, if we're here it means the template was added
+                        assert(templateIt != Manager.mShaderTemplates.end());
                         std::string& shaderSource = templateIt->second;
                         std::set<std::filesystem::path> insertedPaths;
                         std::filesystem::path path = (std::filesystem::path(Manager.mPath) / templateName);
@@ -496,7 +503,7 @@ namespace Shader
                         {
                             break;
                         }
-                        shaderSource = source;
+                        shaderSource = std::move(source);
 
                         std::vector<std::string> linkedShaderNames;
                         if (!Manager.createSourceFromTemplate(
@@ -547,7 +554,7 @@ namespace Shader
             if (!addLineDirectivesAfterConditionalBlocks(source)
                 || !parseIncludes(mPath, source, templateName, fileNumber, {}, insertedPaths))
                 return nullptr;
-            mHotReloadManager->templateIncludedFiles[templateName] = insertedPaths;
+            mHotReloadManager->templateIncludedFiles[templateName] = std::move(insertedPaths);
             templateIt = mShaderTemplates.insert(std::make_pair(templateName, source)).first;
         }
 
@@ -590,7 +597,7 @@ namespace Shader
         if (!vert || !frag)
             throw std::runtime_error("failed initializing shader: " + templateName);
 
-        return getProgram(vert, frag, programTemplate);
+        return getProgram(std::move(vert), std::move(frag), programTemplate);
     }
 
     osg::ref_ptr<osg::Program> ShaderManager::getProgram(osg::ref_ptr<osg::Shader> vertexShader,

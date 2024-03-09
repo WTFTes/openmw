@@ -103,8 +103,7 @@ namespace NavMeshTool
 
             Log(Debug::Debug) << "Loaded " << cellRefs.size() << " cell refs";
 
-            const auto getKey
-                = [](const EsmLoader::Record<CellRef>& v) -> const ESM::RefNum& { return v.mValue.mRefNum; };
+            const auto getKey = [](const EsmLoader::Record<CellRef>& v) -> ESM::RefNum { return v.mValue.mRefNum; };
             std::vector<CellRef> result = prepareRecords(cellRefs, getKey);
 
             Log(Debug::Debug) << "Prepared " << result.size() << " unique cell refs";
@@ -132,7 +131,7 @@ namespace NavMeshTool
                 osg::ref_ptr<const Resource::BulletShape> shape = [&] {
                     try
                     {
-                        return bulletShapeManager.getShape(Misc::ResourceHelpers::correctMeshPath(model, &vfs));
+                        return bulletShapeManager.getShape(Misc::ResourceHelpers::correctMeshPath(model));
                     }
                     catch (const std::exception& e)
                     {
@@ -206,7 +205,7 @@ namespace NavMeshTool
                     ESM::Land::DEFAULT_HEIGHT };
 
             ESM::Land::LandData& landData = *landDatas.emplace_back(std::make_unique<ESM::Land::LandData>());
-            land->loadData(ESM::Land::DATA_VHGT, &landData);
+            land->loadData(ESM::Land::DATA_VHGT, landData);
             heightfields.push_back(std::vector<float>(std::begin(landData.mHeights), std::end(landData.mHeights)));
             HeightfieldSurface surface;
             surface.mHeights = heightfields.back().data();

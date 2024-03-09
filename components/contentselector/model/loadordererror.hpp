@@ -21,14 +21,13 @@ namespace ContentSelectorModel
             : mErrorCode(ErrorCode_None)
         {
         }
-        inline LoadOrderError(ErrorCode errorCode, QString fileName)
+        inline LoadOrderError(ErrorCode errorCode, const QString& fileName)
             : mErrorCode(errorCode)
             , mFileName(fileName)
         {
         }
         inline ErrorCode errorCode() const { return mErrorCode; }
         inline QString fileName() const { return mFileName; }
-        QString toolTip() const;
 
     private:
         ErrorCode mErrorCode;

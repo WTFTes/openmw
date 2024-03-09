@@ -6,10 +6,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 
-#include <apps/openmw/mwworld/esmstore.hpp>
-
-#include <apps/openmw/mwbase/environment.hpp>
-#include <apps/openmw/mwbase/world.hpp>
+#include "apps/openmw/mwbase/environment.hpp"
 
 namespace sol
 {
@@ -33,8 +30,8 @@ namespace MWLua
         record["id"]
             = sol::readonly_property([](const ESM::Ingredient& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Ingredient& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property([vfs](const ESM::Ingredient& rec) -> std::string {
-            return Misc::ResourceHelpers::correctMeshPath(rec.mModel, vfs);
+        record["model"] = sol::readonly_property([](const ESM::Ingredient& rec) -> std::string {
+            return Misc::ResourceHelpers::correctMeshPath(rec.mModel);
         });
         record["mwscript"] = sol::readonly_property(
             [](const ESM::Ingredient& rec) -> std::string { return rec.mScript.serializeText(); });
@@ -56,6 +53,9 @@ namespace MWLua
                 effect.mAttribute = rec.mData.mAttributes[i];
                 effect.mRange = ESM::RT_Self;
                 effect.mArea = 0;
+                effect.mDuration = 0;
+                effect.mMagnMin = 0;
+                effect.mMagnMax = 0;
                 res[i + 1] = effect;
             }
             return res;

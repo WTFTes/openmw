@@ -37,17 +37,18 @@ namespace MWMechanics
             std::vector<ActiveEffect> mEffects;
             std::string mDisplayName;
             int mCasterActorId;
-            int mSlot;
+            ESM::RefNum mItem;
             ESM::ActiveSpells::EffectType mType;
             int mWorsenings;
             MWWorld::TimeStamp mNextWorsening;
+            MWWorld::Ptr mSource;
 
             ActiveSpellParams(const ESM::ActiveSpells::ActiveSpellParams& params);
 
             ActiveSpellParams(const ESM::Spell* spell, const MWWorld::Ptr& actor, bool ignoreResistances = false);
 
-            ActiveSpellParams(const MWWorld::ConstPtr& item, const ESM::Enchantment* enchantment, int slotIndex,
-                const MWWorld::Ptr& actor);
+            ActiveSpellParams(
+                const MWWorld::ConstPtr& item, const ESM::Enchantment* enchantment, const MWWorld::Ptr& actor);
 
             ActiveSpellParams(const ActiveSpellParams& params, const MWWorld::Ptr& actor);
 
@@ -70,6 +71,9 @@ namespace MWMechanics
             int getWorsenings() const { return mWorsenings; }
 
             const std::string& getDisplayName() const { return mDisplayName; }
+
+            ESM::RefNum getItem() const { return mItem; }
+            ESM::RefId getEnchantment() const;
 
             // Increments worsenings count and sets the next timestamp
             void worsen();
@@ -131,7 +135,7 @@ namespace MWMechanics
         void removeEffects(const MWWorld::Ptr& ptr, const ESM::RefId& id);
 
         /// Remove all active effects with this effect id
-        void purgeEffect(const MWWorld::Ptr& ptr, int effectId, int effectArg = -1);
+        void purgeEffect(const MWWorld::Ptr& ptr, int effectId, ESM::RefId effectArg = {});
 
         void purge(EffectPredicate predicate, const MWWorld::Ptr& ptr);
         void purge(ParamsPredicate predicate, const MWWorld::Ptr& ptr);
@@ -142,8 +146,12 @@ namespace MWMechanics
         /// Remove all spells
         void clear(const MWWorld::Ptr& ptr);
 
+        /// True if a spell associated with this id is active
+        /// \note For enchantments, this is the id of the enchanted item, not the enchantment itself
         bool isSpellActive(const ESM::RefId& id) const;
-        ///< case insensitive
+
+        /// True if the enchantment is active
+        bool isEnchantmentActive(const ESM::RefId& id) const;
 
         void skipWorsenings(double hours);
 

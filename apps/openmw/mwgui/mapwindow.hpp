@@ -73,7 +73,7 @@ namespace MWGui
     class LocalMapBase
     {
     public:
-        LocalMapBase(CustomMarkerCollection& markers, MWRender::LocalMap* localMapRender, bool fogOfWarEnabled = true);
+        LocalMapBase(CustomMarkerCollection& markers, MWRender::LocalMap* localMapRender, bool fogOfWarEnabled);
         virtual ~LocalMapBase();
         void init(MyGUI::ScrollView* widget, MyGUI::ImageBox* compass, int cellDistance = Constants::CellGridRadius);
 
@@ -127,8 +127,6 @@ namespace MWGui
         bool mFogOfWarToggled;
         bool mFogOfWarEnabled;
 
-        int mMapWidgetSize;
-
         int mNumCells; // for convenience, mCellDistance * 2 + 1
         int mCellDistance;
 
@@ -172,8 +170,7 @@ namespace MWGui
         MyGUI::IntPoint getMarkerPosition(float worldX, float worldY, MarkerUserData& markerPos) const;
         MyGUI::IntCoord getMarkerCoordinates(
             float worldX, float worldY, MarkerUserData& markerPos, size_t markerSize) const;
-        MyGUI::Widget* createDoorMarker(
-            const std::string& name, const MyGUI::VectorString& notes, float x, float y) const;
+        MyGUI::Widget* createDoorMarker(const std::string& name, float x, float y) const;
         MyGUI::IntCoord getMarkerCoordinates(MyGUI::Widget* widget, size_t markerSize) const;
 
         virtual void notifyPlayerUpdate() {}
@@ -270,6 +267,8 @@ namespace MWGui
 
         void asyncPrepareSaveMap();
 
+        std::string_view getWindowIdForLua() const override { return "Map"; }
+
     private:
         void onDragStart(MyGUI::Widget* _sender, int _left, int _top, MyGUI::MouseButton _id);
         void onMouseDrag(MyGUI::Widget* _sender, int _left, int _top, MyGUI::MouseButton _id);
@@ -301,7 +300,6 @@ namespace MWGui
         MyGUI::ImageBox* mPlayerArrowGlobal;
         MyGUI::Button* mButton;
         MyGUI::IntPoint mLastDragPos;
-        bool mGlobal;
 
         MyGUI::IntCoord mLastScrollWindowCoordinates;
 
@@ -328,7 +326,6 @@ namespace MWGui
 
         EditNoteDialog mEditNoteDialog;
         ESM::CustomMarker mEditingMarker;
-        bool mAllowZooming;
 
         void onPinToggled() override;
         void onTitleDoubleClicked() override;

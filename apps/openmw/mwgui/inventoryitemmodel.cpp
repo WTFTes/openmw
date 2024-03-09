@@ -3,12 +3,11 @@
 #include <sstream>
 
 #include "../mwmechanics/actorutil.hpp"
-#include "../mwmechanics/npcstats.hpp"
+#include "../mwmechanics/creaturestats.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/containerstore.hpp"
 #include "../mwworld/inventorystore.hpp"
-#include "../mwworld/manualref.hpp"
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
@@ -116,7 +115,7 @@ namespace MWGui
             if (!item.getClass().showsInInventory(item))
                 continue;
 
-            ItemStack newItem(item, this, item.getRefData().getCount());
+            ItemStack newItem(item, this, item.getCellRef().getCount());
 
             if (mActor.getClass().hasInventoryStore(mActor))
             {

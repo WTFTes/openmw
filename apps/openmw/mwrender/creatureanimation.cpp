@@ -7,7 +7,7 @@
 #include <components/resource/resourcesystem.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 #include <components/sceneutil/visitor.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwmechanics/weapontype.hpp"
 
@@ -27,7 +27,7 @@ namespace MWRender
             setObjectRoot(model, false, false, true);
 
             if ((ref->mBase->mFlags & ESM::Creature::Bipedal))
-                addAnimSource(Settings::Manager::getString("xbaseanim", "Models"), model);
+                addAnimSource(Settings::models().mXbaseanim.get(), model);
 
             if (animated)
                 addAnimSource(model, model);
@@ -47,7 +47,7 @@ namespace MWRender
             setObjectRoot(model, true, false, true);
 
             if ((ref->mBase->mFlags & ESM::Creature::Bipedal))
-                addAnimSource(Settings::Manager::getString("xbaseanim", "Models"), model);
+                addAnimSource(Settings::models().mXbaseanim.get(), model);
 
             if (animated)
                 addAnimSource(model, model);
@@ -110,7 +110,7 @@ namespace MWRender
         MWWorld::ConstPtr item = *it;
 
         std::string_view bonename;
-        std::string itemModel = item.getClass().getModel(item);
+        std::string itemModel = item.getClass().getCorrectedModel(item);
         if (slot == MWWorld::InventoryStore::Slot_CarriedRight)
         {
             if (item.getType() == ESM::Weapon::sRecordId)
@@ -168,9 +168,9 @@ namespace MWRender
             if (slot == MWWorld::InventoryStore::Slot_CarriedRight)
                 source = mWeaponAnimationTime;
             else
-                source = std::make_shared<NullAnimationTime>();
+                source = mAnimationTimePtr[0];
 
-            SceneUtil::AssignControllerSourcesVisitor assignVisitor(source);
+            SceneUtil::AssignControllerSourcesVisitor assignVisitor(std::move(source));
             attached->accept(assignVisitor);
         }
         catch (std::exception& e)

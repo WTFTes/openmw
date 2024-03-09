@@ -1,7 +1,5 @@
 #include "sortfilteritemmodel.hpp"
 
-#include "../mwbase/environment.hpp"
-#include "../mwbase/world.hpp"
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadappa.hpp>
@@ -19,9 +17,12 @@
 #include <components/esm3/loadweap.hpp>
 #include <components/misc/utf8stream.hpp>
 
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
+
+#include "../mwworld/action.hpp"
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
-#include "../mwworld/nullaction.hpp"
 
 #include "../mwmechanics/alchemy.hpp"
 #include "../mwmechanics/spellutil.hpp"
@@ -173,6 +174,7 @@ namespace MWGui
         : mCategory(Category_All)
         , mFilter(0)
         , mSortByType(true)
+        , mApparatusTypeFilter(-1)
     {
         mSourceModel = std::move(sourceModel);
     }
@@ -310,6 +312,16 @@ namespace MWGui
                 return false;
         }
 
+        if ((mFilter & Filter_OnlyAlchemyTools))
+        {
+            if (base.getType() != ESM::Apparatus::sRecordId)
+                return false;
+
+            int32_t apparatusType = base.get<ESM::Apparatus>()->mBase->mData.mType;
+            if (mApparatusTypeFilter >= 0 && apparatusType != mApparatusTypeFilter)
+                return false;
+        }
+
         std::string compare = Utf8Stream::lowerCaseUtf8(item.mBase.getClass().getName(item.mBase));
         if (compare.find(mNameFilter) == std::string::npos)
             return false;
@@ -349,6 +361,11 @@ namespace MWGui
     void SortFilterItemModel::setEffectFilter(const std::string& filter)
     {
         mEffectFilter = Utf8Stream::lowerCaseUtf8(filter);
+    }
+
+    void SortFilterItemModel::setApparatusTypeFilter(const int32_t type)
+    {
+        mApparatusTypeFilter = type;
     }
 
     void SortFilterItemModel::update()

@@ -33,8 +33,7 @@
 
 void ESM4::Class::load(ESM4::Reader& reader)
 {
-    // mFormId = reader.adjustFormId(reader.hdr().record.id); // FIXME: use master adjusted?
-    mFormId = reader.hdr().record.getFormId();
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -56,6 +55,7 @@ void ESM4::Class::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_DATA:
             case ESM4::SUB_ATTR:
+            case ESM4::SUB_PRPS:
                 reader.skipSubRecordData();
                 break;
             default:

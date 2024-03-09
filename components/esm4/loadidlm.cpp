@@ -33,8 +33,7 @@
 
 void ESM4::IdleMarker::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     std::uint32_t esmVer = reader.esmVersion();
@@ -72,7 +71,7 @@ void ESM4::IdleMarker::load(ESM4::Reader& reader)
                 }
 
                 mIdleAnim.resize(mIdleCount);
-                for (FormId& value : mIdleAnim)
+                for (ESM::FormId& value : mIdleAnim)
                     reader.getFormId(value);
                 break;
             }
@@ -80,8 +79,13 @@ void ESM4::IdleMarker::load(ESM4::Reader& reader)
                 reader.getZString(mModel);
                 break;
             case ESM4::SUB_OBND: // object bounds
-            case ESM4::SUB_MODT:
+            case ESM4::SUB_KSIZ:
+            case ESM4::SUB_KWDA:
+            case ESM4::SUB_MODT: // Model data
+            case ESM4::SUB_MODC:
             case ESM4::SUB_MODS:
+            case ESM4::SUB_MODF: // Model data end
+            case ESM4::SUB_QNAM:
                 reader.skipSubRecordData();
                 break;
             default:

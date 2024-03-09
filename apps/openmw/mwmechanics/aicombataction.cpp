@@ -17,6 +17,7 @@
 #include "combat.hpp"
 #include "npcstats.hpp"
 #include "spellpriority.hpp"
+#include "spellutil.hpp"
 #include "weaponpriority.hpp"
 #include "weapontype.hpp"
 
@@ -175,11 +176,11 @@ namespace MWMechanics
             return bestAction;
         }
 
-        if (actor.getClass().hasInventoryStore(actor))
+        const bool hasInventoryStore = actor.getClass().hasInventoryStore(actor);
+        MWWorld::ContainerStore& store = actor.getClass().getContainerStore(actor);
+        for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
         {
-            MWWorld::InventoryStore& store = actor.getClass().getInventoryStore(actor);
-
-            for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
+            if (it->getType() == ESM::Potion::sRecordId)
             {
                 float rating = ratePotion(*it, actor);
                 if (rating > bestActionRating)
@@ -189,8 +190,8 @@ namespace MWMechanics
                     antiFleeRating = std::numeric_limits<float>::max();
                 }
             }
-
-            for (MWWorld::ContainerStoreIterator it = store.begin(); it != store.end(); ++it)
+            // TODO remove inventory store check, creatures should be able to use enchanted items they cannot equip
+            else if (hasInventoryStore && !it->getClass().getEnchantment(*it).empty())
             {
                 float rating = rateMagicItem(*it, actor, enemy);
                 if (rating > bestActionRating)
@@ -200,7 +201,10 @@ namespace MWMechanics
                     antiFleeRating = std::numeric_limits<float>::max();
                 }
             }
+        }
 
+        if (hasInventoryStore)
+        {
             MWWorld::Ptr bestArrow;
             float bestArrowRating = rateAmmo(actor, enemy, bestArrow, ESM::Weapon::Arrow);
 

@@ -1,6 +1,7 @@
 #ifndef OPENMW_ESMTOOL_LABELS_H
 #define OPENMW_ESMTOOL_LABELS_H
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -53,12 +54,13 @@ std::string cellFlags(int flags);
 std::string containerFlags(int flags);
 std::string creatureFlags(int flags);
 std::string enchantmentFlags(int flags);
-std::string landFlags(int flags);
+std::string landFlags(std::uint32_t flags);
 std::string creatureListFlags(int flags);
 std::string itemListFlags(int flags);
 std::string lightFlags(int flags);
 std::string magicEffectFlags(int flags);
 std::string npcFlags(int flags);
+std::string potionFlags(int flags);
 std::string raceFlags(int flags);
 std::string spellFlags(int flags);
 std::string weaponFlags(int flags);

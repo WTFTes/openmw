@@ -2,8 +2,8 @@
 
 #include <cerrno>
 #include <chrono>
+#include <future>
 #include <system_error>
-#include <thread>
 
 #include <osgDB/WriteFile>
 #include <osgViewer/ViewerEventHandlers>
@@ -14,6 +14,7 @@
 #include <components/debug/gldebug.hpp>
 
 #include <components/misc/rng.hpp>
+#include <components/misc/strings/format.hpp>
 
 #include <components/vfs/manager.hpp>
 #include <components/vfs/registerarchives.hpp>
@@ -30,6 +31,7 @@
 #include <components/stereo/multiview.hpp>
 #include <components/stereo/stereomanager.hpp>
 
+#include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/workqueue.hpp>
 
 #include <components/files/configurationmanager.hpp>
@@ -37,6 +39,9 @@
 #include <components/version/version.hpp>
 
 #include <components/l10n/manager.hpp>
+
+#include <components/loadinglistener/asynclistener.hpp>
+#include <components/loadinglistener/loadinglistener.hpp>
 
 #include <components/misc/frameratelimiter.hpp>
 
@@ -62,6 +67,7 @@
 #include "mwsound/soundmanagerimp.hpp"
 
 #include "mwworld/class.hpp"
+#include "mwworld/datetimemanager.hpp"
 #include "mwworld/worldimp.hpp"
 
 #include "mwrender/vismask.hpp"
@@ -101,14 +107,27 @@ namespace
         });
         // the forEachUserStatsValue loop is "run" at compile time, hence the settings manager is not available.
         // Unconditionnally add the async physics stats, and then remove it at runtime if necessary
-        if (Settings::Manager::getInt("async num threads", "Physics") == 0)
+        if (Settings::physics().mAsyncNumThreads == 0)
             profiler.removeUserStatsLine(" -Async");
     }
 
-    struct ScheduleNonDialogMessageBox
+    struct ScreenCaptureMessageBox
     {
-        void operator()(std::string message) const
+        void operator()(std::string filePath) const
         {
+            if (filePath.empty())
+            {
+                MWBase::Environment::get().getWindowManager()->scheduleMessageBox(
+                    "#{OMWEngine:ScreenshotFailed}", MWGui::ShowInDialogueMode_Never);
+
+                return;
+            }
+
+            std::string messageFormat
+                = MWBase::Environment::get().getL10nManager()->getMessage("OMWEngine", "ScreenshotMade");
+
+            std::string message = Misc::StringUtils::format(messageFormat, filePath);
+
             MWBase::Environment::get().getWindowManager()->scheduleMessageBox(
                 std::move(message), MWGui::ShowInDialogueMode_Never);
         }
@@ -197,9 +216,6 @@ bool OMW::Engine::frame(float frametime)
                 mSoundManager->update(frametime);
         }
 
-        // Main menu opened? Then scripts are also paused.
-        bool paused = mWindowManager->containsMode(MWGui::GM_MainMenu);
-
         {
             ScopedProfile<UserStatsType::LuaSyncUpdate> profile(frameStart, frameNumber, *timer, *stats);
             // Should be called after input manager update and before any change to the game world.
@@ -213,14 +229,14 @@ bool OMW::Engine::frame(float frametime)
             mStateManager->update(frametime);
         }
 
-        bool guiActive = mWindowManager->isGuiMode();
+        bool paused = mWorld->getTimeManager()->isPaused();
 
         {
             ScopedProfile<UserStatsType::Script> profile(frameStart, frameNumber, *timer, *stats);
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
-                if (!paused)
+                if (!mWindowManager->containsMode(MWGui::GM_MainMenu))
                 {
                     if (mWorld->getScriptsEnabled())
                     {
@@ -234,9 +250,9 @@ bool OMW::Engine::frame(float frametime)
                     mWorld->getWorldScene().markCellAsUnchanged();
                 }
 
-                if (!guiActive)
+                if (!paused)
                 {
-                    double hours = (frametime * mWorld->getTimeScaleFactor()) / 3600.0;
+                    double hours = (frametime * mWorld->getTimeManager()->getGameTimeScale()) / 3600.0;
                     mWorld->advanceTime(hours, true);
                     mWorld->rechargeItems(frametime, true);
                 }
@@ -249,13 +265,13 @@ bool OMW::Engine::frame(float frametime)
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
-                mMechanicsManager->update(frametime, guiActive);
+                mMechanicsManager->update(frametime, paused);
             }
 
             if (mStateManager->getState() == MWBase::StateManager::State_Running)
             {
                 MWWorld::Ptr player = mWorld->getPlayerPtr();
-                if (!guiActive && player.getClass().getCreatureStats(player).isDead())
+                if (!paused && player.getClass().getCreatureStats(player).isDead())
                     mStateManager->endGame();
             }
         }
@@ -266,7 +282,7 @@ bool OMW::Engine::frame(float frametime)
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
-                mWorld->updatePhysics(frametime, guiActive, frameStart, frameNumber, *stats);
+                mWorld->updatePhysics(frametime, paused, frameStart, frameNumber, *stats);
             }
         }
 
@@ -276,7 +292,7 @@ bool OMW::Engine::frame(float frametime)
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
-                mWorld->update(frametime, guiActive);
+                mWorld->update(frametime, paused);
             }
         }
 
@@ -312,9 +328,12 @@ bool OMW::Engine::frame(float frametime)
         mLuaManager->reportStats(frameNumber, *stats);
     }
 
+    mStereoManager->updateSettings(Settings::camera().mNearClip, Settings::camera().mViewingDistance);
+
     mViewer->eventTraversal();
     mViewer->updateTraversal();
 
+    // update GUI by world data
     {
         ScopedProfile<UserStatsType::WindowManager> profile(frameStart, frameNumber, *timer, *stats);
         mWorld->updateWindowManager();
@@ -422,6 +441,9 @@ void OMW::Engine::addArchive(const std::string& archive)
 void OMW::Engine::setResourceDir(const std::filesystem::path& parResDir)
 {
     mResDir = parResDir;
+    if (!Version::checkResourcesVersion(mResDir))
+        Log(Debug::Error) << "Resources dir " << mResDir
+                          << " doesn't match OpenMW binary, the game may work incorrectly.";
 }
 
 // Set start cell name
@@ -448,14 +470,13 @@ void OMW::Engine::setSkipMenu(bool skipMenu, bool newGame)
 
 void OMW::Engine::createWindow()
 {
-    int screen = Settings::Manager::getInt("screen", "Video");
-    int width = Settings::Manager::getInt("resolution x", "Video");
-    int height = Settings::Manager::getInt("resolution y", "Video");
-    Settings::WindowMode windowMode
-        = static_cast<Settings::WindowMode>(Settings::Manager::getInt("window mode", "Video"));
-    bool windowBorder = Settings::Manager::getBool("window border", "Video");
-    int vsync = Settings::Manager::getInt("vsync mode", "Video");
-    unsigned int antialiasing = std::max(0, Settings::Manager::getInt("antialiasing", "Video"));
+    const int screen = Settings::video().mScreen;
+    const int width = Settings::video().mResolutionX;
+    const int height = Settings::video().mResolutionY;
+    const Settings::WindowMode windowMode = Settings::video().mWindowMode;
+    const bool windowBorder = Settings::video().mWindowBorder;
+    const SDLUtil::VSyncMode vsync = Settings::video().mVsyncMode;
+    unsigned antialiasing = static_cast<unsigned>(Settings::video().mAntialiasing);
 
     int pos_x = SDL_WINDOWPOS_CENTERED_DISPLAY(screen), pos_y = SDL_WINDOWPOS_CENTERED_DISPLAY(screen);
 
@@ -478,8 +499,7 @@ void OMW::Engine::createWindow()
     if (!windowBorder)
         flags |= SDL_WINDOW_BORDERLESS;
 
-    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS,
-        Settings::Manager::getBool("minimize on focus loss", "Video") ? "1" : "0");
+    SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, Settings::video().mMinimizeOnFocusLoss ? "1" : "0");
 
     checkSDLError(SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8));
     checkSDLError(SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8));
@@ -509,7 +529,7 @@ void OMW::Engine::createWindow()
                     Log(Debug::Warning) << "Warning: " << antialiasing << "x antialiasing not supported, trying "
                                         << antialiasing / 2;
                     antialiasing /= 2;
-                    Settings::Manager::setInt("antialiasing", "Video", antialiasing);
+                    Settings::video().mAntialiasing.set(antialiasing);
                     checkSDLError(SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, antialiasing));
                     continue;
                 }
@@ -556,7 +576,7 @@ void OMW::Engine::createWindow()
             SDL_DestroyWindow(mWindow);
             mWindow = nullptr;
             antialiasing /= 2;
-            Settings::Manager::setInt("antialiasing", "Video", antialiasing);
+            Settings::video().mAntialiasing.set(antialiasing);
             checkSDLError(SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, antialiasing));
             continue;
         }
@@ -581,6 +601,7 @@ void OMW::Engine::createWindow()
     mViewer->setRealizeOperation(realizeOperations);
     osg::ref_ptr<IdentifyOpenGLOperation> identifyOp = new IdentifyOpenGLOperation();
     realizeOperations->add(identifyOp);
+    realizeOperations->add(new SceneUtil::GetGLExtensionsOperation());
 
     if (Debug::shouldDebugOpenGL())
         realizeOperations->add(new Debug::EnableGLDebugOperation());
@@ -589,7 +610,63 @@ void OMW::Engine::createWindow()
     realizeOperations->add(mSelectColorFormatOperation);
 
     if (Stereo::getStereo())
-        realizeOperations->add(new Stereo::InitializeStereoOperation());
+    {
+        Stereo::Settings settings;
+
+        settings.mMultiview = Settings::stereo().mMultiview;
+        settings.mAllowDisplayListsForMultiview = Settings::stereo().mAllowDisplayListsForMultiview;
+        settings.mSharedShadowMaps = Settings::stereo().mSharedShadowMaps;
+
+        if (Settings::stereo().mUseCustomView)
+        {
+            const osg::Vec3 leftEyeOffset(Settings::stereoView().mLeftEyeOffsetX,
+                Settings::stereoView().mLeftEyeOffsetY, Settings::stereoView().mLeftEyeOffsetZ);
+
+            const osg::Quat leftEyeOrientation(Settings::stereoView().mLeftEyeOrientationX,
+                Settings::stereoView().mLeftEyeOrientationY, Settings::stereoView().mLeftEyeOrientationZ,
+                Settings::stereoView().mLeftEyeOrientationW);
+
+            const osg::Vec3 rightEyeOffset(Settings::stereoView().mRightEyeOffsetX,
+                Settings::stereoView().mRightEyeOffsetY, Settings::stereoView().mRightEyeOffsetZ);
+
+            const osg::Quat rightEyeOrientation(Settings::stereoView().mRightEyeOrientationX,
+                Settings::stereoView().mRightEyeOrientationY, Settings::stereoView().mRightEyeOrientationZ,
+                Settings::stereoView().mRightEyeOrientationW);
+
+            settings.mCustomView = Stereo::CustomView{
+                .mLeft = Stereo::View{
+                    .pose = Stereo::Pose{
+                        .position = leftEyeOffset,
+                        .orientation = leftEyeOrientation,
+                    },
+                    .fov = Stereo::FieldOfView{
+                        .angleLeft = Settings::stereoView().mLeftEyeFovLeft,
+                        .angleRight = Settings::stereoView().mLeftEyeFovRight,
+                        .angleUp = Settings::stereoView().mLeftEyeFovUp,
+                        .angleDown = Settings::stereoView().mLeftEyeFovDown,
+                    },
+                },
+                .mRight = Stereo::View{
+                    .pose = Stereo::Pose{
+                        .position = rightEyeOffset,
+                        .orientation = rightEyeOrientation,
+                    },
+                    .fov = Stereo::FieldOfView{
+                        .angleLeft = Settings::stereoView().mRightEyeFovLeft,
+                        .angleRight = Settings::stereoView().mRightEyeFovRight,
+                        .angleUp = Settings::stereoView().mRightEyeFovUp,
+                        .angleDown = Settings::stereoView().mRightEyeFovDown,
+                    },
+                },
+            };
+        }
+
+        if (Settings::stereo().mUseCustomEyeResolution)
+            settings.mEyeResolution
+                = osg::Vec2i(Settings::stereoView().mEyeResolutionX, Settings::stereoView().mEyeResolutionY);
+
+        realizeOperations->add(new Stereo::InitializeStereoOperation(settings));
+    }
 
     mViewer->realize();
     mGlMaxTextureImageUnits = identifyOp->getMaxTextureImageUnits();
@@ -628,9 +705,9 @@ void OMW::Engine::prepareEngine()
     mStateManager = std::make_unique<MWState::StateManager>(mCfgMgr.getUserDataPath() / "saves", mContentFiles);
     mEnvironment.setStateManager(*mStateManager);
 
-    bool stereoEnabled
-        = Settings::Manager::getBool("stereo enabled", "Stereo") || osg::DisplaySettings::instance().get()->getStereo();
-    mStereoManager = std::make_unique<Stereo::Manager>(mViewer, stereoEnabled);
+    const bool stereoEnabled = Settings::stereo().mStereoEnabled || osg::DisplaySettings::instance().get()->getStereo();
+    mStereoManager = std::make_unique<Stereo::Manager>(
+        mViewer, stereoEnabled, Settings::camera().mNearClip, Settings::camera().mViewingDistance);
 
     osg::ref_ptr<osg::Group> rootNode(new osg::Group);
     mViewer->setSceneData(rootNode);
@@ -641,7 +718,8 @@ void OMW::Engine::prepareEngine()
 
     VFS::registerArchives(mVFS.get(), mFileCollections, mArchives, true);
 
-    mResourceSystem = std::make_unique<Resource::ResourceSystem>(mVFS.get());
+    mResourceSystem = std::make_unique<Resource::ResourceSystem>(
+        mVFS.get(), Settings::cells().mCacheExpiryDelay, &mEncoder.get()->getStatelessEncoder());
     mResourceSystem->getSceneManager()->getShaderManager().setMaxTextureUnits(mGlMaxTextureImageUnits);
     mResourceSystem->getSceneManager()->setUnRefImageDataAfterApply(
         false); // keep to Off for now to allow better state sharing
@@ -655,9 +733,8 @@ void OMW::Engine::prepareEngine()
     mScreenCaptureOperation = new SceneUtil::AsyncScreenCaptureOperation(mWorkQueue,
         new SceneUtil::WriteScreenshotToFileOperation(mCfgMgr.getScreenshotPath(),
             Settings::general().mScreenshotFormat,
-            Settings::general().mNotifyOnSavedScreenshot
-                ? std::function<void(std::string)>(ScheduleNonDialogMessageBox{})
-                : std::function<void(std::string)>(IgnoreString{})));
+            Settings::general().mNotifyOnSavedScreenshot ? std::function<void(std::string)>(ScreenCaptureMessageBox{})
+                                                         : std::function<void(std::string)>(IgnoreString{})));
 
     mScreenCaptureHandler = new osgViewer::ScreenCaptureHandler(mScreenCaptureOperation);
 
@@ -669,9 +746,6 @@ void OMW::Engine::prepareEngine()
 
     mLuaManager = std::make_unique<MWLua::LuaManager>(mVFS.get(), mResDir / "lua_libs");
     mEnvironment.setLuaManager(*mLuaManager);
-
-    // starts a separate lua thread if "lua num threads" > 0
-    mLuaWorker = std::make_unique<MWLua::Worker>(*mLuaManager, *mViewer);
 
     // Create input and UI first to set up a bootstrapping environment for
     // showing a loading screen and keeping the window responsive while doing so
@@ -708,13 +782,13 @@ void OMW::Engine::prepareEngine()
     // gui needs our shaders path before everything else
     mResourceSystem->getSceneManager()->setShaderPath(mResDir / "shaders");
 
-    osg::ref_ptr<osg::GLExtensions> exts = osg::GLExtensions::Get(0, false);
-    bool shadersSupported = exts && (exts->glslLanguageVersion >= 1.2f);
+    osg::GLExtensions& exts = SceneUtil::getGLExtensions();
+    bool shadersSupported = exts.glslLanguageVersion >= 1.2f;
 
 #if OSG_VERSION_LESS_THAN(3, 6, 6)
     // hack fix for https://github.com/openscenegraph/OpenSceneGraph/issues/1028
-    if (exts)
-        exts->glRenderbufferStorageMultisampleCoverageNV = nullptr;
+    if (!osg::isGLExtensionSupported(exts.contextID, "NV_framebuffer_multisample_coverage"))
+        exts.glRenderbufferStorageMultisampleCoverageNV = nullptr;
 #endif
 
     osg::ref_ptr<osg::Group> guiRoot = new osg::Group;
@@ -725,7 +799,7 @@ void OMW::Engine::prepareEngine()
 
     mWindowManager = std::make_unique<MWGui::WindowManager>(mWindow, mViewer, guiRoot, mResourceSystem.get(),
         mWorkQueue.get(), mCfgMgr.getLogPath(), mScriptConsoleMode, mTranslationDataStorage, mEncoding,
-        Version::getOpenmwVersionDescription(mResDir), shadersSupported, mCfgMgr);
+        Version::getOpenmwVersionDescription(), shadersSupported, mCfgMgr);
     mEnvironment.setWindowManager(*mWindowManager);
 
     mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, mScreenCaptureHandler,
@@ -736,6 +810,18 @@ void OMW::Engine::prepareEngine()
     mSoundManager = std::make_unique<MWSound::SoundManager>(mVFS.get(), mUseSound);
     mEnvironment.setSoundManager(*mSoundManager);
 
+    // Create the world
+    mWorld = std::make_unique<MWWorld::World>(
+        mResourceSystem.get(), mActivationDistanceOverride, mCellName, mCfgMgr.getUserDataPath());
+    mEnvironment.setWorld(*mWorld);
+    mEnvironment.setWorldModel(mWorld->getWorldModel());
+    mEnvironment.setESMStore(mWorld->getStore());
+
+    Loading::Listener* listener = MWBase::Environment::get().getWindowManager()->getLoadingScreen();
+    Loading::AsyncListener asyncListener(*listener);
+    auto dataLoading = std::async(std::launch::async,
+        [&] { mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), &asyncListener); });
+
     if (!mSkipMenu)
     {
         std::string_view logo = Fallback::Map::getString("Movies_Company_Logo");
@@ -743,16 +829,19 @@ void OMW::Engine::prepareEngine()
             mWindowManager->playVideo(logo, true);
     }
 
-    // Create the world
-    mWorld = std::make_unique<MWWorld::World>(mViewer, rootNode, mResourceSystem.get(), mWorkQueue.get(), *mUnrefQueue,
-        mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), mActivationDistanceOverride, mCellName,
-        mCfgMgr.getUserDataPath());
+    listener->loadingOn();
+    {
+        using namespace std::chrono_literals;
+        while (dataLoading.wait_for(50ms) != std::future_status::ready)
+            asyncListener.update();
+        dataLoading.get();
+    }
+    listener->loadingOff();
+
+    mWorld->init(mViewer, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
+    mEnvironment.setWorldScene(mWorld->getWorldScene());
     mWorld->setupPlayer();
     mWorld->setRandomSeed(mRandomSeed);
-    mEnvironment.setWorld(*mWorld);
-    mEnvironment.setWorldModel(mWorld->getWorldModel());
-    mEnvironment.setWorldScene(mWorld->getWorldScene());
-    mEnvironment.setESMStore(mWorld->getStore());
 
     const MWWorld::Store<ESM::GameSetting>* gmst = &mWorld->getStore().get<ESM::GameSetting>();
     mL10nManager->setGmstLoader(
@@ -816,8 +905,11 @@ void OMW::Engine::prepareEngine()
                              << 100 * static_cast<double>(result.second) / result.first << "%)";
     }
 
-    mLuaManager->init();
     mLuaManager->loadPermanentStorage(mCfgMgr.getUserConfigPath());
+    mLuaManager->init();
+
+    // starts a separate lua thread if "lua num threads" > 0
+    mLuaWorker = std::make_unique<MWLua::Worker>(*mLuaManager, *mViewer);
 }
 
 // Initialise and enter main loop.
@@ -847,7 +939,7 @@ void OMW::Engine::go()
     // Do not try to outsmart the OS thread scheduler (see bug #4785).
     mViewer->setUseConfigureAffinity(false);
 
-    mEnvironment.setFrameRateLimit(Settings::Manager::getFloat("framerate limit", "Video"));
+    mEnvironment.setFrameRateLimit(Settings::video().mFramerateLimit);
 
     prepareEngine();
 
@@ -894,7 +986,13 @@ void OMW::Engine::go()
     {
         // start in main menu
         mWindowManager->pushGuiMode(MWGui::GM_MainMenu);
-        mSoundManager->playPlaylist("Title");
+
+        std::string titlefile = "music/special/morrowind title.mp3";
+        if (mVFS->exists(titlefile))
+            mSoundManager->streamMusic(titlefile, MWSound::MusicType::Special);
+        else
+            Log(Debug::Warning) << "Title music not found";
+
         std::string_view logo = Fallback::Map::getString("Movies_Morrowind_Logo");
         if (!logo.empty())
             mWindowManager->playVideo(logo, /*allowSkipping*/ true, /*overrideSounds*/ false);
@@ -910,7 +1008,7 @@ void OMW::Engine::go()
     }
 
     // Start the main rendering loop
-    double simulationTime = 0.0;
+    MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
     Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(mEnvironment.getFrameRateLimit());
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));
     while (!mViewer->done() && !mStateManager->hasQuitRequest())
@@ -918,20 +1016,20 @@ void OMW::Engine::go()
         const double dt = std::chrono::duration_cast<std::chrono::duration<double>>(
                               std::min(frameRateLimiter.getLastFrameDuration(), maxSimulationInterval))
                               .count()
-            * mEnvironment.getWorld()->getSimulationTimeScale();
+            * timeManager.getSimulationTimeScale();
 
-        mViewer->advance(simulationTime);
+        mViewer->advance(timeManager.getRenderingSimulationTime());
 
         if (!frame(dt))
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
-        else
+        timeManager.updateIsPaused();
+        if (!timeManager.isPaused())
         {
-            bool guiActive = mWindowManager->isGuiMode();
-            if (!guiActive)
-                simulationTime += dt;
+            timeManager.setSimulationTime(timeManager.getSimulationTime() + dt);
+            timeManager.setRenderingSimulationTime(timeManager.getRenderingSimulationTime() + dt);
         }
 
         if (stats)

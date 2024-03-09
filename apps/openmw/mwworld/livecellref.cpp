@@ -13,6 +13,7 @@
 #include "class.hpp"
 #include "esmstore.hpp"
 #include "ptr.hpp"
+#include "worldmodel.hpp"
 
 MWWorld::LiveCellRefBase::LiveCellRefBase(unsigned int type, const ESM::CellRef& cref)
     : mClass(&Class::get(type))
@@ -26,6 +27,18 @@ MWWorld::LiveCellRefBase::LiveCellRefBase(unsigned int type, const ESM4::Referen
     , mRef(cref)
     , mData(cref)
 {
+}
+
+MWWorld::LiveCellRefBase::LiveCellRefBase(unsigned int type, const ESM4::ActorCharacter& cref)
+    : mClass(&Class::get(type))
+    , mRef(cref)
+    , mData(cref)
+{
+}
+
+MWWorld::LiveCellRefBase::~LiveCellRefBase()
+{
+    MWBase::Environment::get().getWorldModel()->deregisterLiveCellRef(*this);
 }
 
 void MWWorld::LiveCellRefBase::loadImp(const ESM::ObjectState& state)
@@ -91,6 +104,11 @@ bool MWWorld::LiveCellRefBase::checkStateImp(const ESM::ObjectState& state)
 unsigned int MWWorld::LiveCellRefBase::getType() const
 {
     return mClass->getType();
+}
+
+bool MWWorld::LiveCellRefBase::isDeleted() const
+{
+    return mData.isDeletedByContentFile() || mRef.getCount(false) == 0;
 }
 
 namespace MWWorld

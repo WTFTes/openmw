@@ -1,6 +1,7 @@
 #include "ingredient.hpp"
 
 #include <MyGUI_TextIterator.h>
+#include <MyGUI_UString.h>
 
 #include <components/esm3/loadingr.hpp>
 #include <components/esm3/loadnpc.hpp>
@@ -16,7 +17,6 @@
 #include "../mwworld/ptr.hpp"
 
 #include "../mwgui/tooltips.hpp"
-#include "../mwgui/ustring.hpp"
 
 #include "../mwrender/objects.hpp"
 #include "../mwrender/renderinginterface.hpp"
@@ -39,7 +39,7 @@ namespace MWClass
         }
     }
 
-    std::string Ingredient::getModel(const MWWorld::ConstPtr& ptr) const
+    std::string_view Ingredient::getModel(const MWWorld::ConstPtr& ptr) const
     {
         return getClassModel<ESM::Ingredient>(ptr);
     }
@@ -107,8 +107,7 @@ namespace MWClass
 
         MWGui::ToolTipInfo info;
         std::string_view name = getName(ptr);
-        info.caption
-            = MyGUI::TextIterator::toTagsString(MWGui::toUString(name)) + MWGui::ToolTips::getCountString(count);
+        info.caption = MyGUI::TextIterator::toTagsString(MyGUI::UString(name)) + MWGui::ToolTips::getCountString(count);
         info.icon = ref->mBase->mIcon;
 
         std::string text;
@@ -118,8 +117,8 @@ namespace MWClass
 
         if (MWBase::Environment::get().getWindowManager()->getFullHelp())
         {
-            text += MWGui::ToolTips::getCellRefString(ptr.getCellRef());
-            text += MWGui::ToolTips::getMiscString(ref->mBase->mScript.getRefIdString(), "Script");
+            info.extra += MWGui::ToolTips::getCellRefString(ptr.getCellRef());
+            info.extra += MWGui::ToolTips::getMiscString(ref->mBase->mScript.getRefIdString(), "Script");
         }
 
         MWWorld::Ptr player = MWBase::Environment::get().getWorld()->getPlayerPtr();
@@ -138,18 +137,15 @@ namespace MWClass
                 continue;
             MWGui::Widgets::SpellEffectParams params;
             params.mEffectID = ref->mBase->mData.mEffectID[i];
-            params.mAttribute = ref->mBase->mData.mAttributes[i];
-            params.mSkill = ref->mBase->mData.mSkills[i];
-
-            params.mKnown = ((i == 0 && alchemySkill >= fWortChanceValue)
-                || (i == 1 && alchemySkill >= fWortChanceValue * 2) || (i == 2 && alchemySkill >= fWortChanceValue * 3)
-                || (i == 3 && alchemySkill >= fWortChanceValue * 4));
+            params.mAttribute = ESM::Attribute::indexToRefId(ref->mBase->mData.mAttributes[i]);
+            params.mSkill = ESM::Skill::indexToRefId(ref->mBase->mData.mSkills[i]);
+            params.mKnown = alchemySkill >= fWortChanceValue * (i + 1);
 
             list.push_back(params);
         }
-        info.effects = list;
+        info.effects = std::move(list);
 
-        info.text = text;
+        info.text = std::move(text);
         info.isIngredient = true;
 
         return info;

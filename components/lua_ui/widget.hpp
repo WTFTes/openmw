@@ -26,12 +26,15 @@ namespace LuaUi
         virtual ~WidgetExtension() = default;
 
         // must be called after creating the underlying MyGUI::Widget
-        void initialize(lua_State* lua, MyGUI::Widget* self);
+        void initialize(lua_State* lua, MyGUI::Widget* self, bool isRoot);
         // must be called after before destroying the underlying MyGUI::Widget
         virtual void deinitialize();
 
         MyGUI::Widget* widget() const { return mWidget; }
         WidgetExtension* slot() const { return mSlot; }
+
+        bool isRoot() const { return mElementRoot; }
+        WidgetExtension* getParent() const { return mParent; }
 
         void reset();
 
@@ -44,10 +47,10 @@ namespace LuaUi
         void setCallback(const std::string&, const LuaUtil::Callback&);
         void clearCallbacks();
 
-        void setProperties(sol::object);
-        void setTemplateProperties(sol::object props) { mTemplateProperties = props; }
+        void setProperties(const sol::object& props);
+        void setTemplateProperties(const sol::object& props) { mTemplateProperties = props; }
 
-        void setExternal(sol::object external) { mExternal = external; }
+        void setExternal(const sol::object& external) { mExternal = external; }
 
         MyGUI::IntCoord forcedCoord();
         void forceCoord(const MyGUI::IntCoord& offset);
@@ -66,14 +69,11 @@ namespace LuaUi
             return parseExternal(mExternal, name, defaultValue);
         }
 
-        void onCoordChange(const std::optional<std::function<void(WidgetExtension*, MyGUI::IntCoord)>>& callback)
-        {
-            mOnCoordChange = callback;
-        }
-
         virtual MyGUI::IntSize calculateSize();
         virtual MyGUI::IntPoint calculatePosition(const MyGUI::IntSize& size);
         MyGUI::IntCoord calculateCoord();
+
+        virtual bool isTextInput() { return false; }
 
     protected:
         virtual void initialize();
@@ -137,6 +137,7 @@ namespace LuaUi
         MyGUI::FloatSize mAnchor;
 
         bool mPropagateEvents;
+        bool mVisible; // used to implement updateVisible
 
     private:
         // use lua_State* instead of sol::state_view because MyGUI requires a default constructor
@@ -152,6 +153,7 @@ namespace LuaUi
         sol::object mExternal;
         WidgetExtension* mParent;
         bool mTemplateChild;
+        bool mElementRoot;
 
         void attach(WidgetExtension* ext);
         void attachTemplate(WidgetExtension* ext);
@@ -172,7 +174,7 @@ namespace LuaUi
         void focusGain(MyGUI::Widget*, MyGUI::Widget*);
         void focusLoss(MyGUI::Widget*, MyGUI::Widget*);
 
-        std::optional<std::function<void(WidgetExtension*, MyGUI::IntCoord)>> mOnCoordChange;
+        void updateVisible();
     };
 
     class LuaWidget : public MyGUI::Widget, public WidgetExtension

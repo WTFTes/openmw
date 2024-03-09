@@ -10,7 +10,9 @@
 
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/datetimemanager.hpp"
 
+#include "character.hpp"
 #include "creaturestats.hpp"
 #include "steering.hpp"
 
@@ -97,7 +99,7 @@ namespace MWMechanics
 
         // Target is not here right now, wait for it to return
         // Really we should be checking whether the target is currently registered with the MechanicsManager
-        if (target == MWWorld::Ptr() || !target.getRefData().getCount() || !target.getRefData().isEnabled())
+        if (target == MWWorld::Ptr() || !target.getCellRef().getCount() || !target.getRefData().isEnabled())
             return false;
 
         actor.getClass().getCreatureStats(actor).setDrawState(DrawState::Nothing);
@@ -117,21 +119,6 @@ namespace MWMechanics
         const osg::Vec3f targetPos(target.getRefData().getPosition().asVec3());
         const osg::Vec3f targetDir = targetPos - actorPos;
 
-        // AiFollow requires the target to be in range and within sight for the initial activation
-        if (!mActive)
-        {
-            storage.mTimer -= duration;
-
-            if (storage.mTimer < 0)
-            {
-                if (targetDir.length2() < 500 * 500 && MWBase::Environment::get().getWorld()->getLOS(actor, target))
-                    mActive = true;
-                storage.mTimer = 0.5f;
-            }
-        }
-        if (!mActive)
-            return false;
-
         // In the original engine the first follower stays closer to the player than any subsequent followers.
         // Followers beyond the first usually attempt to stand inside each other.
         osg::Vec3f::value_type floatingDistance = 0;
@@ -150,12 +137,31 @@ namespace MWMechanics
         floatingDistance += getHalfExtents(actor) * 2;
         short followDistance = static_cast<short>(floatingDistance);
 
+        // AiFollow requires the target to be in range and within sight for the initial activation
+        if (!mActive)
+        {
+            storage.mTimer -= duration;
+
+            if (storage.mTimer < 0)
+            {
+                float activeRange = followDistance + 384.f;
+                if (targetDir.length2() < activeRange * activeRange
+                    && MWBase::Environment::get().getWorld()->getLOS(actor, target))
+                    mActive = true;
+                storage.mTimer = 0.5f;
+            }
+        }
+        if (!mActive)
+            return false;
+
         if (!mAlwaysFollow) // Update if you only follow for a bit
         {
             // Check if we've run out of time
             if (mDuration > 0)
             {
-                mRemainingDuration -= ((duration * MWBase::Environment::get().getWorld()->getTimeScaleFactor()) / 3600);
+                mRemainingDuration
+                    -= ((duration * MWBase::Environment::get().getWorld()->getTimeManager()->getGameTimeScale())
+                        / 3600);
                 if (mRemainingDuration <= 0)
                 {
                     mRemainingDuration = mDuration;
@@ -202,7 +208,9 @@ namespace MWMechanics
             return false;
         }
 
-        storage.mMoving = !pathTo(actor, targetPos, duration, baseFollowDistance); // Go to the destination
+        // Go to the destination
+        storage.mMoving = !pathTo(
+            actor, targetPos, duration, characterController.getSupportedMovementDirections(), baseFollowDistance);
 
         if (storage.mMoving)
         {

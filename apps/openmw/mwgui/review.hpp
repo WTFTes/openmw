@@ -3,7 +3,6 @@
 
 #include "widgets.hpp"
 #include "windowbase.hpp"
-#include <components/esm/attr.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm3/loadclas.hpp>
 
@@ -31,14 +30,14 @@ namespace MWGui
 
         void setPlayerName(const std::string& name);
         void setRace(const ESM::RefId& raceId);
-        void setClass(const ESM::Class& class_);
+        void setClass(const ESM::Class& playerClass);
         void setBirthSign(const ESM::RefId& signId);
 
         void setHealth(const MWMechanics::DynamicStat<float>& value);
         void setMagicka(const MWMechanics::DynamicStat<float>& value);
         void setFatigue(const MWMechanics::DynamicStat<float>& value);
 
-        void setAttribute(ESM::Attribute::AttributeID attributeId, const MWMechanics::AttributeValue& value);
+        void setAttribute(ESM::RefId attributeId, const MWMechanics::AttributeValue& value);
 
         void configureSkills(const std::vector<ESM::RefId>& major, const std::vector<ESM::RefId>& minor);
         void setSkillValue(ESM::RefId id, const MWMechanics::SkillValue& value);
@@ -90,14 +89,14 @@ namespace MWGui
 
         Widgets::MWDynamicStatPtr mHealth, mMagicka, mFatigue;
 
-        std::map<ESM::Attribute::AttributeID, Widgets::MWAttributePtr> mAttributeWidgets;
+        std::map<ESM::RefId, Widgets::MWAttributePtr> mAttributeWidgets;
 
         std::vector<ESM::RefId> mMajorSkills, mMinorSkills, mMiscSkills;
         std::map<ESM::RefId, MWMechanics::SkillValue> mSkillValues;
         std::map<ESM::RefId, MyGUI::TextBox*> mSkillWidgetMap;
         ESM::RefId mRaceId, mBirthSignId;
         std::string mName;
-        ESM::Class mKlass;
+        ESM::Class mClass;
         std::vector<MyGUI::Widget*> mSkillWidgets; //< Skills and other information
 
         bool mUpdateSkillArea;

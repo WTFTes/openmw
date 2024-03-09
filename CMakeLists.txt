@@ -1,26 +1,7 @@
-cmake_minimum_required(VERSION 3.1.0)
-
-# for link time optimization, remove if cmake version is >= 3.9
-if(POLICY CMP0069) # LTO
-    cmake_policy(SET CMP0069 NEW)
-endif()
-
-# for position-independent executable, remove if cmake version is >= 3.14
-if(POLICY CMP0083)
-    cmake_policy(SET CMP0083 NEW)
-endif()
-
-# to link with freetype library
-if(POLICY CMP0079)
-    cmake_policy(SET CMP0079 NEW)
-endif()
-
-# don't add /W3 flag by default for MSVC
-if(POLICY CMP0092)
-    cmake_policy(SET CMP0092 NEW)
-endif()
+cmake_minimum_required(VERSION 3.16.0)
 
 #  set the timestamps of extracted contents to the time of extraction
+# remove if cmake version is >= 3.24
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
@@ -37,6 +18,14 @@ option(OPENMW_GL4ES_MANUAL_INIT "Manually initialize gl4es. This is more reliabl
 if(OPENMW_GL4ES_MANUAL_INIT)
     add_definitions(-DOPENMW_GL4ES_MANUAL_INIT)
 endif()
+
+if (APPLE OR WIN32)
+    set(DEPLOY_QT_TRANSLATIONS_DEFAULT ON)
+else ()
+    set(DEPLOY_QT_TRANSLATIONS_DEFAULT OFF)
+endif ()
+
+option(DEPLOY_QT_TRANSLATIONS "Deploy standard Qt translations to resources folder. Needed when OpenMW applications are deployed with Qt libraries" ${DEPLOY_QT_TRANSLATIONS_DEFAULT})
 
 # Apps and tools
 option(BUILD_OPENMW             "Build OpenMW" ON)
@@ -73,6 +62,7 @@ IF(NOT CMAKE_BUILD_TYPE)
 ENDIF()
 
 if (APPLE)
+    set(CMAKE_FIND_FRAMEWORK LAST) # prefer dylibs over frameworks
     set(APP_BUNDLE_NAME "${CMAKE_PROJECT_NAME}.app")
 
     set(APP_BUNDLE_DIR "${OpenMW_BINARY_DIR}/${APP_BUNDLE_NAME}")
@@ -90,6 +80,8 @@ message(STATUS "Configuring OpenMW...")
 set(OPENMW_VERSION_MAJOR 0)
 set(OPENMW_VERSION_MINOR 49)
 set(OPENMW_VERSION_RELEASE 0)
+set(OPENMW_LUA_API_REVISION 56)
+set(OPENMW_POSTPROCESSING_API_REVISION 1)
 
 set(OPENMW_VERSION_COMMITHASH "")
 set(OPENMW_VERSION_TAGHASH "")
@@ -97,7 +89,7 @@ set(OPENMW_VERSION_COMMITDATE "")
 
 set(OPENMW_VERSION "${OPENMW_VERSION_MAJOR}.${OPENMW_VERSION_MINOR}.${OPENMW_VERSION_RELEASE}")
 
-set(OPENMW_DOC_BASEURL "https://openmw.readthedocs.io/en/stable/")
+set(OPENMW_DOC_BASEURL "https://openmw.readthedocs.io/en/")
 
 set(GIT_CHECKOUT FALSE)
 if(EXISTS ${PROJECT_SOURCE_DIR}/.git)
@@ -131,7 +123,6 @@ include(WholeArchive)
 configure_file ("${OpenMW_SOURCE_DIR}/docs/mainpage.hpp.cmake" "${OpenMW_BINARY_DIR}/docs/mainpage.hpp")
 
 option(BOOST_STATIC "Link static build of Boost into the binaries" FALSE)
-option(SDL2_STATIC "Link static build of SDL into the binaries" FALSE)
 option(QT_STATIC "Link static build of Qt into the binaries" FALSE)
 
 option(OPENMW_USE_SYSTEM_BULLET "Use system provided bullet physics library" ON)
@@ -197,6 +188,8 @@ if (MSVC)
     # there should be no relevant downsides to having it on:
     # https://docs.microsoft.com/en-us/cpp/build/reference/bigobj-increase-number-of-sections-in-dot-obj-file
     add_compile_options(/bigobj)
+
+    add_compile_options(/Zc:__cplusplus)
 endif()
 
 # Set up common paths
@@ -239,9 +232,9 @@ find_package(LZ4 REQUIRED)
 if (USE_QT)
     find_package(QT REQUIRED COMPONENTS Core NAMES Qt6 Qt5)
     if (QT_VERSION_MAJOR VERSION_EQUAL 5)
-        find_package(Qt5 5.15 COMPONENTS Core Widgets Network OpenGL REQUIRED)
+        find_package(Qt5 5.15 COMPONENTS Core Widgets Network OpenGL LinguistTools REQUIRED)
     else()
-        find_package(Qt6 COMPONENTS Core Widgets Network OpenGL OpenGLWidgets REQUIRED)
+        find_package(Qt6 COMPONENTS Core Widgets Network OpenGL OpenGLWidgets LinguistTools REQUIRED)
     endif()
     message(STATUS "Using Qt${QT_VERSION}")
 endif()
@@ -352,7 +345,7 @@ endif()
 # Required for building the FFmpeg headers
 add_definitions(-D__STDC_CONSTANT_MACROS)
 
-# Reqiuired for unity build
+# Required for unity build
 add_definitions(-DMYGUI_DONT_REPLACE_NULLPTR)
 
 # TinyXML
@@ -452,7 +445,7 @@ if(HAVE_MULTIVIEW)
     add_definitions(-DOSG_HAS_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
-set(BOOST_COMPONENTS system program_options iostreams)
+set(BOOST_COMPONENTS iostreams program_options system)
 if(WIN32)
     set(BOOST_COMPONENTS ${BOOST_COMPONENTS} locale)
     if(MSVC)
@@ -467,15 +460,12 @@ IF(BOOST_STATIC)
 endif()
 
 set(Boost_NO_BOOST_CMAKE ON)
+set(Boost_NO_WARN_NEW_VERSIONS ON)  # ignore warnings about new releases of boost
 
 find_package(Boost 1.6.2 REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
 
-if(Boost_VERSION_STRING VERSION_GREATER_EQUAL 1.77.0)
-    find_package(Boost 1.77.0 REQUIRED COMPONENTS atomic)
-endif()
-
 if(OPENMW_USE_SYSTEM_MYGUI)
-    find_package(MyGUI 3.4.1 REQUIRED)
+    find_package(MyGUI 3.4.3 REQUIRED)
 endif()
 find_package(SDL2 2.0.9 REQUIRED)
 find_package(OpenAL REQUIRED)
@@ -501,7 +491,6 @@ set(SOL_CONFIG_DIR ${OpenMW_SOURCE_DIR}/extern/sol_config)
 include_directories(
     BEFORE SYSTEM
     "."
-    ${SDL2_INCLUDE_DIR}
     ${Boost_INCLUDE_DIR}
     ${MyGUI_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
@@ -513,7 +502,7 @@ include_directories(
     ${ICU_INCLUDE_DIRS}
 )
 
-link_directories(${SDL2_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS} ${COLLADA_DOM_LIBRARY_DIRS})
+link_directories(${Boost_LIBRARY_DIRS} ${COLLADA_DOM_LIBRARY_DIRS})
 
 if(MYGUI_STATIC)
     add_definitions(-DMYGUI_STATIC)
@@ -585,20 +574,16 @@ if (NOT WIN32 AND NOT APPLE)
 endif()
 
 if(OPENMW_LTO_BUILD)
-    if(NOT CMAKE_VERSION VERSION_LESS 3.9)
-        include(CheckIPOSupported)
-        check_ipo_supported(RESULT HAVE_IPO OUTPUT HAVE_IPO_OUTPUT)
-        if(HAVE_IPO)
-            message(STATUS "LTO enabled for Release configuration.")
-            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
-        else()
-            message(WARNING "Requested option OPENMW_LTO_BUILD not supported by this compiler: ${HAVE_IPO_OUTPUT}")
-            if(MSVC)
-                message(STATUS "Note: Flags used to be set manually for this setting with MSVC. We now rely on CMake for this. Upgrade CMake to at least 3.13 to re-enable this setting.")
-            endif()
-        endif()
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT HAVE_IPO OUTPUT HAVE_IPO_OUTPUT)
+    if(HAVE_IPO)
+        message(STATUS "LTO enabled for Release configuration.")
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
     else()
-        message(WARNING "Requested option OPENMW_LTO_BUILD not supported by this cmake version: ${CMAKE_VERSION}. Upgrade CMake to at least 3.9 to enable support for certain compilers. Newer CMake versions support more compilers.")
+        message(WARNING "Requested option OPENMW_LTO_BUILD not supported by this compiler: ${HAVE_IPO_OUTPUT}")
+        if(MSVC)
+            message(STATUS "Note: Flags used to be set manually for this setting with MSVC. We now rely on CMake for this. Upgrade CMake to at least 3.13 to re-enable this setting.")
+        endif()
     endif()
 endif()
 
@@ -732,80 +717,67 @@ if (WIN32)
             5054 # Deprecated operations between enumerations of different types caused by Qt headers
             )
 
-        if( "${MyGUI_VERSION}" VERSION_LESS_EQUAL "3.4.0" )
-            set(WARNINGS_DISABLE ${WARNINGS_DISABLE}
-            4866 # compiler may not enforce left-to-right evaluation order for call
-            )
-        endif()
-
-        if( "${MyGUI_VERSION}" VERSION_LESS_EQUAL "3.4.1" )
-            set(WARNINGS_DISABLE ${WARNINGS_DISABLE}
-            4275 # non dll-interface class 'MyGUI::delegates::IDelegateUnlink' used as base for dll-interface class 'MyGUI::Widget'
-            )
-        endif()
-
         foreach(d ${WARNINGS_DISABLE})
-            set(WARNINGS "${WARNINGS} /wd${d}")
+            list(APPEND WARNINGS "/wd${d}")
         endforeach(d)
 
         if(OPENMW_MSVC_WERROR)
-            set(WARNINGS "${WARNINGS} /WX")
+            list(APPEND WARNINGS "/WX")
         endif()
 
-        set_target_properties(components PROPERTIES COMPILE_FLAGS "${WARNINGS}")
-        set_target_properties(osg-ffmpeg-videoplayer PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+        target_compile_options(components PRIVATE ${WARNINGS})
+        target_compile_options(osg-ffmpeg-videoplayer PRIVATE ${WARNINGS})
 
         if (MSVC_VERSION GREATER_EQUAL 1915 AND MSVC_VERSION LESS 1920)
             target_compile_definitions(components INTERFACE _ENABLE_EXTENDED_ALIGNED_STORAGE)
         endif()
 
         if (BUILD_BSATOOL)
-            set_target_properties(bsatool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(bsatool PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_ESMTOOL)
-            set_target_properties(esmtool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(esmtool PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_ESSIMPORTER)
-            set_target_properties(openmw-essimporter PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-essimporter PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_LAUNCHER)
-            set_target_properties(openmw-launcher PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-launcher PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_MWINIIMPORTER)
-            set_target_properties(openmw-iniimporter PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-iniimporter PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_OPENCS)
-            set_target_properties(openmw-cs PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-cs PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_OPENMW)
-            set_target_properties(openmw PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_WIZARD)
-            set_target_properties(openmw-wizard PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-wizard PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_UNITTESTS)
-            set_target_properties(openmw_test_suite PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw_test_suite PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_BENCHMARKS)
-            set_target_properties(openmw_detournavigator_navmeshtilescache_benchmark PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw_detournavigator_navmeshtilescache_benchmark PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_NAVMESHTOOL)
-            set_target_properties(openmw-navmeshtool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-navmeshtool PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_BULLETOBJECTTOOL)
-            set(WARNINGS "${WARNINGS} ${MT_BUILD}")
-            set_target_properties(openmw-bulletobjecttool PROPERTIES COMPILE_FLAGS "${WARNINGS}")
+            target_compile_options(openmw-bulletobjecttool PRIVATE ${WARNINGS} ${MT_BUILD})
         endif()
     endif(MSVC)
 
@@ -814,7 +786,7 @@ if (WIN32)
     #set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
 endif()
 
-if (BUILD_OPENMW AND APPLE)
+if (APPLE)
     target_compile_definitions(components PRIVATE GL_SILENCE_DEPRECATION=1)
     target_compile_definitions(openmw PRIVATE GL_SILENCE_DEPRECATION=1)
 endif()
@@ -1076,7 +1048,6 @@ elseif(NOT APPLE)
         # Install global configuration files
         INSTALL(FILES "${INSTALL_SOURCE}/defaults.bin" DESTINATION "${SYSCONFDIR}" COMPONENT "openmw")
         INSTALL(FILES "${INSTALL_SOURCE}/openmw.cfg.install" DESTINATION "${SYSCONFDIR}" RENAME "openmw.cfg" COMPONENT "openmw")
-        INSTALL(FILES "${INSTALL_SOURCE}/resources/version" DESTINATION "${SYSCONFDIR}" COMPONENT "openmw")
         INSTALL(FILES "${INSTALL_SOURCE}/gamecontrollerdb.txt" DESTINATION "${SYSCONFDIR}" COMPONENT "openmw")
 
         IF(BUILD_OPENCS)
@@ -1085,7 +1056,6 @@ elseif(NOT APPLE)
 
         # Install resources
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/resources" DESTINATION "${DATADIR}" COMPONENT "Resources")
-        INSTALL(DIRECTORY DESTINATION "${DATADIR}/data" COMPONENT "Resources")
     endif(WIN32)
 endif(OPENMW_OSX_DEPLOYMENT AND APPLE)
 
@@ -1111,3 +1081,78 @@ if (DOXYGEN_FOUND)
         WORKING_DIRECTORY ${OpenMW_BINARY_DIR}
         COMMENT "Generating documentation for the github-pages at ${DOXYGEN_PAGES_OUTPUT_DIR}" VERBATIM)
 endif ()
+
+# Qt localization
+if (USE_QT)
+    file(GLOB LAUNCHER_TS_FILES ${CMAKE_SOURCE_DIR}/files/lang/launcher_*.ts)
+    file(GLOB WIZARD_TS_FILES ${CMAKE_SOURCE_DIR}/files/lang/wizard_*.ts)
+    file(GLOB COMPONENTS_TS_FILES ${CMAKE_SOURCE_DIR}/files/lang/components_*.ts)
+    get_target_property(QT_LUPDATE_EXECUTABLE Qt::lupdate IMPORTED_LOCATION)
+    add_custom_target(translations
+    COMMAND ${QT_LUPDATE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/components/contentselector ${CMAKE_SOURCE_DIR}/components/process -ts ${COMPONENTS_TS_FILES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/components
+    VERBATIM
+    COMMAND_EXPAND_LISTS
+
+    COMMAND ${QT_LUPDATE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/apps/wizard -ts ${WIZARD_TS_FILES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/wizard
+    VERBATIM
+    COMMAND_EXPAND_LISTS
+
+    COMMAND ${QT_LUPDATE_EXECUTABLE} ${CMAKE_SOURCE_DIR}/apps/launcher -ts ${LAUNCHER_TS_FILES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/launcher
+    VERBATIM
+    COMMAND_EXPAND_LISTS)
+
+    if (BUILD_LAUNCHER OR BUILD_WIZARD)
+        if (APPLE)
+            set(QT_OPENMW_TRANSLATIONS_PATH "${APP_BUNDLE_DIR}/Contents/Resources/resources/translations")
+        else ()
+            get_generator_is_multi_config(multi_config)
+            if (multi_config)
+                set(QT_OPENMW_TRANSLATIONS_PATH "${OpenMW_BINARY_DIR}/$<CONFIG>/resources/translations")
+            else ()
+                set(QT_OPENMW_TRANSLATIONS_PATH "${OpenMW_BINARY_DIR}/resources/translations")
+            endif ()
+        endif ()
+
+        file(GLOB TS_FILES ${COMPONENTS_TS_FILES})
+
+        if (BUILD_LAUNCHER)
+            set(TS_FILES ${TS_FILES} ${LAUNCHER_TS_FILES})
+        endif ()
+
+        if (BUILD_WIZARD)
+            set(TS_FILES ${TS_FILES} ${WIZARD_TS_FILES})
+        endif ()
+
+        qt_add_translation(QM_FILES ${TS_FILES} OPTIONS -silent)
+
+        if (DEPLOY_QT_TRANSLATIONS)
+            # Once we set a Qt 6.2.0 as a minimum required version, we may use "qtpaths --qt-query" instead.
+            get_target_property(QT_QMAKE_EXECUTABLE Qt::qmake IMPORTED_LOCATION)
+            execute_process(COMMAND "${QT_QMAKE_EXECUTABLE}" -query QT_INSTALL_TRANSLATIONS
+                OUTPUT_VARIABLE QT_TRANSLATIONS_DIR OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+            foreach(QM_FILE ${QM_FILES})
+                get_filename_component(QM_BASENAME ${QM_FILE} NAME)
+                string(REGEX REPLACE "[^_]+_(.*)\\.qm" "\\1" LANG_NAME ${QM_BASENAME})
+                if (EXISTS "${QT_TRANSLATIONS_DIR}/qtbase_${LANG_NAME}.qm")
+                    set(QM_FILES ${QM_FILES} "${QT_TRANSLATIONS_DIR}/qtbase_${LANG_NAME}.qm")
+                elseif (EXISTS "${QT_TRANSLATIONS_DIR}/qt_${LANG_NAME}.qm")
+                    set(QM_FILES ${QM_FILES} "${QT_TRANSLATIONS_DIR}/qt_${LANG_NAME}.qm")
+                else ()
+                    message(FATAL_ERROR "Qt translations for '${LANG_NAME}' locale are not found in the '${QT_TRANSLATIONS_DIR}' folder.")
+                endif ()
+            endforeach(QM_FILE)
+
+            list(REMOVE_DUPLICATES QM_FILES)
+        endif ()
+
+        add_custom_target(qm-files
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${QT_OPENMW_TRANSLATIONS_PATH}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${QM_FILES} ${QT_OPENMW_TRANSLATIONS_PATH}
+            DEPENDS ${QM_FILES}
+            COMMENT "Copy *.qm files to resources folder")
+    endif ()
+endif()

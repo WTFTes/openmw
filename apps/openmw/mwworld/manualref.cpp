@@ -16,9 +16,7 @@ namespace
         cellRef.blank();
         cellRef.mRefID = name;
 
-        MWWorld::LiveCellRef<T> ref(cellRef, base);
-
-        refValue = ref;
+        refValue = MWWorld::LiveCellRef<T>(cellRef, base);
         ptrValue = MWWorld::Ptr(&std::any_cast<MWWorld::LiveCellRef<T>&>(refValue), nullptr);
     }
 }
@@ -93,6 +91,9 @@ MWWorld::ManualRef::ManualRef(const MWWorld::ESMStore& store, const ESM::RefId& 
         case ESM::REC_STAT4:
             create(store.get<ESM4::Static>(), name, mRef, mPtr);
             break;
+        case ESM::REC_TERM4:
+            create(store.get<ESM4::Terminal>(), name, mRef, mPtr);
+            break;
         case 0:
             throw std::logic_error("failed to create manual cell ref for " + name.toDebugString() + " (unknown ID)");
 
@@ -100,5 +101,5 @@ MWWorld::ManualRef::ManualRef(const MWWorld::ESMStore& store, const ESM::RefId& 
             throw std::logic_error("failed to create manual cell ref for " + name.toDebugString() + " (unknown type)");
     }
 
-    mPtr.getRefData().setCount(count);
+    mPtr.getCellRef().setCount(count);
 }

@@ -5,6 +5,7 @@
 #include <components/interpreter/interpreter.hpp>
 #include <components/interpreter/opcodes.hpp>
 #include <components/interpreter/runtime.hpp>
+#include <components/misc/resourcehelpers.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -32,13 +33,13 @@ namespace MWScript
                 MWScript::InterpreterContext& context
                     = static_cast<MWScript::InterpreterContext&>(runtime.getContext());
 
-                std::string file{ runtime.getStringLiteral(runtime[0].mInteger) };
+                VFS::Path::Normalized file{ runtime.getStringLiteral(runtime[0].mInteger) };
                 runtime.pop();
 
                 std::string_view text = runtime.getStringLiteral(runtime[0].mInteger);
                 runtime.pop();
 
-                MWBase::Environment::get().getSoundManager()->say(ptr, file);
+                MWBase::Environment::get().getSoundManager()->say(ptr, Misc::ResourceHelpers::correctSoundPath(file));
 
                 if (Settings::gui().mSubtitles)
                     context.messageBox(text);
@@ -62,10 +63,11 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
-                std::string sound{ runtime.getStringLiteral(runtime[0].mInteger) };
+                std::string music{ runtime.getStringLiteral(runtime[0].mInteger) };
                 runtime.pop();
 
-                MWBase::Environment::get().getSoundManager()->streamMusic(sound);
+                MWBase::Environment::get().getSoundManager()->streamMusic(
+                    Misc::ResourceHelpers::correctMusicPath(music), MWSound::MusicType::Scripted);
             }
         };
 

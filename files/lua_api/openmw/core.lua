@@ -1,21 +1,25 @@
 ---
--- `openmw.core` defines functions and types that are available in both local
--- and global scripts.
+-- `openmw.core` defines functions and types that are available in local,
+-- global and menu scripts.
 -- @module core
 -- @usage local core = require('openmw.core')
 
 
 
 ---
--- The revision of OpenMW Lua API. It is an integer that is incremented every time the API is changed.
+-- The revision of OpenMW Lua API. It is an integer that is incremented every time the API is changed. See the actual value at the top of the page.
 -- @field [parent=#core] #number API_REVISION
+
+---
+-- A read-only list of all @{#FactionRecord}s in the world database.
+-- @field [parent=#core] #list<#FactionRecord> factions
 
 ---
 -- Terminates the game and quits to the OS. Should be used only for testing purposes.
 -- @function [parent=#core] quit
 
 ---
--- Send an event to global scripts.
+-- Send an event to global scripts. Note: in menu scripts, errors if the game is not running (check @{openmw.menu#menu.getState})
 -- @function [parent=#core] sendGlobalEvent
 -- @param #string eventName
 -- @param eventData
@@ -49,6 +53,11 @@
 ---
 -- Real time in seconds; starting point is not fixed (can be time since last reboot), use only for measuring intervals. For Unix time use `os.time()`.
 -- @function [parent=#core] getRealTime
+-- @return #number
+
+---
+-- Frame duration in seconds
+-- @function [parent=#core] getRealFrameDuration
 -- @return #number
 
 ---
@@ -133,9 +142,9 @@
 -- @return #string
 -- @usage if obj.recordId == core.getFormId('Skyrim.esm', 0x4d7da) then ... end
 -- @usage -- In ESM3 content files (e.g. Morrowind) ids are human-readable strings
--- obj.ownerFactionId = 'blades'
+-- obj.owner.factionId = 'blades'
 -- -- In ESM4 (e.g. Skyrim) ids should be constructed using `core.getFormId`:
--- obj.ownerFactionId = core.getFormId('Skyrim.esm', 0x72834)
+-- obj.owner.factionId = core.getFormId('Skyrim.esm', 0x72834)
 -- @usage -- local scripts
 -- local obj = nearby.getObjectByFormId(core.getFormId('Morrowind.esm', 128964))
 -- @usage -- global scripts
@@ -155,13 +164,21 @@
 -- @field openmw.util#Transform rotation Object rotation.
 -- @field openmw.util#Vector3 startingPosition The object original position
 -- @field openmw.util#Transform startingRotation The object original rotation
--- @field #string ownerRecordId NPC who owns the object (nil if missing). Global and self scripts can set the value.
--- @field #string ownerFactionId Faction who owns the object (nil if missing). Global and self scripts can set the value.
--- @field #number ownerFactionRank Rank required to be allowed to pick up the object. Global and self scripts can set the value.
+-- @field #ObjectOwner owner Ownership information
 -- @field #Cell cell The cell where the object currently is. During loading a game and for objects in an inventory or a container `cell` is nil.
+-- @field #GameObject parentContainer Container or actor that contains (or has in inventory) this object. It is nil if the object is in a cell.
 -- @field #any type Type of the object (one of the tables from the package @{openmw.types#types}).
 -- @field #number count Count (>1 means a stack of objects).
 -- @field #string recordId Returns record ID of the object in lowercase.
+-- @field #string globalVariable Global Variable associated with this object(read only).
+
+
+---
+-- Object owner information
+-- @type ObjectOwner
+-- @field #string recordId NPC who owns the object (nil if missing). Global and self scripts can set the value.
+-- @field #string factionId Faction who owns the object (nil if missing). Global and self scripts can set the value.
+-- @field #number factionRank Rank required to be allowed to pick up the object (`nil` if any rank is allowed). Global and self scripts can set the value.
 
 ---
 -- Does the object still exist and is available.
@@ -241,8 +258,10 @@
 -- Can be called only from a global script.
 -- @function [parent=#GameObject] moveInto
 -- @param self
--- @param #Inventory dest
+-- @param #any dest @{#Inventory} or @{#GameObject}
 -- @usage item:moveInto(types.Actor.inventory(actor))
+-- @usage item:moveInto(types.Container.content(container))
+-- @usage item:moveInto(container)
 
 ---
 -- Removes an object or reduces a stack of objects.
@@ -257,6 +276,7 @@
 -- @function [parent=#GameObject] split
 -- @param self
 -- @param #number count The number of items to return.
+-- @return #GameObject
 -- @usage -- take 50 coins from `money` and put to the container `cont`
 -- money:split(50):moveInto(types.Container.content(cont))
 
@@ -283,6 +303,7 @@
 -- @field #number gridY Index of the cell by Y (only for exteriors).
 -- @field #string worldSpaceId Id of the world space.
 -- @field #boolean hasWater True if the cell contains water.
+-- @field #number waterLevel The water level of the cell. (nil if cell has no water).
 -- @field #boolean hasSky True if in this cell sky should be rendered.
 
 ---
@@ -306,7 +327,7 @@
 -- end
 
 ---
--- Get all objects of given type from the cell.
+-- Get all objects of given type from the cell; Only available from global scripts.
 -- @function [parent=#Cell] getAll
 -- @param self
 -- @param type (optional) object type (see @{openmw.types#types})
@@ -315,6 +336,26 @@
 -- local type = require('openmw.types')
 -- local all = cell:getAll()
 -- local weapons = cell:getAll(types.Weapon)
+
+---
+-- @type ActiveSpell
+-- @field #string name The spell or item display name
+-- @field #string id Record id of the spell or item used to cast the spell
+-- @field #GameObject item The enchanted item used to cast the spell, or nil if the spell was not cast from an enchanted item. Note that if the spell was cast for a single-use enchantment such as a scroll, this will be nil.
+-- @field #GameObject caster The caster object, or nil if the spell has no defined caster
+-- @field #list<#ActiveSpellEffect> effects The active effects (@{#ActiveSpellEffect}) of this spell.
+
+---
+-- @type ActiveSpellEffect
+-- @field #string affectedSkill Optional skill ID
+-- @field #string affectedAttribute Optional attribute ID
+-- @field #string id Magic effect id
+-- @field #string name Localized name of the effect
+-- @field #number magnitudeThisFrame The magnitude of the effect in the current frame. This will be a new random number between minMagnitude and maxMagnitude every frame. Or nil if the effect has no magnitude.
+-- @field #number minMagnitude The minimum magnitude of this effect, or nil if the effect has no magnitude.
+-- @field #number maxMagnitude The maximum magnitude of this effect, or nil if the effect has no magnitude.
+-- @field #number duration Total duration in seconds of this spell effect, should not be confused with remaining duration. Or nil if the effect is not temporary.
+-- @field #number durationLeft Remaining duration in seconds of this spell effect, or nil if the effect is not temporary.
 
 
 --- Possible @{#EnchantmentType} values
@@ -406,55 +447,6 @@
 -- @usage for _, item in ipairs(inventory:findAll('common_shirt_01')) do ... end
 
 
---- Possible @{#ATTRIBUTE} values
--- @field [parent=#core] #ATTRIBUTE ATTRIBUTE
-
---- `core.ATTRIBUTE`
--- @type ATTRIBUTE
--- @field #string Strength "strength"
--- @field #string Intelligence "intelligence"
--- @field #string Willpower "willpower"
--- @field #string Agility "agility"
--- @field #string Speed "speed"
--- @field #string Endurance "endurance"
--- @field #string Personality "personality"
--- @field #string Luck "luck"
-
-
---- Possible @{#SKILL} values
--- @field [parent=#core] #SKILL SKILL
-
---- `core.SKILL`
--- @type SKILL
--- @field #string Acrobatics "acrobatics"
--- @field #string Alchemy "alchemy"
--- @field #string Alteration "alteration"
--- @field #string Armorer "armorer"
--- @field #string Athletics "athletics"
--- @field #string Axe "axe"
--- @field #string Block "block"
--- @field #string BluntWeapon "bluntweapon"
--- @field #string Conjuration "conjuration"
--- @field #string Destruction "destruction"
--- @field #string Enchant "enchant"
--- @field #string HandToHand "handtohand"
--- @field #string HeavyArmor "heavyarmor"
--- @field #string Illusion "illusion"
--- @field #string LightArmor "lightarmor"
--- @field #string LongBlade "longblade"
--- @field #string Marksman "marksman"
--- @field #string MediumArmor "mediumarmor"
--- @field #string Mercantile "mercantile"
--- @field #string Mysticism "mysticism"
--- @field #string Restoration "restoration"
--- @field #string Security "security"
--- @field #string ShortBlade "shortblade"
--- @field #string Sneak "sneak"
--- @field #string Spear "spear"
--- @field #string Speechcraft "speechcraft"
--- @field #string Unarmored "unarmored"
-
-
 --- @{#Magic}: spells and spell effects
 -- @field [parent=#core] #Magic magic
 
@@ -467,19 +459,6 @@
 -- @field #number Self Applied on self
 -- @field #number Touch On touch
 -- @field #number Target Ranged spell
-
-
---- Possible @{#MagicSchool} values
--- @field [parent=#Magic] #MagicSchool SCHOOL
-
---- `core.magic.SCHOOL`
--- @type MagicSchool
--- @field #number Alteration Alteration
--- @field #number Conjuration Conjuration
--- @field #number Destruction Destruction
--- @field #number Illusion Illusion
--- @field #number Mysticism Mysticism
--- @field #number Restoration Restoration
 
 
 --- Possible @{#MagicEffectId} values
@@ -663,6 +642,9 @@
 --         print(effect.name)
 --     end
 -- end
+-- @usage -- Look up the record of a specific effect and print its icon
+-- local mgef = core.magic.effects[core.magic.EFFECT_TYPE.Reflect]
+-- print('Reflect Icon: '..tostring(mgef.icon))
 
 --- List of all @{#Enchantment}s.
 -- @field [parent=#Magic] #list<#Enchantment> enchantments
@@ -688,16 +670,21 @@
 -- @field #string id Effect ID
 -- @field #string icon Effect Icon Path
 -- @field #string name Localized name of the effect
--- @field #number school @{#MagicSchool}
+-- @field #string school Skill ID that is this effect's school
 -- @field #number baseCost
 -- @field openmw.util#Color color
 -- @field #boolean harmful
+-- @field #boolean continuousVfx Whether the magic effect's vfx should loop or not
+-- @field #string particle Identifier of the particle texture
+-- @field #string castingStatic Identifier of the vfx static used for casting
+-- @field #string hitStatic Identifier of the vfx static used on hit
+-- @field #string areaStatic Identifier of the vfx static used for AOE spells
 
 ---
 -- @type MagicEffectWithParams
 -- @field #MagicEffect effect @{#MagicEffect}
--- @field #any affectedSkill @{#SKILL} or nil
--- @field #any affectedAttribute @{#ATTRIBUTE} or nil
+-- @field #string affectedSkill Optional skill ID
+-- @field #string affectedAttribute Optional attribute ID
 -- @field #number range
 -- @field #number area
 -- @field #number magnitudeMin
@@ -706,12 +693,242 @@
 
 ---
 -- @type ActiveEffect
--- @field #any affectedSkill @{#SKILL} or nil
--- @field #any affectedAttribute @{#ATTRIBUTE} or nil
+-- Magic effect that is currently active on an actor.
+-- @field #string affectedSkill Optional skill ID
+-- @field #string affectedAttribute Optional attribute ID
 -- @field #string id Effect id string
 -- @field #string name Localized name of the effect
--- @field #number magnitude
+-- @field #number magnitude current magnitude of the effect. Will be set to 0 when effect is removed or expires.
 -- @field #number magnitudeBase
 -- @field #number magnitudeModifier
+
+--- @{#Sound}: Sounds and Speech
+-- @field [parent=#core] #Sound sound
+
+---
+-- Checks if sound system is enabled (any functions to play sounds are no-ops when it is disabled).
+-- It can not be enabled or disabled during runtime.
+-- @function [parent=#Sound] isEnabled
+-- @return #boolean
+-- @usage local enabled = core.sound.isEnabled();
+
+---
+-- Play a 3D sound, attached to object
+-- @function [parent=#Sound] playSound3d
+-- @param #string soundId ID of Sound record to play
+-- @param #GameObject object Object to which we attach the sound
+-- @param #table options An optional table with additional optional arguments. Can contain:
+--
+--   * `timeOffset` - a floating point number >= 0, to some time (in second) from beginning of sound file (default: 0);
+--   * `volume` - a floating point number >= 0, to set a sound volume (default: 1);
+--   * `pitch` - a floating point number >= 0, to set a sound pitch (default: 1);
+--   * `loop` - a boolean, to set if sound should be repeated when it ends (default: false);
+-- @usage local params = {
+--    timeOffset=0.1
+--    volume=0.3,
+--    loop=false,
+--    pitch=1.0
+-- };
+-- core.sound.playSound3d("shock bolt", object, params)
+
+---
+-- Play a 3D sound file, attached to object
+-- @function [parent=#Sound] playSoundFile3d
+-- @param #string fileName Path to sound file in VFS
+-- @param #GameObject object Object to which we attach the sound
+-- @param #table options An optional table with additional optional arguments. Can contain:
+--
+--   * `timeOffset` - a floating point number >= 0, to some time (in second) from beginning of sound file (default: 0);
+--   * `volume` - a floating point number >= 0, to set a sound volume (default: 1);
+--   * `pitch` - a floating point number >= 0, to set a sound pitch (default: 1);
+--   * `loop` - a boolean, to set if sound should be repeated when it ends (default: false);
+-- @usage local params = {
+--    timeOffset=0.1
+--    volume=0.3,
+--    loop=false,
+--    pitch=1.0
+-- };
+-- core.sound.playSoundFile3d("Sound\\test.mp3", object, params)
+
+---
+-- Stop a 3D sound, attached to object
+-- @function [parent=#Sound] stopSound3d
+-- @param #string soundId ID of Sound record to stop
+-- @param #GameObject object Object on which we want to stop sound
+-- @usage core.sound.stopSound("shock bolt", object);
+
+---
+-- Stop a 3D sound file, attached to object
+-- @function [parent=#Sound] stopSoundFile3d
+-- @param #string fileName Path to sound file in VFS
+-- @param #GameObject object Object on which we want to stop sound
+-- @usage core.sound.stopSoundFile("Sound\\test.mp3", object);
+
+---
+-- Check if sound is playing on given object
+-- @function [parent=#Sound] isSoundPlaying
+-- @param #string soundId ID of Sound record to check
+-- @param #GameObject object Object on which we want to check sound
+-- @return #boolean
+-- @usage local isPlaying = core.sound.isSoundPlaying("shock bolt", object);
+
+---
+-- Check if sound file is playing on given object
+-- @function [parent=#Sound] isSoundFilePlaying
+-- @param #string fileName Path to sound file in VFS
+-- @param #GameObject object Object on which we want to check sound
+-- @return #boolean
+-- @usage local isPlaying = core.sound.isSoundFilePlaying("Sound\\test.mp3", object);
+
+---
+-- Play an animated voiceover. Has two overloads:
+--
+--   * With an "object" argument: play sound for given object, with speaking animation if possible
+--   * Without an "object" argument: play sound globally, without object
+-- @function [parent=#Sound] say
+-- @param #string fileName Path to sound file in VFS
+-- @param #GameObject object Object on which we want to play an animated voiceover (optional)
+-- @param #string text Subtitle text (optional)
+-- @usage -- play voiceover for object and print messagebox
+-- core.sound.say("Sound\\Vo\\Misc\\voice.mp3", object, "Subtitle text")
+-- @usage -- play voiceover globally and print messagebox
+-- core.sound.say("Sound\\Vo\\Misc\\voice.mp3", "Subtitle text")
+-- @usage -- play voiceover for object without messagebox
+-- core.sound.say("Sound\\Vo\\Misc\\voice.mp3", object)
+-- @usage -- play voiceover globally without messagebox
+-- core.sound.say("Sound\\Vo\\Misc\\voice.mp3")
+
+---
+-- Stop animated voiceover
+-- @function [parent=#Sound] stopSay
+-- @param #string fileName Path to sound file in VFS
+-- @param #GameObject object Object on which we want to stop an animated voiceover (optional)
+-- @usage -- stop voice for given object
+-- core.sound.stopSay(object);
+-- @usage -- stop global voice
+-- core.sound.stopSay();
+
+---
+-- Check if animated voiceover is playing
+-- @function [parent=#Sound] isSayActive
+-- @param #GameObject object Object on which we want to check an animated voiceover (optional)
+-- @return #boolean
+-- @usage -- check voice for given object
+-- local isActive = isSayActive(object);
+-- @usage -- check global voice
+-- local isActive = isSayActive();
+
+---
+-- @type SoundRecord
+-- @field #string id Sound id
+-- @field #string fileName Normalized path to sound file in VFS
+-- @field #number volume Raw sound volume, from 0 to 255
+-- @field #number minRange Raw minimal range value, from 0 to 255
+-- @field #number maxRange Raw maximal range value, from 0 to 255
+
+--- List of all @{#SoundRecord}s.
+-- @field [parent=#Sound] #list<#SoundRecord> sounds
+-- @usage local sound = core.sound.sounds['Ashstorm']  -- get by id
+-- @usage local sound = core.sound.sounds[1]  -- get by index
+-- @usage -- Print all sound files paths
+-- for _, sound in pairs(core.sound.sounds) do
+--     print(sound.fileName)
+-- end
+
+--- @{#Stats}: stats
+-- @field [parent=#core] #Stats stats
+
+
+--- @{#Attribute} functions
+-- @field [parent=#Stats] #Attribute Attribute
+
+--- `core.stats.Attribute`
+-- @type Attribute
+-- @field #list<#AttributeRecord> records A read-only list of all @{#AttributeRecord}s in the world database.
+
+---
+-- Returns a read-only @{#AttributeRecord}
+-- @function [parent=#Attribute] record
+-- @param #string recordId
+-- @return #AttributeRecord
+
+--- @{#Skill} functions
+-- @field [parent=#Stats] #Skill Skill
+
+--- `core.stats.Skill`
+-- @type Skill
+-- @field #list<#SkillRecord> records A read-only list of all @{#SkillRecord}s in the world database.
+
+---
+-- Returns a read-only @{#SkillRecord}
+-- @function [parent=#Skill] record
+-- @param #string recordId
+-- @return #SkillRecord
+
+---
+-- @type AttributeRecord
+-- @field #string id Record id
+-- @field #string name Human-readable name
+-- @field #string description Human-readable description
+-- @field #string icon VFS path to the icon
+
+---
+-- @type SkillRecord
+-- @field #string id Record id
+-- @field #string name Human-readable name
+-- @field #string description Human-readable description
+-- @field #string icon VFS path to the icon
+-- @field #string specialization Skill specialization. Either combat, magic, or stealth.
+-- @field #MagicSchoolData school Optional magic school
+-- @field #string attribute The id of the skill's governing attribute
+-- @field #table skillGain Table of the 4 possible skill gain values. See [SkillProgression#SkillUseType](interface_skill_progression.html#SkillUseType).
+
+---
+-- @type MagicSchoolData
+-- @field #string name Human-readable name
+-- @field #string areaSound VFS path to the area sound
+-- @field #string boltSound VFS path to the bolt sound
+-- @field #string castSound VFS path to the cast sound
+-- @field #string failureSound VFS path to the failure sound
+-- @field #string hitSound VFS path to the hit sound
+
+---
+-- Faction data record
+-- @type FactionRecord
+-- @field #string id Faction id
+-- @field #string name Faction name
+-- @field #list<#FactionRank> ranks A read-only list containing data for all ranks in the faction, in order.
+-- @field #map<#string, #number> reactions A read-only map containing reactions of other factions to this faction.
+-- @field #list<#string> attributes A read-only list containing IDs of attributes to advance ranks in the faction.
+-- @field #list<#string> skills A read-only list containing IDs of skills to advance ranks in the faction.
+
+---
+-- Faction rank data record
+-- @type FactionRank
+-- @field #string name Faction name Rank display name
+-- @field #list<#number> attributeValues Attributes values required to get this rank.
+-- @field #number primarySkillValue Primary skill value required to get this rank.
+-- @field #number favouredSkillValue Secondary skill value required to get this rank.
+-- @field #number factionReaction Reaction of faction members if player is in this faction.
+
+--- @{#VFX}: Visual effects
+-- @field [parent=#core] #VFX vfx
+
+---
+-- Spawn a VFX at the given location in the world
+-- @function [parent=#VFX] spawn
+-- @param #any static openmw.core#StaticRecord or #string ID
+-- @param openmw.util#Vector3 location
+-- @param #table options optional table of parameters. Can contain:
+--
+--   * `mwMagicVfx` - Boolean that if true causes the textureOverride parameter to only affect nodes with the Nif::RC_NiTexturingProperty property set. (default: true).
+--   * `particleTextureOverride` - Name of a particle texture that should override this effect's default texture. (default: "")
+--   * `scale` - A number that scales the size of the vfx (Default: 1)
+--
+-- @usage -- Spawn a sanctuary effect near the player
+-- local effect = core.magic.effects[core.magic.EFFECT_TYPE.Sanctuary]
+-- pos = self.position + util.vector3(0, 100, 0)
+-- core.vfx.spawn(effect.castingStatic, pos)
+--
 
 return nil

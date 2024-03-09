@@ -19,11 +19,12 @@ set(GAME_HEADER
 source_group(game FILES ${GAME} ${GAME_HEADER})
 
 add_openmw_dir (mwrender
-    actors objects renderingmanager animation rotatecontroller sky skyutil npcanimation vismask
+    actors objects renderingmanager animation rotatecontroller sky skyutil npcanimation esm4npcanimation vismask
     creatureanimation effectmanager util renderinginterface pathgrid rendermode weaponanimation screenshotmanager
     bulletdebugdraw globalmap characterpreview camera localmap water terrainstorage ripplesimulation
     renderbin actoranimation landmanager navmesh actorspaths recastmesh fogmanager objectpaging groundcover
-    postprocessor pingpongcull luminancecalculator pingpongcanvas transparentpass navmeshmode precipitationocclusion ripples
+    postprocessor pingpongcull luminancecalculator pingpongcanvas transparentpass precipitationocclusion ripples
+    actorutil distortion animationpriority bonegroup blendmask
     )
 
 add_openmw_dir (mwinput
@@ -59,16 +60,20 @@ add_openmw_dir (mwscript
     )
 
 add_openmw_dir (mwlua
-    luamanagerimp object worldview userdataserializer luaevents engineevents objectvariant
-    context globalscripts localscripts playerscripts luabindings objectbindings cellbindings mwscriptbindings
-    camerabindings uibindings inputbindings nearbybindings postprocessingbindings stats debugbindings
-    types/types types/door types/item types/actor types/container types/lockable types/weapon types/npc types/creature types/player types/activator types/book types/lockpick types/probe types/apparatus types/potion types/ingredient types/misc types/repair types/armor types/light types/static types/clothing types/levelledlist
-    worker magicbindings
+    luamanagerimp object objectlists userdataserializer luaevents engineevents objectvariant
+    context menuscripts globalscripts localscripts playerscripts luabindings objectbindings cellbindings
+    mwscriptbindings camerabindings vfsbindings uibindings soundbindings inputbindings nearbybindings
+    postprocessingbindings stats debugbindings corebindings worldbindings worker magicbindings factionbindings
+    classbindings itemdata inputprocessor animationbindings birthsignbindings racebindings
+    types/types types/door types/item types/actor types/container types/lockable types/weapon types/npc
+    types/creature types/player types/activator types/book types/lockpick types/probe types/apparatus
+    types/potion types/ingredient types/misc types/repair types/armor types/light types/static
+    types/clothing types/levelledlist types/terminal
     )
 
 add_openmw_dir (mwsound
     soundmanagerimp openal_output ffmpeg_decoder sound sound_buffer sound_decoder sound_output
-    loudness movieaudiofactory alext efx efx-presets regionsoundselector watersoundupdater volumesettings
+    loudness movieaudiofactory alext efx efx-presets regionsoundselector watersoundupdater
     )
 
 add_openmw_dir (mwworld
@@ -83,14 +88,14 @@ add_openmw_dir (mwworld
 
 add_openmw_dir (mwphysics
     physicssystem trace collisiontype actor convert object heightfield closestnotmerayresultcallback
-    contacttestresultcallback deepestnotmecontacttestresultcallback stepper movementsolver projectile
+    contacttestresultcallback stepper movementsolver projectile
     actorconvexcallback raycasting mtphysics contacttestwrapper projectileconvexcallback
     )
 
 add_openmw_dir (mwclass
     classes activator creature npc weapon armor potion apparatus book clothing container door
     ingredient creaturelevlist itemlevlist light lockpick misc probe repair static actor bodypart
-    esm4base light4
+    esm4base esm4npc light4
     )
 
 add_openmw_dir (mwmechanics
@@ -108,7 +113,7 @@ add_openmw_dir (mwstate
 
 add_openmw_dir (mwbase
     environment world scriptmanager dialoguemanager journal soundmanager mechanicsmanager
-    inputmanager windowmanager statemanager
+    inputmanager windowmanager statemanager luamanager
     )
 
 # Main executable
@@ -149,14 +154,14 @@ target_link_libraries(openmw
     ${OPENAL_LIBRARY}
     ${FFmpeg_LIBRARIES}
     ${MyGUI_LIBRARIES}
-    ${SDL2_LIBRARY}
+    SDL2::SDL2
     ${RecastNavigation_LIBRARIES}
     "osg-ffmpeg-videoplayer"
     "oics"
     components
 )
 
-if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16 AND MSVC)
+if (MSVC)
     target_precompile_headers(openmw PRIVATE
         <boost/program_options/options_description.hpp>
 
@@ -181,6 +186,8 @@ if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16 AND MSVC)
         <vector>
     )
 endif()
+
+add_definitions(-DMYGUI_DONT_USE_OBSOLETE=ON)
 
 if (ANDROID)
     target_link_libraries(openmw EGL android log z)
@@ -219,7 +226,6 @@ if(APPLE)
     target_link_libraries(openmw ${COCOA_FRAMEWORK} ${IOKIT_FRAMEWORK})
 
     if (FFmpeg_FOUND)
-        target_link_libraries(openmw z)
         target_link_options(openmw PRIVATE "LINKER:SHELL:-framework CoreVideo"
                                            "LINKER:SHELL:-framework CoreMedia"
                                            "LINKER:SHELL:-framework VideoToolbox"

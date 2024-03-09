@@ -5,11 +5,11 @@
 #include <stdexcept>
 
 #include <components/debug/debuglog.hpp>
+
 #include <components/esm/records.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
-#include <components/esm4/loadland.hpp>
-#include <components/esm4/loadwrld.hpp>
+
 #include <components/fallback/fallback.hpp>
 #include <components/loadinglistener/loadinglistener.hpp>
 #include <components/misc/rng.hpp>
@@ -172,7 +172,7 @@ namespace MWWorld
                 if (!mShared.empty())
                     return mShared[Misc::Rng::rollDice(mShared.size(), prng)];
             }
-            else
+            else if constexpr (!std::is_same_v<decltype(T::mId), ESM::FormId>)
             {
                 std::vector<const T*> results;
                 std::copy_if(mShared.begin(), mShared.end(), std::back_inserter(results),
@@ -355,18 +355,26 @@ namespace MWWorld
     template <class T, class Id>
     RecordId TypedDynamicStore<T, Id>::read(ESM::ESMReader& reader, bool overrideOnly)
     {
-        T record;
-        bool isDeleted = false;
         if constexpr (!ESM::isESM4Rec(T::sRecordId))
         {
+            T record;
+            bool isDeleted = false;
             record.load(reader, isDeleted);
-        }
-        insert(record, overrideOnly);
 
-        if constexpr (std::is_same_v<Id, ESM::RefId>)
-            return RecordId(record.mId, isDeleted);
+            insert(record, overrideOnly);
+
+            if constexpr (std::is_same_v<Id, ESM::RefId>)
+                return RecordId(record.mId, isDeleted);
+            else
+                return RecordId();
+        }
         else
-            return RecordId();
+        {
+            std::stringstream msg;
+            msg << "Can not load record of type ESM::REC_" << getRecNameString(T::sRecordId).toStringView()
+                << ": ESM::ESMReader can load only ESM3 records.";
+            throw std::runtime_error(msg.str());
+        }
     }
 
     // LandTexture
@@ -885,7 +893,7 @@ namespace MWWorld
         // Try to overwrite existing record
         auto ret = mStatic.emplace(cell, pathgrid);
         if (!ret.second)
-            ret.first->second = pathgrid;
+            ret.first->second = std::move(pathgrid);
 
         return RecordId(ESM::RefId(), isDeleted);
     }
@@ -962,12 +970,14 @@ namespace MWWorld
         };
         for (ESM::Skill* skill : mShared)
         {
-            if (skill->mIndex >= 0)
+            int index = ESM::Skill::refIdToIndex(skill->mId);
+            if (index >= 0)
             {
-                skill->mName = getGMSTString(settings, skillValues[skill->mIndex][0]);
-                skill->mIcon = skillValues[skill->mIndex][1];
-                skill->mWerewolfValue = getGMSTFloat(settings, skillValues[skill->mIndex][2]);
-                const auto& school = skillValues[skill->mIndex][3];
+                const auto& values = skillValues[index];
+                skill->mName = getGMSTString(settings, values[0]);
+                skill->mIcon = values[1];
+                skill->mWerewolfValue = getGMSTFloat(settings, values[2]);
+                const auto& school = values[3];
                 if (!school.empty())
                 {
                     if (!skill->mSchool)
@@ -1007,11 +1017,12 @@ namespace MWWorld
     void Store<ESM::GameSetting>::setUp()
     {
         auto addSetting = [&](const std::string& key, ESM::Variant value) {
+            auto id = ESM::RefId::stringRefId(key);
             ESM::GameSetting setting;
             setting.blank();
-            setting.mId = ESM::RefId::stringRefId(key);
+            setting.mId = id;
             setting.mValue = std::move(value);
-            auto [iter, inserted] = mStatic.insert_or_assign(setting.mId, std::move(setting));
+            auto [iter, inserted] = mStatic.insert_or_assign(id, std::move(setting));
             if (inserted)
                 mShared.push_back(&iter->second);
         };
@@ -1031,86 +1042,49 @@ namespace MWWorld
     // Attribute
     //=========================================================================
 
-    Store<ESM::Attribute>::Store()
-    {
-        mStatic.reserve(ESM::Attribute::Length);
-    }
-    const ESM::Attribute* Store<ESM::Attribute>::search(size_t index) const
-    {
-        if (index >= mStatic.size())
-        {
-            return nullptr;
-        }
-        return &mStatic[index];
-    }
-
-    const ESM::Attribute* Store<ESM::Attribute>::find(size_t index) const
-    {
-        const ESM::Attribute* ptr = search(index);
-        if (ptr == nullptr)
-        {
-            const std::string msg = "Attribute with index " + std::to_string(index) + " not found";
-            throw std::runtime_error(msg);
-        }
-        return ptr;
-    }
     void Store<ESM::Attribute>::setUp(const MWWorld::Store<ESM::GameSetting>& settings)
     {
-        // TODO remove after !3084 gets merged
-        mStatic.clear();
-        mStatic.push_back({ .mId = ESM::Attribute::Strength,
+        insertStatic({ .mId = ESM::Attribute::Strength,
             .mName = std::string{ getGMSTString(settings, "sAttributeStrength") },
             .mDescription = std::string{ getGMSTString(settings, "sStrDesc") },
             .mIcon = "icons\\k\\attribute_strength.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfStrength") });
-        mStatic.push_back({ .mId = ESM::Attribute::Intelligence,
+        insertStatic({ .mId = ESM::Attribute::Intelligence,
             .mName = std::string{ getGMSTString(settings, "sAttributeIntelligence") },
             .mDescription = std::string{ getGMSTString(settings, "sIntDesc") },
             .mIcon = "icons\\k\\attribute_int.dds",
             // Oh, Bethesda. It's "Intelligence".
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfIntellegence") });
-        mStatic.push_back({ .mId = ESM::Attribute::Willpower,
+        insertStatic({ .mId = ESM::Attribute::Willpower,
             .mName = std::string{ getGMSTString(settings, "sAttributeWillpower") },
             .mDescription = std::string{ getGMSTString(settings, "sWilDesc") },
             .mIcon = "icons\\k\\attribute_wilpower.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfWillpower") });
-        mStatic.push_back({ .mId = ESM::Attribute::Agility,
+        insertStatic({ .mId = ESM::Attribute::Agility,
             .mName = std::string{ getGMSTString(settings, "sAttributeAgility") },
             .mDescription = std::string{ getGMSTString(settings, "sAgiDesc") },
             .mIcon = "icons\\k\\attribute_agility.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfAgility") });
-        mStatic.push_back({ .mId = ESM::Attribute::Speed,
+        insertStatic({ .mId = ESM::Attribute::Speed,
             .mName = std::string{ getGMSTString(settings, "sAttributeSpeed") },
             .mDescription = std::string{ getGMSTString(settings, "sSpdDesc") },
             .mIcon = "icons\\k\\attribute_speed.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfSpeed") });
-        mStatic.push_back({ .mId = ESM::Attribute::Endurance,
+        insertStatic({ .mId = ESM::Attribute::Endurance,
             .mName = std::string{ getGMSTString(settings, "sAttributeEndurance") },
             .mDescription = std::string{ getGMSTString(settings, "sEndDesc") },
             .mIcon = "icons\\k\\attribute_endurance.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfEndurance") });
-        mStatic.push_back({ .mId = ESM::Attribute::Personality,
+        insertStatic({ .mId = ESM::Attribute::Personality,
             .mName = std::string{ getGMSTString(settings, "sAttributePersonality") },
             .mDescription = std::string{ getGMSTString(settings, "sPerDesc") },
             .mIcon = "icons\\k\\attribute_personality.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfPersonality") });
-        mStatic.push_back({ .mId = ESM::Attribute::Luck,
+        insertStatic({ .mId = ESM::Attribute::Luck,
             .mName = std::string{ getGMSTString(settings, "sAttributeLuck") },
             .mDescription = std::string{ getGMSTString(settings, "sLucDesc") },
             .mIcon = "icons\\k\\attribute_luck.dds",
             .mWerewolfValue = getGMSTFloat(settings, "fWerewolfLuck") });
-    }
-    size_t Store<ESM::Attribute>::getSize() const
-    {
-        return mStatic.size();
-    }
-    Store<ESM::Attribute>::iterator Store<ESM::Attribute>::begin() const
-    {
-        return mStatic.begin();
-    }
-    Store<ESM::Attribute>::iterator Store<ESM::Attribute>::end() const
-    {
-        return mStatic.end();
     }
 
     // Dialogue
@@ -1324,39 +1298,12 @@ namespace MWWorld
             return nullptr;
         return foundLand->second;
     }
-
-    // ESM4 Reference
-    //=========================================================================
-
-    void Store<ESM4::Reference>::preprocessReferences(const Store<ESM4::Cell>& cells)
-    {
-        for (auto& [_, ref] : mStatic)
-        {
-            const ESM4::Cell* cell = cells.find(ref.mParent);
-            if (cell->isExterior() && (cell->mFlags & ESM4::Rec_Persistent))
-            {
-                const ESM4::Cell* actualCell = cells.searchExterior(
-                    positionToExteriorCellLocation(ref.mPos.pos[0], ref.mPos.pos[1], cell->mParent));
-                if (actualCell)
-                    ref.mParent = actualCell->mId;
-            }
-            mPerCellReferences[ref.mParent].push_back(&ref);
-        }
-    }
-
-    std::span<const ESM4::Reference* const> Store<ESM4::Reference>::getByCell(ESM::RefId cellId) const
-    {
-        auto it = mPerCellReferences.find(cellId);
-        if (it == mPerCellReferences.end())
-            return {};
-        return it->second;
-    }
 }
 
 template class MWWorld::TypedDynamicStore<ESM::Activator>;
 template class MWWorld::TypedDynamicStore<ESM::Apparatus>;
 template class MWWorld::TypedDynamicStore<ESM::Armor>;
-// template class MWWorld::Store<ESM::Attribute>;
+template class MWWorld::TypedDynamicStore<ESM::Attribute>;
 template class MWWorld::TypedDynamicStore<ESM::BirthSign>;
 template class MWWorld::TypedDynamicStore<ESM::BodyPart>;
 template class MWWorld::TypedDynamicStore<ESM::Book>;
@@ -1396,22 +1343,40 @@ template class MWWorld::TypedDynamicStore<ESM::StartScript>;
 template class MWWorld::TypedDynamicStore<ESM::Static>;
 template class MWWorld::TypedDynamicStore<ESM::Weapon>;
 
+template class MWWorld::TypedDynamicStore<ESM4::Reference, ESM::FormId>;
+template class MWWorld::TypedDynamicStore<ESM4::ActorCharacter, ESM::FormId>;
+template class MWWorld::TypedDynamicStore<ESM4::ActorCreature, ESM::FormId>;
+
 template class MWWorld::TypedDynamicStore<ESM4::Activator>;
-template class MWWorld::TypedDynamicStore<ESM4::Potion>;
 template class MWWorld::TypedDynamicStore<ESM4::Ammunition>;
 template class MWWorld::TypedDynamicStore<ESM4::Armor>;
+template class MWWorld::TypedDynamicStore<ESM4::ArmorAddon>;
 template class MWWorld::TypedDynamicStore<ESM4::Book>;
+template class MWWorld::TypedDynamicStore<ESM4::Cell>;
 template class MWWorld::TypedDynamicStore<ESM4::Clothing>;
 template class MWWorld::TypedDynamicStore<ESM4::Container>;
+template class MWWorld::TypedDynamicStore<ESM4::Creature>;
 template class MWWorld::TypedDynamicStore<ESM4::Door>;
+template class MWWorld::TypedDynamicStore<ESM4::Flora>;
 template class MWWorld::TypedDynamicStore<ESM4::Furniture>;
+template class MWWorld::TypedDynamicStore<ESM4::Hair>;
+template class MWWorld::TypedDynamicStore<ESM4::HeadPart>;
 template class MWWorld::TypedDynamicStore<ESM4::Ingredient>;
-template class MWWorld::TypedDynamicStore<ESM4::MiscItem>;
-template class MWWorld::TypedDynamicStore<ESM4::Static>;
-template class MWWorld::TypedDynamicStore<ESM4::Tree>;
+template class MWWorld::TypedDynamicStore<ESM4::ItemMod>;
+template class MWWorld::TypedDynamicStore<ESM4::Land>;
+template class MWWorld::TypedDynamicStore<ESM4::LandTexture>;
+template class MWWorld::TypedDynamicStore<ESM4::LevelledCreature>;
+template class MWWorld::TypedDynamicStore<ESM4::LevelledItem>;
+template class MWWorld::TypedDynamicStore<ESM4::LevelledNpc>;
 template class MWWorld::TypedDynamicStore<ESM4::Light>;
-template class MWWorld::TypedDynamicStore<ESM4::Reference, ESM::FormId>;
-template class MWWorld::TypedDynamicStore<ESM4::Cell>;
+template class MWWorld::TypedDynamicStore<ESM4::MiscItem>;
+template class MWWorld::TypedDynamicStore<ESM4::MovableStatic>;
+template class MWWorld::TypedDynamicStore<ESM4::Npc>;
+template class MWWorld::TypedDynamicStore<ESM4::Outfit>;
+template class MWWorld::TypedDynamicStore<ESM4::Potion>;
+template class MWWorld::TypedDynamicStore<ESM4::Race>;
+template class MWWorld::TypedDynamicStore<ESM4::Static>;
+template class MWWorld::TypedDynamicStore<ESM4::Terminal>;
+template class MWWorld::TypedDynamicStore<ESM4::Tree>;
 template class MWWorld::TypedDynamicStore<ESM4::Weapon>;
 template class MWWorld::TypedDynamicStore<ESM4::World>;
-template class MWWorld::TypedDynamicStore<ESM4::Land>;

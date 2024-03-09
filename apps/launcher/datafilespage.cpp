@@ -3,7 +3,9 @@
 
 #include <QDebug>
 #include <QFileDialog>
+#include <QList>
 #include <QMessageBox>
+#include <QPair>
 #include <QPushButton>
 
 #include <algorithm>
@@ -26,7 +28,7 @@
 #include <components/files/qtconversion.hpp>
 #include <components/misc/strings/conversion.hpp>
 #include <components/navmeshtool/protocol.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/bsaarchive.hpp>
 
 #include "utils/profilescombobox.hpp"
@@ -40,8 +42,35 @@ namespace
 {
     void contentSubdirs(const QString& path, QStringList& dirs)
     {
-        QStringList fileFilter{ "*.esm", "*.esp", "*.omwaddon", "*.bsa", "*.omwscripts" };
-        QStringList dirFilter{ "bookart", "icons", "meshes", "music", "sound", "textures" };
+        static const QStringList fileFilter{
+            "*.esm",
+            "*.esp",
+            "*.bsa",
+            "*.ba2",
+            "*.omwgame",
+            "*.omwaddon",
+            "*.omwscripts",
+        };
+
+        static const QStringList dirFilter{
+            "animations",
+            "bookart",
+            "fonts",
+            "icons",
+            "interface",
+            "l10n",
+            "meshes",
+            "music",
+            "mygui",
+            "scripts",
+            "shaders",
+            "sound",
+            "splash",
+            "strings",
+            "textures",
+            "trees",
+            "video",
+        };
 
         QDir currentDir(path);
         if (!currentDir.entryInfoList(fileFilter, QDir::Files).empty()
@@ -96,28 +125,7 @@ namespace Launcher
 
         int getMaxNavMeshDbFileSizeMiB()
         {
-            return Settings::Manager::getUInt64("max navmeshdb file size", "Navigator") / (1024 * 1024);
-        }
-
-        std::optional<QString> findFirstPath(const QStringList& directories, const QString& fileName)
-        {
-            for (const QString& directoryPath : directories)
-            {
-                const QString filePath = QDir(directoryPath).absoluteFilePath(fileName);
-                if (QFile::exists(filePath))
-                    return filePath;
-            }
-            return std::nullopt;
-        }
-
-        QStringList findAllFilePaths(const QStringList& directories, const QStringList& fileNames)
-        {
-            QStringList result;
-            result.reserve(fileNames.size());
-            for (const QString& fileName : fileNames)
-                if (const auto filepath = findFirstPath(directories, fileName))
-                    result.append(*filepath);
-            return result;
+            return Settings::navigator().mMaxNavmeshdbFileSize / (1024 * 1024);
         }
     }
 }
@@ -137,11 +145,14 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     const QString encoding = mGameSettings.value("encoding", "win1252");
     mSelector->setEncoding(encoding);
 
-    QStringList languages;
-    languages << tr("English") << tr("French") << tr("German") << tr("Italian") << tr("Polish") << tr("Russian")
-              << tr("Spanish");
+    QVector<std::pair<QString, QString>> languages = { { "English", tr("English") }, { "French", tr("French") },
+        { "German", tr("German") }, { "Italian", tr("Italian") }, { "Polish", tr("Polish") },
+        { "Russian", tr("Russian") }, { "Spanish", tr("Spanish") } };
 
-    mSelector->languageBox()->addItems(languages);
+    for (auto lang : languages)
+    {
+        mSelector->languageBox()->addItem(lang.second, lang.first);
+    }
 
     mNewProfileDialog = new TextInputDialog(tr("New Content List"), tr("Content List name:"), this);
     mCloneProfileDialog = new TextInputDialog(tr("Clone Content List"), tr("Content List name:"), this);
@@ -153,8 +164,8 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     connect(ui.directoryUpButton, &QPushButton::released, this, [this]() { this->moveDirectory(-1); });
     connect(ui.directoryDownButton, &QPushButton::released, this, [this]() { this->moveDirectory(1); });
     connect(ui.directoryRemoveButton, &QPushButton::released, this, [this]() { this->removeDirectory(); });
-    connect(ui.archiveUpButton, &QPushButton::released, this, [this]() { this->moveArchive(-1); });
-    connect(ui.archiveDownButton, &QPushButton::released, this, [this]() { this->moveArchive(1); });
+    connect(ui.archiveUpButton, &QPushButton::released, this, [this]() { this->moveArchives(-1); });
+    connect(ui.archiveDownButton, &QPushButton::released, this, [this]() { this->moveArchives(1); });
     connect(
         ui.directoryListWidget->model(), &QAbstractItemModel::rowsMoved, this, [this]() { this->sortDirectories(); });
 
@@ -209,6 +220,18 @@ void Launcher::DataFilesPage::buildView()
         &DataFilesPage::readNavMeshToolStderr);
     connect(mNavMeshToolInvoker->getProcess(), qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
         &DataFilesPage::navMeshToolFinished);
+
+    buildArchiveContextMenu();
+}
+
+void Launcher::DataFilesPage::buildArchiveContextMenu()
+{
+    connect(ui.archiveListWidget, &QListWidget::customContextMenuRequested, this,
+        &DataFilesPage::slotShowArchiveContextMenu);
+
+    mArchiveContextMenu = new QMenu(ui.archiveListWidget);
+    mArchiveContextMenu->addAction(tr("&Check Selected"), this, SLOT(slotCheckMultiSelectedItems()));
+    mArchiveContextMenu->addAction(tr("&Uncheck Selected"), this, SLOT(slotUncheckMultiSelectedItems()));
 }
 
 bool Launcher::DataFilesPage::loadSettings()
@@ -227,9 +250,17 @@ bool Launcher::DataFilesPage::loadSettings()
     if (!currentProfile.isEmpty())
         addProfile(currentProfile, true);
 
-    const int index = mSelector->languageBox()->findText(mLauncherSettings.getLanguage());
-    if (index != -1)
-        mSelector->languageBox()->setCurrentIndex(index);
+    auto language = mLauncherSettings.getLanguage();
+
+    for (int i = 0; i < mSelector->languageBox()->count(); ++i)
+    {
+        QString languageItem = mSelector->languageBox()->itemData(i).toString();
+        if (language == languageItem)
+        {
+            mSelector->languageBox()->setCurrentIndex(i);
+            break;
+        }
+    }
 
     return true;
 }
@@ -274,12 +305,14 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         auto row = ui.directoryListWidget->count() - 1;
         auto* item = ui.directoryListWidget->item(row);
 
-        // Display new content with green background
+        // Display new content with custom formatting
         if (mNewDataDirs.contains(canonicalDirPath))
         {
-            tooltip += "Will be added to the current profile\n";
-            item->setBackground(Qt::green);
-            item->setForeground(Qt::black);
+            tooltip += tr("Will be added to the current profile");
+            QFont font = item->font();
+            font.setBold(true);
+            font.setItalic(true);
+            item->setFont(font);
         }
 
         // deactivate data-local and global data directory: they are always included
@@ -293,7 +326,10 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         if (mSelector->containsDataFiles(currentDir))
         {
             item->setIcon(QIcon(":/images/openmw-plugin.png"));
-            tooltip += "Contains content file(s)";
+            if (!tooltip.isEmpty())
+                tooltip += "\n";
+
+            tooltip += tr("Contains content file(s)");
         }
         else
         {
@@ -326,15 +362,13 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         row++;
     }
 
-    mSelector->setProfileContent(
-        findAllFilePaths(directories, mLauncherSettings.getContentListFiles(contentModelName)));
+    mSelector->setProfileContent(mLauncherSettings.getContentListFiles(contentModelName));
 }
 
 void Launcher::DataFilesPage::saveSettings(const QString& profile)
 {
-    if (const int value = ui.navMeshMaxSizeSpinBox->value(); value != getMaxNavMeshDbFileSizeMiB())
-        Settings::Manager::setUInt64(
-            "max navmeshdb file size", "Navigator", static_cast<std::uint64_t>(std::max(0, value)) * 1024 * 1024);
+    Settings::navigator().mMaxNavmeshdbFileSize.set(
+        static_cast<std::uint64_t>(std::max(0, ui.navMeshMaxSizeSpinBox->value())) * 1024 * 1024);
 
     QString profileName = profile;
 
@@ -358,7 +392,7 @@ void Launcher::DataFilesPage::saveSettings(const QString& profile)
     mLauncherSettings.setContentList(profileName, dirList, selectedArchivePaths(), fileNames);
     mGameSettings.setContentList(dirList, selectedArchivePaths(), fileNames);
 
-    QString language(mSelector->languageBox()->currentText());
+    QString language(mSelector->languageBox()->currentData().toString());
 
     mLauncherSettings.setLanguage(language);
 
@@ -587,18 +621,6 @@ void Launcher::DataFilesPage::updateCloneProfileOkButton(const QString& text)
     mCloneProfileDialog->setOkButtonEnabled(!text.isEmpty() && ui.profilesComboBox->findText(text) == -1);
 }
 
-QString Launcher::DataFilesPage::selectDirectory()
-{
-    QFileDialog fileDialog(this);
-    fileDialog.setFileMode(QFileDialog::Directory);
-    fileDialog.setOptions(QFileDialog::Option::ShowDirsOnly | QFileDialog::Option::ReadOnly);
-
-    if (fileDialog.exec() == QDialog::Rejected)
-        return {};
-
-    return QDir(fileDialog.selectedFiles()[0]).canonicalPath();
-}
-
 void Launcher::DataFilesPage::addSubdirectories(bool append)
 {
     int selectedRow = append ? ui.directoryListWidget->count() : ui.directoryListWidget->currentRow();
@@ -606,22 +628,30 @@ void Launcher::DataFilesPage::addSubdirectories(bool append)
     if (selectedRow == -1)
         return;
 
-    const auto rootDir = selectDirectory();
-    if (rootDir.isEmpty())
+    QString rootPath = QFileDialog::getExistingDirectory(
+        this, tr("Select Directory"), QDir::homePath(), QFileDialog::ShowDirsOnly | QFileDialog::Option::ReadOnly);
+
+    if (rootPath.isEmpty())
         return;
 
-    QStringList subdirs;
-    contentSubdirs(rootDir, subdirs);
+    const QDir rootDir(rootPath);
+    rootPath = rootDir.canonicalPath();
 
-    if (subdirs.empty())
+    QStringList subdirs;
+    contentSubdirs(rootPath, subdirs);
+
+    // Always offer to append the root directory just in case
+    if (subdirs.isEmpty() || subdirs[0] != rootPath)
+        subdirs.prepend(rootPath);
+    else if (subdirs.size() == 1)
     {
-        // we didn't find anything that looks like a content directory, add directory selected by user
-        if (ui.directoryListWidget->findItems(rootDir, Qt::MatchFixedString).isEmpty())
-        {
-            ui.directoryListWidget->addItem(rootDir);
-            mNewDataDirs.push_back(rootDir);
-            refreshDataFilesView();
-        }
+        // We didn't find anything else that looks like a content directory
+        // Automatically add the directory selected by user
+        if (!ui.directoryListWidget->findItems(rootPath, Qt::MatchFixedString).isEmpty())
+            return;
+        ui.directoryListWidget->addItem(rootPath);
+        mNewDataDirs.push_back(rootPath);
+        refreshDataFilesView();
         return;
     }
 
@@ -694,17 +724,71 @@ void Launcher::DataFilesPage::removeDirectory()
     refreshDataFilesView();
 }
 
-void Launcher::DataFilesPage::moveArchive(int step)
+void Launcher::DataFilesPage::slotShowArchiveContextMenu(const QPoint& pos)
 {
-    int selectedRow = ui.archiveListWidget->currentRow();
+    QPoint globalPos = ui.archiveListWidget->viewport()->mapToGlobal(pos);
+    mArchiveContextMenu->exec(globalPos);
+}
+
+void Launcher::DataFilesPage::setCheckStateForMultiSelectedItems(bool checked)
+{
+    Qt::CheckState checkState = checked ? Qt::Checked : Qt::Unchecked;
+
+    for (QListWidgetItem* selectedItem : ui.archiveListWidget->selectedItems())
+    {
+        selectedItem->setCheckState(checkState);
+    }
+}
+
+void Launcher::DataFilesPage::slotUncheckMultiSelectedItems()
+{
+    setCheckStateForMultiSelectedItems(false);
+}
+
+void Launcher::DataFilesPage::slotCheckMultiSelectedItems()
+{
+    setCheckStateForMultiSelectedItems(true);
+}
+
+void Launcher::DataFilesPage::moveArchives(int step)
+{
+    QList<QListWidgetItem*> selectedItems = ui.archiveListWidget->selectedItems();
+    QList<QPair<int, QListWidgetItem*>> sortedItems;
+
+    for (QListWidgetItem* selectedItem : selectedItems)
+    {
+        int selectedRow = ui.archiveListWidget->row(selectedItem);
+        sortedItems.append(qMakePair(selectedRow, selectedItem));
+    }
+
+    if (step > 0)
+    {
+        std::sort(sortedItems.begin(), sortedItems.end(), [](auto a, auto b) { return a.first > b.first; });
+    }
+    else
+    {
+        std::sort(sortedItems.begin(), sortedItems.end(), [](auto a, auto b) { return a.first < b.first; });
+    }
+
+    for (auto i : sortedItems)
+    {
+        if (!moveArchive(i.second, step))
+            break;
+    }
+}
+
+bool Launcher::DataFilesPage::moveArchive(QListWidgetItem* listItem, int step)
+{
+    int selectedRow = ui.archiveListWidget->row(listItem);
     int newRow = selectedRow + step;
     if (selectedRow == -1 || newRow < 0 || newRow > ui.archiveListWidget->count() - 1)
-        return;
+        return false;
 
-    const auto* item = ui.archiveListWidget->takeItem(selectedRow);
+    const QListWidgetItem* item = ui.archiveListWidget->takeItem(selectedRow);
 
     addArchive(item->text(), item->checkState(), newRow);
     ui.archiveListWidget->setCurrentRow(newRow);
+    return true;
 }
 
 void Launcher::DataFilesPage::addArchive(const QString& name, Qt::CheckState selected, int row)
@@ -715,23 +799,27 @@ void Launcher::DataFilesPage::addArchive(const QString& name, Qt::CheckState sel
     ui.archiveListWidget->item(row)->setCheckState(selected);
     if (mKnownArchives.filter(name).isEmpty()) // XXX why contains doesn't work here ???
     {
-        ui.archiveListWidget->item(row)->setBackground(Qt::green);
-        ui.archiveListWidget->item(row)->setForeground(Qt::black);
+        auto item = ui.archiveListWidget->item(row);
+        QFont font = item->font();
+        font.setBold(true);
+        font.setItalic(true);
+        item->setFont(font);
     }
 }
 
 void Launcher::DataFilesPage::addArchivesFromDir(const QString& path)
 {
-    QDir dir(path, "*.bsa");
+    QStringList archiveFilter{ "*.bsa", "*.ba2" };
+    QDir dir(path);
 
     std::unordered_set<QString> archives;
     for (int i = 0; i < ui.archiveListWidget->count(); ++i)
         archives.insert(ui.archiveListWidget->item(i)->text());
 
-    for (const auto& fileinfo : dir.entryInfoList())
+    for (const auto& fileinfo : dir.entryInfoList(archiveFilter))
     {
         const auto absPath = fileinfo.absoluteFilePath();
-        if (Bsa::BSAFile::detectVersion(Files::pathFromQString(absPath)) == Bsa::BSAVER_UNKNOWN)
+        if (Bsa::BSAFile::detectVersion(Files::pathFromQString(absPath)) == Bsa::BsaVersion::Unknown)
             continue;
 
         const auto fileName = fileinfo.fileName();

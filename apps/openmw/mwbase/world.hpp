@@ -92,6 +92,7 @@ namespace MWWorld
     class ESMStore;
     class RefData;
     class Cell;
+    class DateTimeManager;
 
     typedef std::vector<std::pair<MWWorld::Ptr, MWMechanics::Movement>> PtrMovementList;
 }
@@ -132,7 +133,7 @@ namespace MWBase
 
         virtual void write(ESM::ESMWriter& writer, Loading::Listener& listener) const = 0;
 
-        virtual void readRecord(ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap) = 0;
+        virtual void readRecord(ESM::ESMReader& reader, uint32_t type) = 0;
 
         virtual void useDeathCamera() = 0;
 
@@ -184,7 +185,7 @@ namespace MWBase
 
         virtual std::string_view getCellName(const ESM::Cell* cell) const = 0;
 
-        virtual void removeRefScript(MWWorld::RefData* ref) = 0;
+        virtual void removeRefScript(const MWWorld::CellRef* ref) = 0;
         //< Remove the script attached to ref from mLocalScripts
 
         virtual MWWorld::Ptr getPtr(const ESM::RefId& name, bool activeOnly) = 0;
@@ -209,14 +210,8 @@ namespace MWBase
         virtual void advanceTime(double hours, bool incremental = false) = 0;
         ///< Advance in-game time.
 
-        virtual std::string_view getMonthName(int month = -1) const = 0;
-        ///< Return name of month (-1: current month)
-
         virtual MWWorld::TimeStamp getTimeStamp() const = 0;
         ///< Return current in-game time and number of day since new game start.
-
-        virtual ESM::EpochTimeStamp getEpochTimeStamp() const = 0;
-        ///< Return current in-game date and time.
 
         virtual bool toggleSky() = 0;
         ///< \return Resulting mode
@@ -237,13 +232,7 @@ namespace MWBase
 
         virtual void setMoonColour(bool red) = 0;
 
-        virtual void modRegion(const ESM::RefId& regionid, const std::vector<char>& chances) = 0;
-
-        virtual float getTimeScaleFactor() const = 0;
-
-        virtual float getSimulationTimeScale() const = 0;
-
-        virtual void setSimulationTimeScale(float scale) = 0;
+        virtual void modRegion(const ESM::RefId& regionid, const std::vector<uint8_t>& chances) = 0;
 
         virtual void changeToInteriorCell(
             std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
@@ -262,13 +251,6 @@ namespace MWBase
         virtual float getDistanceToFacedObject() = 0;
 
         virtual float getMaxActivationDistance() const = 0;
-
-        /// Returns a pointer to the object the provided object would hit (if within the
-        /// specified distance), and the point where the hit occurs. This will attempt to
-        /// use the "Head" node, or alternatively the "Bip01 Head" node as a basis.
-        virtual std::pair<MWWorld::Ptr, osg::Vec3f> getHitContact(
-            const MWWorld::ConstPtr& ptr, float distance, std::vector<MWWorld::Ptr>& targets)
-            = 0;
 
         virtual void adjustPosition(const MWWorld::Ptr& ptr, bool force) = 0;
         ///< Adjust position after load to be on ground. Must be called after model load.
@@ -322,7 +304,7 @@ namespace MWBase
         virtual const MWPhysics::RayCastingInterface* getRayCasting() const = 0;
 
         virtual bool castRenderingRay(MWPhysics::RayCastingResult& res, const osg::Vec3f& from, const osg::Vec3f& to,
-            bool ignorePlayer, bool ignoreActors)
+            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList = {})
             = 0;
 
         virtual void setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external) = 0;
@@ -377,7 +359,7 @@ namespace MWBase
         virtual bool isFirstPerson() const = 0;
         virtual bool isPreviewModeEnabled() const = 0;
         virtual bool toggleVanityMode(bool enable) = 0;
-        virtual bool vanityRotateCamera(float* rot) = 0;
+        virtual bool vanityRotateCamera(const float* rot) = 0;
         virtual void applyDeferredPreviewRotationToPlayer(float dt) = 0;
         virtual void disableDeferredPreviewRotation() = 0;
 
@@ -483,8 +465,8 @@ namespace MWBase
 
         virtual void castSpell(const MWWorld::Ptr& actor, bool manualSpell = false) = 0;
 
-        virtual void launchMagicBolt(
-            const ESM::RefId& spellId, const MWWorld::Ptr& caster, const osg::Vec3f& fallbackDirection, int slot)
+        virtual void launchMagicBolt(const ESM::RefId& spellId, const MWWorld::Ptr& caster,
+            const osg::Vec3f& fallbackDirection, ESM::RefNum item)
             = 0;
         virtual void launchProjectile(MWWorld::Ptr& actor, MWWorld::Ptr& projectile, const osg::Vec3f& worldPos,
             const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength)
@@ -540,8 +522,6 @@ namespace MWBase
             const osg::Vec3f& worldPos, float scale = 1.f, bool isMagicVFX = true)
             = 0;
 
-        virtual void activate(const MWWorld::Ptr& object, const MWWorld::Ptr& actor) = 0;
-
         /// @see MWWorld::WeatherManager::isInStorm
         virtual bool isInStorm() const = 0;
 
@@ -558,9 +538,6 @@ namespace MWBase
         virtual osg::Vec3f aimToTarget(
             const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target, bool isRangedCombat)
             = 0;
-
-        /// Return the distance between actor's weapon and target's collision box.
-        virtual float getHitDistance(const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target) = 0;
 
         virtual void addContainerScripts(const MWWorld::Ptr& reference, MWWorld::CellStore* cell) = 0;
         virtual void removeContainerScripts(const MWWorld::Ptr& reference) = 0;
@@ -613,6 +590,8 @@ namespace MWBase
         virtual MWRender::RenderingManager* getRenderingManager() = 0;
 
         virtual MWRender::PostProcessor* getPostProcessor() = 0;
+
+        virtual MWWorld::DateTimeManager* getTimeManager() = 0;
 
         virtual void setActorActive(const MWWorld::Ptr& ptr, bool value) = 0;
     };

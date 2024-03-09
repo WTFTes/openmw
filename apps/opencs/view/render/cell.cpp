@@ -146,8 +146,9 @@ void CSVRender::Cell::updateLand()
             }
             else
             {
+                constexpr double expiryDelay = 0;
                 mTerrain = std::make_unique<Terrain::TerrainGrid>(mCellNode, mCellNode, mData.getResourceSystem().get(),
-                    mTerrainStorage, Mask_Terrain, ESM::Cell::sDefaultWorldspaceId);
+                    mTerrainStorage, Mask_Terrain, ESM::Cell::sDefaultWorldspaceId, expiryDelay);
             }
 
             mTerrain->loadCell(esmLand.mX, esmLand.mY);
@@ -609,6 +610,30 @@ osg::ref_ptr<CSVRender::TagBase> CSVRender::Cell::getSnapTarget(unsigned int ele
                 return obj.second->getTag();
 
     return result;
+}
+
+void CSVRender::Cell::selectFromGroup(const std::vector<std::string>& group)
+{
+    for (const auto& [_, object] : mObjects)
+    {
+        for (const auto& objectName : group)
+        {
+            if (objectName == object->getReferenceId())
+            {
+                object->setSelected(true, osg::Vec4f(1, 0, 1, 1));
+            }
+        }
+    }
+}
+
+void CSVRender::Cell::unhideAll()
+{
+    for (const auto& [_, object] : mObjects)
+    {
+        osg::ref_ptr<osg::Group> rootNode = object->getRootNode();
+        if (rootNode->getNodeMask() == Mask_Hidden)
+            rootNode->setNodeMask(Mask_Reference);
+    }
 }
 
 std::vector<osg::ref_ptr<CSVRender::TagBase>> CSVRender::Cell::getSelection(unsigned int elementMask) const

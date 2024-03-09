@@ -11,6 +11,11 @@
 #include "npcstats.hpp"
 #include "objects.hpp"
 
+namespace MWSound
+{
+    enum class MusicType;
+}
+
 namespace MWWorld
 {
     class CellStore;
@@ -32,6 +37,8 @@ namespace MWMechanics
         typedef std::map<Owner, int> OwnerMap; // < Owner, number of stolen items with this id from this owner >
         typedef std::map<ESM::RefId, OwnerMap> StolenItemsMap;
         StolenItemsMap mStolenItems;
+
+        MWSound::MusicType mMusicType;
 
     public:
         void buildPlayer();
@@ -100,7 +107,8 @@ namespace MWMechanics
         bool awarenessCheck(const MWWorld::Ptr& ptr, const MWWorld::Ptr& observer) override;
 
         /// Makes \a ptr fight \a target. Also shouts a combat taunt.
-        void startCombat(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target) override;
+        void startCombat(
+            const MWWorld::Ptr& ptr, const MWWorld::Ptr& target, const std::set<MWWorld::Ptr>* targetAllies) override;
 
         void stopCombat(const MWWorld::Ptr& ptr) override;
 
@@ -134,11 +142,16 @@ namespace MWMechanics
 
         /// Attempt to play an animation group
         /// @return Success or error
-        bool playAnimationGroup(
-            const MWWorld::Ptr& ptr, std::string_view groupName, int mode, int number, bool persist = false) override;
+        bool playAnimationGroup(const MWWorld::Ptr& ptr, std::string_view groupName, int mode, uint32_t number,
+            bool scripted = false) override;
+        bool playAnimationGroupLua(const MWWorld::Ptr& ptr, std::string_view groupName, uint32_t loops, float speed,
+            std::string_view startKey, std::string_view stopKey, bool forceLoop) override;
+        void enableLuaAnimations(const MWWorld::Ptr& ptr, bool enable) override;
         void skipAnimation(const MWWorld::Ptr& ptr) override;
         bool checkAnimationPlaying(const MWWorld::Ptr& ptr, const std::string& groupName) override;
+        bool checkScriptedAnimationPlaying(const MWWorld::Ptr& ptr) const override;
         void persistAnimationStates() override;
+        void clearAnimationQueue(const MWWorld::Ptr& ptr, bool clearScripted) override;
 
         /// Update magic effects for an actor. Usually done automatically once per frame, but if we're currently
         /// paused we may want to do it manually (after equipping permanent enchantment)
@@ -232,7 +245,11 @@ namespace MWMechanics
         GreetingState getGreetingState(const MWWorld::Ptr& ptr) const override;
         bool isTurningToPlayer(const MWWorld::Ptr& ptr) const override;
 
+        MWSound::MusicType getMusicType() const override { return mMusicType; }
+        void setMusicType(MWSound::MusicType type) override { mMusicType = type; }
+
     private:
+        void updateMusicState();
         bool canCommitCrimeAgainst(const MWWorld::Ptr& victim, const MWWorld::Ptr& attacker);
         bool canReportCrime(
             const MWWorld::Ptr& actor, const MWWorld::Ptr& victim, std::set<MWWorld::Ptr>& playerFollowers);

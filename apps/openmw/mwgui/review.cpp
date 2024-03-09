@@ -6,6 +6,7 @@
 #include <MyGUI_Gui.h>
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ScrollView.h>
+#include <MyGUI_UString.h>
 
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadrace.hpp>
@@ -19,7 +20,6 @@
 #include "../mwworld/esmstore.hpp"
 
 #include "tooltips.hpp"
-#include "ustring.hpp"
 
 namespace
 {
@@ -148,11 +148,11 @@ namespace MWGui
         mUpdateSkillArea = true;
     }
 
-    void ReviewDialog::setClass(const ESM::Class& class_)
+    void ReviewDialog::setClass(const ESM::Class& playerClass)
     {
-        mKlass = class_;
-        mClassWidget->setCaption(mKlass.mName);
-        ToolTips::createClassToolTip(mClassWidget, mKlass);
+        mClass = playerClass;
+        mClassWidget->setCaption(mClass.mName);
+        ToolTips::createClassToolTip(mClassWidget, mClass);
     }
 
     void ReviewDialog::setBirthSign(const ESM::RefId& signId)
@@ -200,7 +200,7 @@ namespace MWGui
         mFatigue->setUserString("Caption_HealthDescription", "#{sFatDesc}\n" + valStr);
     }
 
-    void ReviewDialog::setAttribute(ESM::Attribute::AttributeID attributeId, const MWMechanics::AttributeValue& value)
+    void ReviewDialog::setAttribute(ESM::RefId attributeId, const MWMechanics::AttributeValue& value)
     {
         auto attr = mAttributeWidgets.find(attributeId);
         if (attr == mAttributeWidgets.end())
@@ -272,7 +272,7 @@ namespace MWGui
         MyGUI::TextBox* groupWidget = mSkillView->createWidget<MyGUI::TextBox>("SandBrightText",
             MyGUI::IntCoord(0, coord1.top, coord1.width + coord2.width, coord1.height), MyGUI::Align::Default);
         groupWidget->eventMouseWheel += MyGUI::newDelegate(this, &ReviewDialog::onMouseWheel);
-        groupWidget->setCaption(toUString(label));
+        groupWidget->setCaption(MyGUI::UString(label));
         mSkillWidgets.push_back(groupWidget);
 
         const int lineHeight = Settings::gui().mFontSize + 2;
@@ -287,7 +287,7 @@ namespace MWGui
         MyGUI::TextBox* skillValueWidget;
 
         skillNameWidget = mSkillView->createWidget<MyGUI::TextBox>("SandText", coord1, MyGUI::Align::Default);
-        skillNameWidget->setCaption(toUString(text));
+        skillNameWidget->setCaption(MyGUI::UString(text));
         skillNameWidget->eventMouseWheel += MyGUI::newDelegate(this, &ReviewDialog::onMouseWheel);
 
         skillValueWidget = mSkillView->createWidget<MyGUI::TextBox>("SandTextRight", coord2, MyGUI::Align::Default);
@@ -354,7 +354,16 @@ namespace MWGui
             const ESM::Skill* skill = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().search(skillId);
             if (!skill) // Skip unknown skills
                 continue;
-            const MWMechanics::SkillValue& stat = mSkillValues.find(skill->mId)->second;
+
+            auto skillValue = mSkillValues.find(skill->mId);
+            if (skillValue == mSkillValues.end())
+            {
+                Log(Debug::Error) << "Failed to update stats review window: can not find value for skill "
+                                  << skill->mId;
+                continue;
+            }
+
+            const MWMechanics::SkillValue& stat = skillValue->second;
             int base = stat.getBase();
             int modified = stat.getModified();
 
@@ -403,7 +412,7 @@ namespace MWGui
         if (!mRaceId.empty())
             race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(mRaceId);
 
-        std::map<ESM::Attribute::AttributeID, MWMechanics::AttributeValue> attributes;
+        std::map<ESM::RefId, MWMechanics::AttributeValue> attributes;
         for (const auto& [key, value] : mAttributeWidgets)
             attributes[key] = value->getAttributeValue();
 

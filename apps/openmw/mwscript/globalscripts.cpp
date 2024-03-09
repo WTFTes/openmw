@@ -232,7 +232,7 @@ namespace MWScript
 
             desc->mLocals.write(script.mLocals, id);
 
-            script.mRunning = desc->mRunning ? 1 : 0;
+            script.mRunning = desc->mRunning;
 
             writer.startRecord(ESM::REC_GSCR);
             script.save(writer);
@@ -240,19 +240,12 @@ namespace MWScript
         }
     }
 
-    bool GlobalScripts::readRecord(ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap)
+    bool GlobalScripts::readRecord(ESM::ESMReader& reader, uint32_t type)
     {
         if (type == ESM::REC_GSCR)
         {
             ESM::GlobalScript script;
             script.load(reader);
-
-            if (script.mTargetRef.hasContentFile())
-            {
-                auto iter = contentFileMap.find(script.mTargetRef.mContentFile);
-                if (iter != contentFileMap.end())
-                    script.mTargetRef.mContentFile = iter->second;
-            }
 
             auto iter = mScripts.find(script.mId);
 
@@ -283,7 +276,7 @@ namespace MWScript
                     return true;
             }
 
-            iter->second->mRunning = script.mRunning != 0;
+            iter->second->mRunning = script.mRunning;
             iter->second->mLocals.read(script.mLocals, script.mId);
 
             return true;

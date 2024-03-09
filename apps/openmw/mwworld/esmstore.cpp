@@ -5,20 +5,18 @@
 #include <tuple>
 
 #include <components/debug/debuglog.hpp>
+
 #include <components/esm/records.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
 #include <components/esm3/readerscache.hpp>
-#include <components/loadinglistener/loadinglistener.hpp>
-#include <components/lua/configuration.hpp>
-#include <components/misc/algorithm.hpp>
-
 #include <components/esm4/common.hpp>
-#include <components/esm4/loadland.hpp>
-#include <components/esm4/loadwrld.hpp>
 #include <components/esm4/reader.hpp>
 #include <components/esm4/readerutils.hpp>
 #include <components/esmloader/load.hpp>
+#include <components/loadinglistener/loadinglistener.hpp>
+#include <components/lua/configuration.hpp>
+#include <components/misc/algorithm.hpp>
 
 #include "../mwmechanics/spelllist.hpp"
 
@@ -85,11 +83,22 @@ namespace
         throw std::runtime_error("List of NPC classes is empty!");
     }
 
+    const ESM::RefId& getDefaultRace(const MWWorld::Store<ESM::Race>& races)
+    {
+        auto it = races.begin();
+        if (it != races.end())
+            return it->mId;
+        throw std::runtime_error("List of NPC races is empty!");
+    }
+
     std::vector<ESM::NPC> getNPCsToReplace(const MWWorld::Store<ESM::Faction>& factions,
-        const MWWorld::Store<ESM::Class>& classes, const std::unordered_map<ESM::RefId, ESM::NPC>& npcs)
+        const MWWorld::Store<ESM::Class>& classes, const MWWorld::Store<ESM::Race>& races,
+        const MWWorld::Store<ESM::Script>& scripts, const std::unordered_map<ESM::RefId, ESM::NPC>& npcs)
     {
         // Cache first class from store - we will use it if current class is not found
         const ESM::RefId& defaultCls = getDefaultClass(classes);
+        // Same for races
+        const ESM::RefId& defaultRace = getDefaultRace(races);
 
         // Validate NPCs for non-existing class and faction.
         // We will replace invalid entries by fixed ones
@@ -114,8 +123,7 @@ namespace
                 }
             }
 
-            const ESM::RefId& npcClass = npc.mClass;
-            const ESM::Class* cls = classes.search(npcClass);
+            const ESM::Class* cls = classes.search(npc.mClass);
             if (!cls)
             {
                 Log(Debug::Verbose) << "NPC " << npc.mId << " (" << npc.mName << ") has nonexistent class "
@@ -124,11 +132,81 @@ namespace
                 changed = true;
             }
 
+            const ESM::Race* race = races.search(npc.mRace);
+            if (!race)
+            {
+                Log(Debug::Verbose) << "NPC " << npc.mId << " (" << npc.mName << ") has nonexistent race " << npc.mRace
+                                    << ", using " << defaultRace << " race as replacement.";
+                npc.mRace = defaultRace;
+                changed = true;
+            }
+
+            if (!npc.mScript.empty() && !scripts.search(npc.mScript))
+            {
+                Log(Debug::Verbose) << "NPC " << npc.mId << " (" << npc.mName << ") has nonexistent script "
+                                    << npc.mScript << ", ignoring it.";
+                npc.mScript = ESM::RefId();
+                changed = true;
+            }
+
             if (changed)
                 npcsToReplace.push_back(npc);
         }
 
         return npcsToReplace;
+    }
+
+    template <class RecordType>
+    std::vector<RecordType> getSpellsToReplace(
+        const MWWorld::Store<RecordType>& spells, const MWWorld::Store<ESM::MagicEffect>& magicEffects)
+    {
+        std::vector<RecordType> spellsToReplace;
+
+        for (RecordType spell : spells)
+        {
+            if (spell.mEffects.mList.empty())
+                continue;
+
+            bool changed = false;
+            auto iter = spell.mEffects.mList.begin();
+            while (iter != spell.mEffects.mList.end())
+            {
+                const ESM::MagicEffect* mgef = magicEffects.search(iter->mEffectID);
+                if (!mgef)
+                {
+                    Log(Debug::Verbose) << RecordType::getRecordType() << " " << spell.mId
+                                        << ": dropping invalid effect (index " << iter->mEffectID << ")";
+                    iter = spell.mEffects.mList.erase(iter);
+                    changed = true;
+                    continue;
+                }
+
+                if (!(mgef->mData.mFlags & ESM::MagicEffect::TargetAttribute) && iter->mAttribute != -1)
+                {
+                    iter->mAttribute = -1;
+                    Log(Debug::Verbose) << RecordType::getRecordType() << " " << spell.mId
+                                        << ": dropping unexpected attribute argument of "
+                                        << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect";
+                    changed = true;
+                }
+
+                if (!(mgef->mData.mFlags & ESM::MagicEffect::TargetSkill) && iter->mSkill != -1)
+                {
+                    iter->mSkill = -1;
+                    Log(Debug::Verbose) << RecordType::getRecordType() << " " << spell.mId
+                                        << ": dropping unexpected skill argument of "
+                                        << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect";
+                    changed = true;
+                }
+
+                ++iter;
+            }
+
+            if (changed)
+                spellsToReplace.emplace_back(spell);
+        }
+
+        return spellsToReplace;
     }
 
     // Custom enchanted items can reference scripts that no longer exist, this doesn't necessarily mean the base item no
@@ -140,9 +218,9 @@ namespace
         {
             if (!item.mScript.empty() && !scripts.search(item.mScript))
             {
+                Log(Debug::Verbose) << MapT::mapped_type::getRecordType() << ' ' << id << " (" << item.mName
+                                    << ") has nonexistent script " << item.mScript << ", ignoring it.";
                 item.mScript = ESM::RefId();
-                Log(Debug::Verbose) << "Item " << id << " (" << item.mName << ") has nonexistent script "
-                                    << item.mScript << ", ignoring it.";
             }
         }
     }
@@ -278,18 +356,26 @@ namespace MWWorld
             case ESM::REC_STAT:
             case ESM::REC_WEAP:
             case ESM::REC_BODY:
-            case ESM::REC_STAT4:
-            case ESM::REC_LIGH4:
             case ESM::REC_ACTI4:
             case ESM::REC_ALCH4:
             case ESM::REC_AMMO4:
             case ESM::REC_ARMO4:
             case ESM::REC_BOOK4:
             case ESM::REC_CONT4:
+            case ESM::REC_CREA4:
             case ESM::REC_DOOR4:
+            case ESM::REC_FLOR4:
             case ESM::REC_FURN4:
             case ESM::REC_INGR4:
+            case ESM::REC_LIGH4:
+            case ESM::REC_LVLI4:
+            case ESM::REC_LVLC4:
+            case ESM::REC_LVLN4:
             case ESM::REC_MISC4:
+            case ESM::REC_MSTT4:
+            case ESM::REC_NPC_4:
+            case ESM::REC_STAT4:
+            case ESM::REC_TERM4:
             case ESM::REC_TREE4:
             case ESM::REC_WEAP4:
                 return true;
@@ -439,6 +525,8 @@ namespace MWWorld
         getWritable<ESM::Attribute>().setUp(get<ESM::GameSetting>());
         getWritable<ESM4::Land>().updateLandPositions(get<ESM4::Cell>());
         getWritable<ESM4::Reference>().preprocessReferences(get<ESM4::Cell>());
+        getWritable<ESM4::ActorCharacter>().preprocessReferences(get<ESM4::Cell>());
+        getWritable<ESM4::ActorCreature>().preprocessReferences(get<ESM4::Cell>());
 
         rebuildIdsIndex();
         mStoreImp->mStaticIds = mStoreImp->mIds;
@@ -510,8 +598,8 @@ namespace MWWorld
     void ESMStore::validate()
     {
         auto& npcs = getWritable<ESM::NPC>();
-        std::vector<ESM::NPC> npcsToReplace
-            = getNPCsToReplace(getWritable<ESM::Faction>(), getWritable<ESM::Class>(), npcs.mStatic);
+        std::vector<ESM::NPC> npcsToReplace = getNPCsToReplace(getWritable<ESM::Faction>(), getWritable<ESM::Class>(),
+            getWritable<ESM::Race>(), getWritable<ESM::Script>(), npcs.mStatic);
 
         for (const ESM::NPC& npc : npcsToReplace)
         {
@@ -519,70 +607,25 @@ namespace MWWorld
             npcs.insertStatic(npc);
         }
 
-        // Validate spell effects for invalid arguments
-        std::vector<ESM::Spell> spellsToReplace;
+        removeMissingScripts(getWritable<ESM::Script>(), getWritable<ESM::Creature>().mStatic);
+
+        // Validate spell effects and enchantments for invalid arguments
         auto& spells = getWritable<ESM::Spell>();
-        for (ESM::Spell spell : spells)
-        {
-            if (spell.mEffects.mList.empty())
-                continue;
+        auto& enchantments = getWritable<ESM::Enchantment>();
+        auto& magicEffects = getWritable<ESM::MagicEffect>();
 
-            bool changed = false;
-            auto iter = spell.mEffects.mList.begin();
-            while (iter != spell.mEffects.mList.end())
-            {
-                const ESM::MagicEffect* mgef = getWritable<ESM::MagicEffect>().search(iter->mEffectID);
-                if (!mgef)
-                {
-                    Log(Debug::Verbose) << "Spell '" << spell.mId << "' has an invalid effect (index "
-                                        << iter->mEffectID << ") present. Dropping the effect.";
-                    iter = spell.mEffects.mList.erase(iter);
-                    changed = true;
-                    continue;
-                }
-
-                if (mgef->mData.mFlags & ESM::MagicEffect::TargetSkill)
-                {
-                    if (iter->mAttribute != -1)
-                    {
-                        iter->mAttribute = -1;
-                        Log(Debug::Verbose)
-                            << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect of spell '" << spell.mId
-                            << "' has an attribute argument present. Dropping the argument.";
-                        changed = true;
-                    }
-                }
-                else if (mgef->mData.mFlags & ESM::MagicEffect::TargetAttribute)
-                {
-                    if (iter->mSkill != -1)
-                    {
-                        iter->mSkill = -1;
-                        Log(Debug::Verbose)
-                            << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect of spell '" << spell.mId
-                            << "' has a skill argument present. Dropping the argument.";
-                        changed = true;
-                    }
-                }
-                else if (iter->mSkill != -1 || iter->mAttribute != -1)
-                {
-                    iter->mSkill = -1;
-                    iter->mAttribute = -1;
-                    Log(Debug::Verbose) << ESM::MagicEffect::indexToGmstString(iter->mEffectID) << " effect of spell '"
-                                        << spell.mId << "' has argument(s) present. Dropping the argument(s).";
-                    changed = true;
-                }
-
-                ++iter;
-            }
-
-            if (changed)
-                spellsToReplace.emplace_back(spell);
-        }
-
+        std::vector<ESM::Spell> spellsToReplace = getSpellsToReplace(spells, magicEffects);
         for (const ESM::Spell& spell : spellsToReplace)
         {
             spells.eraseStatic(spell.mId);
             spells.insertStatic(spell);
+        }
+
+        std::vector<ESM::Enchantment> enchantmentsToReplace = getSpellsToReplace(enchantments, magicEffects);
+        for (const ESM::Enchantment& enchantment : enchantmentsToReplace)
+        {
+            enchantments.eraseStatic(enchantment.mId);
+            enchantments.insertStatic(enchantment);
         }
     }
 
@@ -598,8 +641,8 @@ namespace MWWorld
         auto& npcs = getWritable<ESM::NPC>();
         auto& scripts = getWritable<ESM::Script>();
 
-        std::vector<ESM::NPC> npcsToReplace
-            = getNPCsToReplace(getWritable<ESM::Faction>(), getWritable<ESM::Class>(), npcs.mDynamic);
+        std::vector<ESM::NPC> npcsToReplace = getNPCsToReplace(getWritable<ESM::Faction>(), getWritable<ESM::Class>(),
+            getWritable<ESM::Race>(), getWritable<ESM::Script>(), npcs.mDynamic);
 
         for (const ESM::NPC& npc : npcsToReplace)
             npcs.insert(npc);
@@ -607,6 +650,7 @@ namespace MWWorld
         removeMissingScripts(scripts, getWritable<ESM::Armor>().mDynamic);
         removeMissingScripts(scripts, getWritable<ESM::Book>().mDynamic);
         removeMissingScripts(scripts, getWritable<ESM::Clothing>().mDynamic);
+        removeMissingScripts(scripts, getWritable<ESM::Creature>().mDynamic);
         removeMissingScripts(scripts, getWritable<ESM::Weapon>().mDynamic);
 
         removeMissingObjects(getWritable<ESM::CreatureLevList>());

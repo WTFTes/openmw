@@ -5,9 +5,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 
-#include <apps/openmw/mwbase/environment.hpp>
-#include <apps/openmw/mwbase/world.hpp>
-#include <apps/openmw/mwworld/esmstore.hpp>
+#include "apps/openmw/mwbase/environment.hpp"
 
 namespace sol
 {
@@ -22,21 +20,42 @@ namespace
     ESM::Clothing tableToClothing(const sol::table& rec)
     {
         ESM::Clothing clothing;
-        clothing.mName = rec["name"];
-        clothing.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
-        clothing.mIcon = rec["icon"];
-        std::string_view scriptId = rec["mwscript"].get<std::string_view>();
-        clothing.mScript = ESM::RefId::deserializeText(scriptId);
-        clothing.mData.mEnchant = std::round(rec["enchantCapacity"].get<float>() * 10);
-        std::string_view enchantId = rec["enchant"].get<std::string_view>();
-        clothing.mEnchant = ESM::RefId::deserializeText(enchantId);
-        clothing.mData.mWeight = rec["weight"];
-        clothing.mData.mValue = rec["value"];
-        int clothingType = rec["type"].get<int>();
-        if (clothingType >= 0 && clothingType <= ESM::Clothing::Amulet)
-            clothing.mData.mType = clothingType;
+        if (rec["template"] != sol::nil)
+            clothing = LuaUtil::cast<ESM::Clothing>(rec["template"]);
         else
-            throw std::runtime_error("Invalid Clothing Type provided: " + std::to_string(clothingType));
+            clothing.blank();
+
+        if (rec["name"] != sol::nil)
+            clothing.mName = rec["name"];
+        if (rec["model"] != sol::nil)
+            clothing.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
+        if (rec["icon"] != sol::nil)
+            clothing.mIcon = rec["icon"];
+        if (rec["mwscript"] != sol::nil)
+        {
+            std::string_view scriptId = rec["mwscript"].get<std::string_view>();
+            clothing.mScript = ESM::RefId::deserializeText(scriptId);
+        }
+
+        if (rec["enchant"] != sol::nil)
+        {
+            std::string_view enchantId = rec["enchant"].get<std::string_view>();
+            clothing.mEnchant = ESM::RefId::deserializeText(enchantId);
+        }
+        if (rec["enchantCapacity"] != sol::nil)
+            clothing.mData.mEnchant = std::round(rec["enchantCapacity"].get<float>() * 10);
+        if (rec["weight"] != sol::nil)
+            clothing.mData.mWeight = rec["weight"];
+        if (rec["value"] != sol::nil)
+            clothing.mData.mValue = rec["value"];
+        if (rec["type"] != sol::nil)
+        {
+            int clothingType = rec["type"].get<int>();
+            if (clothingType >= 0 && clothingType <= ESM::Clothing::Amulet)
+                clothing.mData.mType = clothingType;
+            else
+                throw std::runtime_error("Invalid Clothing Type provided: " + std::to_string(clothingType));
+        }
         return clothing;
     }
 }
@@ -69,9 +88,8 @@ namespace MWLua
         record["id"]
             = sol::readonly_property([](const ESM::Clothing& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Clothing& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property([vfs](const ESM::Clothing& rec) -> std::string {
-            return Misc::ResourceHelpers::correctMeshPath(rec.mModel, vfs);
-        });
+        record["model"] = sol::readonly_property(
+            [](const ESM::Clothing& rec) -> std::string { return Misc::ResourceHelpers::correctMeshPath(rec.mModel); });
         record["icon"] = sol::readonly_property([vfs](const ESM::Clothing& rec) -> std::string {
             return Misc::ResourceHelpers::correctIconPath(rec.mIcon, vfs);
         });

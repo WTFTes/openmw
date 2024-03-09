@@ -769,11 +769,7 @@ namespace MWGui
 
             void reset(float left, float top, MyGUI::Colour colour)
             {
-#if MYGUI_VERSION <= MYGUI_DEFINE_VERSION(3, 4, 1)
-                mC = MyGUI::texture_utility::toColourARGB(colour) | 0xFF000000;
-#else
                 mC = MyGUI::texture_utility::toNativeColour(colour, MyGUI::VertexColourType::ColourARGB) | 0xFF000000;
-#endif
                 MyGUI::texture_utility::convertColour(mC, mVertexColourType);
 
                 mCursor.left = mOrigin.left + left;
@@ -960,7 +956,7 @@ namespace MWGui
 
                 ActiveTextFormats::iterator i = mActiveTextFormats.find(Font);
 
-                if (mNode)
+                if (mNode && i != mActiveTextFormats.end())
                     mNode->outOfDate(i->second->mRenderItem);
             }
         }
@@ -1069,7 +1065,7 @@ namespace MWGui
                 {
                     createActiveFormats(newBook);
 
-                    mBook = newBook;
+                    mBook = std::move(newBook);
                     setPage(newPage);
 
                     if (newPage < mBook->mPages.size())
@@ -1283,11 +1279,11 @@ namespace MWGui
         {
         }
 
-        void showPage(TypesetBook::Ptr book, size_t page) override { mPageDisplay->showPage(book, page); }
+        void showPage(TypesetBook::Ptr book, size_t page) override { mPageDisplay->showPage(std::move(book), page); }
 
         void adviseLinkClicked(std::function<void(InteractiveId)> linkClicked) override
         {
-            mPageDisplay->mLinkClicked = linkClicked;
+            mPageDisplay->mLinkClicked = std::move(linkClicked);
         }
 
         void unadviseLinkClicked() override { mPageDisplay->mLinkClicked = std::function<void(InteractiveId)>(); }

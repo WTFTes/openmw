@@ -39,6 +39,8 @@ namespace
     using namespace DetourNavigator;
     using namespace DetourNavigator::Tests;
 
+    constexpr int heightfieldTileSize = ESM::Land::REAL_SIZE / (ESM::Land::LAND_SIZE - 1);
+
     struct DetourNavigatorNavigatorTest : Test
     {
         Settings mSettings = makeSettings();
@@ -50,11 +52,9 @@ namespace
         osg::Vec3f mEnd;
         std::deque<osg::Vec3f> mPath;
         std::back_insert_iterator<std::deque<osg::Vec3f>> mOut;
-        float mStepSize;
         AreaCosts mAreaCosts;
         Loading::Listener mListener;
         const osg::Vec2i mCellPosition{ 0, 0 };
-        const int mHeightfieldTileSize = ESM::Land::REAL_SIZE / (ESM::Land::LAND_SIZE - 1);
         const float mEndTolerance = 0;
         const btTransform mTransform{ btMatrix3x3::getIdentity(), btVector3(256, 256, 0) };
         const ObjectTransform mObjectTransform{ ESM::Position{ { 256, 256, 0 }, { 0, 0, 0 } }, 0.0f };
@@ -65,12 +65,27 @@ namespace
             , mStart(52, 460, 1)
             , mEnd(460, 52, 1)
             , mOut(mPath)
-            , mStepSize(28.333332061767578125f)
         {
             mNavigator.reset(new NavigatorImpl(
                 mSettings, std::make_unique<NavMeshDb>(":memory:", std::numeric_limits<std::uint64_t>::max())));
         }
     };
+
+    constexpr std::array<float, 5 * 5> defaultHeightfieldData{ {
+        0, 0, 0, 0, 0, // row 0
+        0, -25, -25, -25, -25, // row 1
+        0, -25, -100, -100, -100, // row 2
+        0, -25, -100, -100, -100, // row 3
+        0, -25, -100, -100, -100, // row 4
+    } };
+
+    constexpr std::array<btScalar, 5 * 5> defaultHeightfieldDataScalar{ {
+        0, 0, 0, 0, 0, // row 0
+        0, -25, -25, -25, -25, // row 1
+        0, -25, -100, -100, -100, // row 2
+        0, -25, -100, -100, -100, // row 3
+        0, -25, -100, -100, -100, // row 4
+    } };
 
     template <std::size_t size>
     std::unique_ptr<btHeightfieldTerrainShape> makeSquareHeightfieldTerrainShape(
@@ -115,7 +130,7 @@ namespace
         {
         }
 
-        T& shape() { return static_cast<T&>(*mInstance->mCollisionShape); }
+        T& shape() const { return static_cast<T&>(*mInstance->mCollisionShape); }
         const osg::ref_ptr<const Resource::BulletShapeInstance>& instance() const { return mInstance; }
 
     private:
@@ -129,8 +144,7 @@ namespace
 
     TEST_F(DetourNavigatorNavigatorTest, find_path_for_empty_should_return_empty)
     {
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::NavMeshNotFound);
         EXPECT_EQ(mPath, std::deque<osg::Vec3f>());
     }
@@ -138,8 +152,7 @@ namespace
     TEST_F(DetourNavigatorNavigatorTest, find_path_for_existing_agent_with_no_navmesh_should_throw_exception)
     {
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::StartPolygonNotFound);
     }
 
@@ -148,22 +161,14 @@ namespace
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->removeAgent(mAgentBounds);
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::StartPolygonNotFound);
     }
 
     TEST_F(DetourNavigatorNavigatorTest, update_then_find_path_should_return_path)
     {
-        constexpr std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         auto updateGuard = mNavigator->makeUpdateGuard();
@@ -172,34 +177,32 @@ namespace
         updateGuard.reset();
         mNavigator->wait(WaitConditionType::requiredTilesPresent, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(76.70135498046875, 439.965301513671875, -0.9659786224365234375),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, -4.002437114715576171875),
-                Vec3fEq(116.770751953125, 399.89593505859375, -7.0388965606689453125),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, -11.5593852996826171875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, -20.7333812713623046875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, -34.014251708984375),
-                Vec3fEq(196.90948486328125, 319.757171630859375, -47.2951202392578125),
-                Vec3fEq(216.944183349609375, 299.722503662109375, -59.4111785888671875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, -65.76436614990234375),
-                Vec3fEq(257.0135498046875, 259.65313720703125, -68.12311553955078125),
-                Vec3fEq(277.048248291015625, 239.618438720703125, -66.5666656494140625),
-                Vec3fEq(297.082916259765625, 219.583740234375, -60.305889129638671875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, -49.181324005126953125),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, -35.742702484130859375),
-                Vec3fEq(357.186981201171875, 159.47967529296875, -22.304073333740234375),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, -12.65070629119873046875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, -7.41098117828369140625),
-                Vec3fEq(417.291046142578125, 99.3756103515625, -4.382833957672119140625),
-                Vec3fEq(437.325714111328125, 79.340911865234375, -1.354687213897705078125),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 1.624610424041748046875),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
+    }
+
+    TEST_F(DetourNavigatorNavigatorTest, find_path_to_the_start_position_should_contain_single_point)
+    {
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
+
+        ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
+        auto updateGuard = mNavigator->makeUpdateGuard();
+        mNavigator->addHeightfield(mCellPosition, cellSize, surface, updateGuard.get());
+        mNavigator->update(mPlayerPosition, updateGuard.get());
+        updateGuard.reset();
+        mNavigator->wait(WaitConditionType::requiredTilesPresent, &mListener);
+
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mStart, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+            Status::Success);
+
+        EXPECT_THAT(mPath, ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125))) << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, add_object_should_change_navmesh)
@@ -208,15 +211,8 @@ namespace
         mNavigator.reset(new NavigatorImpl(
             mSettings, std::make_unique<NavMeshDb>(":memory:", std::numeric_limits<std::uint64_t>::max())));
 
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         CollisionShapeInstance compound(std::make_unique<btCompoundShape>());
         compound.shape().addChildShape(
@@ -227,32 +223,12 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(76.70135498046875, 439.965301513671875, -0.9659786224365234375),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, -4.002437114715576171875),
-                Vec3fEq(116.770751953125, 399.89593505859375, -7.0388965606689453125),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, -11.5593852996826171875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, -20.7333812713623046875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, -34.014251708984375),
-                Vec3fEq(196.90948486328125, 319.757171630859375, -47.2951202392578125),
-                Vec3fEq(216.944183349609375, 299.722503662109375, -59.4111785888671875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, -65.76436614990234375),
-                Vec3fEq(257.0135498046875, 259.65313720703125, -68.12311553955078125),
-                Vec3fEq(277.048248291015625, 239.618438720703125, -66.5666656494140625),
-                Vec3fEq(297.082916259765625, 219.583740234375, -60.305889129638671875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, -49.181324005126953125),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, -35.742702484130859375),
-                Vec3fEq(357.186981201171875, 159.47967529296875, -22.304073333740234375),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, -12.65070629119873046875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, -7.41098117828369140625),
-                Vec3fEq(417.291046142578125, 99.3756103515625, -4.382833957672119140625),
-                Vec3fEq(437.325714111328125, 79.340911865234375, -1.354687213897705078125),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 1.624610424041748046875),
+            ElementsAre( //
+                Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
                 Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
             << mPath;
 
@@ -266,48 +242,22 @@ namespace
 
         mPath.clear();
         mOut = std::back_inserter(mPath);
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(69.5299530029296875, 434.754913330078125, -2.6775772571563720703125),
-                Vec3fEq(82.39324951171875, 409.50982666015625, -7.355137348175048828125),
-                Vec3fEq(95.25653839111328125, 384.2647705078125, -12.0326976776123046875),
-                Vec3fEq(108.11983489990234375, 359.019683837890625, -16.71025848388671875),
-                Vec3fEq(120.983123779296875, 333.774627685546875, -21.3878192901611328125),
-                Vec3fEq(133.8464202880859375, 308.529541015625, -26.0653781890869140625),
-                Vec3fEq(146.7097015380859375, 283.284454345703125, -30.7429370880126953125),
-                Vec3fEq(159.572998046875, 258.039398193359375, -35.420497894287109375),
-                Vec3fEq(172.4362945556640625, 232.7943115234375, -27.2731761932373046875),
-                Vec3fEq(185.2996063232421875, 207.54925537109375, -19.575878143310546875),
-                Vec3fEq(206.6449737548828125, 188.917236328125, -20.3511219024658203125),
-                Vec3fEq(227.9903564453125, 170.28521728515625, -22.9776935577392578125),
-                Vec3fEq(253.4362640380859375, 157.8239593505859375, -31.1692962646484375),
-                Vec3fEq(278.8822021484375, 145.3627166748046875, -30.253124237060546875),
-                Vec3fEq(304.328094482421875, 132.9014739990234375, -22.219127655029296875),
-                Vec3fEq(329.774017333984375, 120.44022369384765625, -13.2701435089111328125),
-                Vec3fEq(355.219940185546875, 107.97898101806640625, -5.330339908599853515625),
-                Vec3fEq(380.665863037109375, 95.51773834228515625, -3.5501649379730224609375),
-                Vec3fEq(406.111785888671875, 83.05649566650390625, -1.76998889446258544921875),
-                Vec3fEq(431.557708740234375, 70.5952606201171875, 0.01018683053553104400634765625),
-                Vec3fEq(457.003662109375, 58.134021759033203125, 1.79036080837249755859375),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(181.33331298828125, 215.33331298828125, -20.6666717529296875),
+                Vec3fEq(215.33331298828125, 181.33331298828125, -20.6666717529296875),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, update_changed_object_should_change_navmesh)
     {
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         CollisionShapeInstance compound(std::make_unique<btCompoundShape>());
         compound.shape().addChildShape(
@@ -320,34 +270,15 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(69.5299530029296875, 434.754913330078125, -2.6775772571563720703125),
-                Vec3fEq(82.39324951171875, 409.50982666015625, -7.355137348175048828125),
-                Vec3fEq(95.25653839111328125, 384.2647705078125, -12.0326976776123046875),
-                Vec3fEq(108.11983489990234375, 359.019683837890625, -16.71025848388671875),
-                Vec3fEq(120.983123779296875, 333.774627685546875, -21.3878192901611328125),
-                Vec3fEq(133.8464202880859375, 308.529541015625, -26.0653781890869140625),
-                Vec3fEq(146.7097015380859375, 283.284454345703125, -30.7429370880126953125),
-                Vec3fEq(159.572998046875, 258.039398193359375, -35.420497894287109375),
-                Vec3fEq(172.4362945556640625, 232.7943115234375, -27.2731761932373046875),
-                Vec3fEq(185.2996063232421875, 207.54925537109375, -19.575878143310546875),
-                Vec3fEq(206.6449737548828125, 188.917236328125, -20.3511219024658203125),
-                Vec3fEq(227.9903564453125, 170.28521728515625, -22.9776935577392578125),
-                Vec3fEq(253.4362640380859375, 157.8239593505859375, -31.1692962646484375),
-                Vec3fEq(278.8822021484375, 145.3627166748046875, -30.253124237060546875),
-                Vec3fEq(304.328094482421875, 132.9014739990234375, -22.219127655029296875),
-                Vec3fEq(329.774017333984375, 120.44022369384765625, -13.2701435089111328125),
-                Vec3fEq(355.219940185546875, 107.97898101806640625, -5.330339908599853515625),
-                Vec3fEq(380.665863037109375, 95.51773834228515625, -3.5501649379730224609375),
-                Vec3fEq(406.111785888671875, 83.05649566650390625, -1.76998889446258544921875),
-                Vec3fEq(431.557708740234375, 70.5952606201171875, 0.01018683053553104400634765625),
-                Vec3fEq(457.003662109375, 58.134021759033203125, 1.79036080837249755859375),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(181.33331298828125, 215.33331298828125, -20.6666717529296875),
+                Vec3fEq(215.33331298828125, 181.33331298828125, -20.6666717529296875),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
 
         compound.shape().updateChildTransform(0, btTransform(btMatrix3x3::getIdentity(), btVector3(1000, 0, 0)));
@@ -359,46 +290,19 @@ namespace
 
         mPath.clear();
         mOut = std::back_inserter(mPath);
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(76.70135498046875, 439.965301513671875, -0.9659786224365234375),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, -4.002437114715576171875),
-                Vec3fEq(116.770751953125, 399.89593505859375, -7.0388965606689453125),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, -11.5593852996826171875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, -20.7333812713623046875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, -34.014251708984375),
-                Vec3fEq(196.90948486328125, 319.757171630859375, -47.2951202392578125),
-                Vec3fEq(216.944183349609375, 299.722503662109375, -59.4111785888671875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, -65.76436614990234375),
-                Vec3fEq(257.0135498046875, 259.65313720703125, -68.12311553955078125),
-                Vec3fEq(277.048248291015625, 239.618438720703125, -66.5666656494140625),
-                Vec3fEq(297.082916259765625, 219.583740234375, -60.305889129638671875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, -49.181324005126953125),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, -35.742702484130859375),
-                Vec3fEq(357.186981201171875, 159.47967529296875, -22.304073333740234375),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, -12.65070629119873046875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, -7.41098117828369140625),
-                Vec3fEq(417.291046142578125, 99.3756103515625, -4.382833957672119140625),
-                Vec3fEq(437.325714111328125, 79.340911865234375, -1.354687213897705078125),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 1.624610424041748046875),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, for_overlapping_heightfields_objects_should_use_higher)
     {
-        const std::array<btScalar, 5 * 5> heightfieldData1{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        CollisionShapeInstance heightfield1(makeSquareHeightfieldTerrainShape(heightfieldData1));
+        CollisionShapeInstance heightfield1(makeSquareHeightfieldTerrainShape(defaultHeightfieldDataScalar));
         heightfield1.shape().setLocalScaling(btVector3(128, 128, 1));
 
         const std::array<btScalar, 5 * 5> heightfieldData2{ {
@@ -419,47 +323,20 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(76.70135498046875, 439.965301513671875, -0.903246104717254638671875),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, -3.8064472675323486328125),
-                Vec3fEq(116.770751953125, 399.89593505859375, -6.709649562835693359375),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, -9.33333873748779296875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, -9.33333873748779296875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, -9.33333873748779296875),
-                Vec3fEq(196.90948486328125, 319.757171630859375, -9.33333873748779296875),
-                Vec3fEq(216.944183349609375, 299.722503662109375, -9.33333873748779296875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, -9.33333873748779296875),
-                Vec3fEq(257.0135498046875, 259.65313720703125, -9.33333873748779296875),
-                Vec3fEq(277.048248291015625, 239.618438720703125, -9.33333873748779296875),
-                Vec3fEq(297.082916259765625, 219.583740234375, -9.33333873748779296875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, -9.33333873748779296875),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, -9.33333873748779296875),
-                Vec3fEq(357.186981201171875, 159.47967529296875, -9.33333873748779296875),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, -9.33333873748779296875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, -6.891522884368896484375),
-                Vec3fEq(417.291046142578125, 99.3756103515625, -4.053897380828857421875),
-                Vec3fEq(437.325714111328125, 79.340911865234375, -1.21627247333526611328125),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 1.621352672576904296875),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, only_one_heightfield_per_cell_is_allowed)
     {
-        const std::array<float, 5 * 5> heightfieldData1{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface1 = makeSquareHeightfieldSurface(heightfieldData1);
-        const int cellSize1 = mHeightfieldTileSize * (surface1.mSize - 1);
+        const HeightfieldSurface surface1 = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize1 = heightfieldTileSize * (surface1.mSize - 1);
 
         const std::array<float, 5 * 5> heightfieldData2{ {
             -25, -25, -25, -25, -25, // row 0
@@ -469,7 +346,7 @@ namespace
             -25, -25, -25, -25, -25, // row 4
         } };
         const HeightfieldSurface surface2 = makeSquareHeightfieldSurface(heightfieldData2);
-        const int cellSize2 = mHeightfieldTileSize * (surface2.mSize - 1);
+        const int cellSize2 = heightfieldTileSize * (surface2.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addHeightfield(mCellPosition, cellSize1, surface1, nullptr);
@@ -489,14 +366,8 @@ namespace
     {
         osg::ref_ptr<Resource::BulletShape> bulletShape(new Resource::BulletShape);
 
-        std::array<btScalar, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        std::unique_ptr<btHeightfieldTerrainShape> shapePtr = makeSquareHeightfieldTerrainShape(heightfieldData);
+        std::unique_ptr<btHeightfieldTerrainShape> shapePtr
+            = makeSquareHeightfieldTerrainShape(defaultHeightfieldDataScalar);
         shapePtr->setLocalScaling(btVector3(128, 128, 1));
         bulletShape->mCollisionShape.reset(shapePtr.release());
 
@@ -520,34 +391,15 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(69.013885498046875, 434.49853515625, -0.74384129047393798828125),
-                Vec3fEq(81.36110687255859375, 408.997100830078125, -3.4876689910888671875),
-                Vec3fEq(93.7083282470703125, 383.495635986328125, -6.2314929962158203125),
-                Vec3fEq(106.0555419921875, 357.99420166015625, -8.97531890869140625),
-                Vec3fEq(118.40276336669921875, 332.49273681640625, -11.7191448211669921875),
-                Vec3fEq(130.7499847412109375, 306.991302490234375, -14.4629726409912109375),
-                Vec3fEq(143.0972137451171875, 281.4898681640625, -17.206798553466796875),
-                Vec3fEq(155.4444122314453125, 255.9884033203125, -19.9506206512451171875),
-                Vec3fEq(167.7916412353515625, 230.4869537353515625, -19.91887664794921875),
-                Vec3fEq(189.053619384765625, 211.75982666015625, -20.1138629913330078125),
-                Vec3fEq(210.3155975341796875, 193.032684326171875, -20.3088512420654296875),
-                Vec3fEq(231.577606201171875, 174.3055419921875, -20.503841400146484375),
-                Vec3fEq(252.839599609375, 155.5784149169921875, -19.9803981781005859375),
-                Vec3fEq(278.407989501953125, 143.3704071044921875, -17.2675113677978515625),
-                Vec3fEq(303.976348876953125, 131.16241455078125, -14.55462360382080078125),
-                Vec3fEq(329.54473876953125, 118.9544219970703125, -11.84173583984375),
-                Vec3fEq(355.11309814453125, 106.74642181396484375, -9.12884807586669921875),
-                Vec3fEq(380.681488037109375, 94.538421630859375, -6.4159603118896484375),
-                Vec3fEq(406.249847412109375, 82.33042144775390625, -3.7030735015869140625),
-                Vec3fEq(431.8182373046875, 70.1224365234375, -0.990187108516693115234375),
-                Vec3fEq(457.38665771484375, 57.9144439697265625, 1.72269880771636962890625),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(158.6666412353515625, 249.3332977294921875, -20.6666717529296875),
+                Vec3fEq(249.3332977294921875, 158.6666412353515625, -20.6666717529296875),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
@@ -561,7 +413,7 @@ namespace
             0, -50, -100, -100, -100, // row 4
         } };
         const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addWater(mCellPosition, cellSize, 300, nullptr);
@@ -574,22 +426,12 @@ namespace
         mEnd.x() = 256;
         mEnd.z() = 300;
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_swim, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_swim, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(256, 460, 185.33331298828125), Vec3fEq(256, 431.666656494140625, 185.33331298828125),
-                Vec3fEq(256, 403.33331298828125, 185.33331298828125), Vec3fEq(256, 375, 185.33331298828125),
-                Vec3fEq(256, 346.666656494140625, 185.33331298828125),
-                Vec3fEq(256, 318.33331298828125, 185.33331298828125), Vec3fEq(256, 290, 185.33331298828125),
-                Vec3fEq(256, 261.666656494140625, 185.33331298828125),
-                Vec3fEq(256, 233.3333282470703125, 185.33331298828125), Vec3fEq(256, 205, 185.33331298828125),
-                Vec3fEq(256, 176.6666717529296875, 185.33331298828125),
-                Vec3fEq(256, 148.3333282470703125, 185.33331298828125), Vec3fEq(256, 120, 185.33331298828125),
-                Vec3fEq(256, 91.6666717529296875, 185.33331298828125),
-                Vec3fEq(255.999969482421875, 63.33333587646484375, 185.33331298828125),
-                Vec3fEq(255.999969482421875, 56.66666412353515625, 185.33331298828125)))
+            ElementsAre( //
+                Vec3fEq(256, 460, 185.3333282470703125), Vec3fEq(256, 56.66664886474609375, 185.3333282470703125)))
             << mPath;
     }
 
@@ -605,7 +447,7 @@ namespace
             0, 0, 0, 0, 0, 0, 0, // row 6
         } };
         const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addWater(mCellPosition, cellSize, -25, nullptr);
@@ -616,22 +458,13 @@ namespace
         mStart.x() = 256;
         mEnd.x() = 256;
 
-        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_swim | Flag_walk, mAreaCosts,
-                      mEndTolerance, mOut),
+        EXPECT_EQ(
+            findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_swim | Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(256, 460, -129.4098663330078125),
-                Vec3fEq(256, 431.666656494140625, -129.6970062255859375),
-                Vec3fEq(256, 403.33331298828125, -129.6970062255859375), Vec3fEq(256, 375, -129.4439239501953125),
-                Vec3fEq(256, 346.666656494140625, -129.02587890625),
-                Vec3fEq(256, 318.33331298828125, -128.6078338623046875), Vec3fEq(256, 290, -128.1021728515625),
-                Vec3fEq(256, 261.666656494140625, -126.46875), Vec3fEq(256, 233.3333282470703125, -119.4891357421875),
-                Vec3fEq(256, 205, -110.62021636962890625), Vec3fEq(256, 176.6666717529296875, -101.7512969970703125),
-                Vec3fEq(256, 148.3333282470703125, -92.88237762451171875), Vec3fEq(256, 120, -75.29378509521484375),
-                Vec3fEq(256, 91.6666717529296875, -55.201839447021484375),
-                Vec3fEq(256.000030517578125, 63.33333587646484375, -34.800380706787109375),
-                Vec3fEq(256.000030517578125, 56.66666412353515625, -30.00003814697265625)))
+            ElementsAre( //
+                Vec3fEq(256, 460, -129.4098663330078125), Vec3fEq(256, 56.66664886474609375, -30.0000133514404296875)))
             << mPath;
     }
 
@@ -648,7 +481,7 @@ namespace
             0, 0, 0, 0, 0, 0, 0, // row 6
         } };
         const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addHeightfield(mCellPosition, cellSize, surface, nullptr);
@@ -659,22 +492,13 @@ namespace
         mStart.x() = 256;
         mEnd.x() = 256;
 
-        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_swim | Flag_walk, mAreaCosts,
-                      mEndTolerance, mOut),
+        EXPECT_EQ(
+            findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_swim | Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(256, 460, -129.4098663330078125),
-                Vec3fEq(256, 431.666656494140625, -129.6970062255859375),
-                Vec3fEq(256, 403.33331298828125, -129.6970062255859375), Vec3fEq(256, 375, -129.4439239501953125),
-                Vec3fEq(256, 346.666656494140625, -129.02587890625),
-                Vec3fEq(256, 318.33331298828125, -128.6078338623046875), Vec3fEq(256, 290, -128.1021728515625),
-                Vec3fEq(256, 261.666656494140625, -126.46875), Vec3fEq(256, 233.3333282470703125, -119.4891357421875),
-                Vec3fEq(256, 205, -110.62021636962890625), Vec3fEq(256, 176.6666717529296875, -101.7512969970703125),
-                Vec3fEq(256, 148.3333282470703125, -92.88237762451171875), Vec3fEq(256, 120, -75.29378509521484375),
-                Vec3fEq(256, 91.6666717529296875, -55.201839447021484375),
-                Vec3fEq(256.000030517578125, 63.33333587646484375, -34.800380706787109375),
-                Vec3fEq(256.000030517578125, 56.66666412353515625, -30.00003814697265625)))
+            ElementsAre(
+                Vec3fEq(256, 460, -129.4098663330078125), Vec3fEq(256, 56.66664886474609375, -30.0000133514404296875)))
             << mPath;
     }
 
@@ -690,7 +514,7 @@ namespace
             0, 0, 0, 0, 0, 0, 0, // row 6
         } };
         const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addWater(mCellPosition, cellSize, -25, nullptr);
@@ -701,35 +525,18 @@ namespace
         mStart.x() = 256;
         mEnd.x() = 256;
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(256, 460, -129.4098663330078125),
-                Vec3fEq(256, 431.666656494140625, -129.6970062255859375),
-                Vec3fEq(256, 403.33331298828125, -129.6970062255859375), Vec3fEq(256, 375, -129.4439239501953125),
-                Vec3fEq(256, 346.666656494140625, -129.02587890625),
-                Vec3fEq(256, 318.33331298828125, -128.6078338623046875), Vec3fEq(256, 290, -128.1021728515625),
-                Vec3fEq(256, 261.666656494140625, -126.46875), Vec3fEq(256, 233.3333282470703125, -119.4891357421875),
-                Vec3fEq(256, 205, -110.62021636962890625), Vec3fEq(256, 176.6666717529296875, -101.7512969970703125),
-                Vec3fEq(256, 148.3333282470703125, -92.88237762451171875), Vec3fEq(256, 120, -75.29378509521484375),
-                Vec3fEq(256, 91.6666717529296875, -55.201839447021484375),
-                Vec3fEq(256.000030517578125, 63.33333587646484375, -34.800380706787109375),
-                Vec3fEq(256.000030517578125, 56.66666412353515625, -30.00003814697265625)))
+            ElementsAre( //
+                Vec3fEq(256, 460, -129.4098663330078125), Vec3fEq(256, 56.66664886474609375, -30.0000133514404296875)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, update_object_remove_and_update_then_find_path_should_return_path)
     {
-        const std::array<btScalar, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        CollisionShapeInstance heightfield(makeSquareHeightfieldTerrainShape(heightfieldData));
+        CollisionShapeInstance heightfield(makeSquareHeightfieldTerrainShape(defaultHeightfieldDataScalar));
         heightfield.shape().setLocalScaling(btVector3(128, 128, 1));
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
@@ -747,47 +554,20 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(76.70135498046875, 439.965301513671875, -0.9659786224365234375),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, -4.002437114715576171875),
-                Vec3fEq(116.770751953125, 399.89593505859375, -7.0388965606689453125),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, -11.5593852996826171875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, -20.7333812713623046875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, -34.014251708984375),
-                Vec3fEq(196.90948486328125, 319.757171630859375, -47.2951202392578125),
-                Vec3fEq(216.944183349609375, 299.722503662109375, -59.4111785888671875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, -65.76436614990234375),
-                Vec3fEq(257.0135498046875, 259.65313720703125, -68.12311553955078125),
-                Vec3fEq(277.048248291015625, 239.618438720703125, -66.5666656494140625),
-                Vec3fEq(297.082916259765625, 219.583740234375, -60.305889129638671875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, -49.181324005126953125),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, -35.742702484130859375),
-                Vec3fEq(357.186981201171875, 159.47967529296875, -22.304073333740234375),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, -12.65070629119873046875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, -7.41098117828369140625),
-                Vec3fEq(417.291046142578125, 99.3756103515625, -4.382833957672119140625),
-                Vec3fEq(437.325714111328125, 79.340911865234375, -1.354687213897705078125),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 1.624610424041748046875),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, update_heightfield_remove_and_update_then_find_path_should_return_path)
     {
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addHeightfield(mCellPosition, cellSize, surface, nullptr);
@@ -802,33 +582,13 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(76.70135498046875, 439.965301513671875, -0.9659786224365234375),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, -4.002437114715576171875),
-                Vec3fEq(116.770751953125, 399.89593505859375, -7.0388965606689453125),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, -11.5593852996826171875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, -20.7333812713623046875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, -34.014251708984375),
-                Vec3fEq(196.90948486328125, 319.757171630859375, -47.2951202392578125),
-                Vec3fEq(216.944183349609375, 299.722503662109375, -59.4111785888671875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, -65.76436614990234375),
-                Vec3fEq(257.0135498046875, 259.65313720703125, -68.12311553955078125),
-                Vec3fEq(277.048248291015625, 239.618438720703125, -66.5666656494140625),
-                Vec3fEq(297.082916259765625, 219.583740234375, -60.305889129638671875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, -49.181324005126953125),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, -35.742702484130859375),
-                Vec3fEq(357.186981201171875, 159.47967529296875, -22.304073333740234375),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, -12.65070629119873046875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, -7.41098117828369140625),
-                Vec3fEq(417.291046142578125, 99.3756103515625, -4.382833957672119140625),
-                Vec3fEq(437.325714111328125, 79.340911865234375, -1.354687213897705078125),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 1.624610424041748046875),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
@@ -843,7 +603,7 @@ namespace
             0, -25, -100, -100, -100, -100, // row 5
         } };
         const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addHeightfield(mCellPosition, cellSize, surface, nullptr);
@@ -869,15 +629,8 @@ namespace
         mNavigator.reset(new NavigatorImpl(
             mSettings, std::make_unique<NavMeshDb>(":memory:", std::numeric_limits<std::uint64_t>::max())));
 
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
         const btVector3 shift = getHeightfieldShift(mCellPosition, cellSize, surface.mMinHeight, surface.mMaxHeight);
 
         std::vector<CollisionShapeInstance<btBoxShape>> boxes;
@@ -909,34 +662,15 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 1.99998295307159423828125),
-                Vec3fEq(69.5299530029296875, 434.754913330078125, -2.6775772571563720703125),
-                Vec3fEq(82.39324951171875, 409.50982666015625, -7.355137348175048828125),
-                Vec3fEq(95.25653839111328125, 384.2647705078125, -12.0326976776123046875),
-                Vec3fEq(108.11983489990234375, 359.019683837890625, -16.71025848388671875),
-                Vec3fEq(120.983123779296875, 333.774627685546875, -21.3878192901611328125),
-                Vec3fEq(133.8464202880859375, 308.529541015625, -26.0653781890869140625),
-                Vec3fEq(146.7097015380859375, 283.284454345703125, -30.7429370880126953125),
-                Vec3fEq(159.572998046875, 258.039398193359375, -35.420497894287109375),
-                Vec3fEq(172.4362945556640625, 232.7943115234375, -27.2731761932373046875),
-                Vec3fEq(185.2996063232421875, 207.54925537109375, -20.3612518310546875),
-                Vec3fEq(206.6449737548828125, 188.917236328125, -20.578319549560546875),
-                Vec3fEq(227.9903564453125, 170.28521728515625, -26.291717529296875),
-                Vec3fEq(253.4362640380859375, 157.8239593505859375, -34.784488677978515625),
-                Vec3fEq(278.8822021484375, 145.3627166748046875, -30.253124237060546875),
-                Vec3fEq(304.328094482421875, 132.9014739990234375, -25.72176361083984375),
-                Vec3fEq(329.774017333984375, 120.44022369384765625, -21.1904010772705078125),
-                Vec3fEq(355.219940185546875, 107.97898101806640625, -16.6590404510498046875),
-                Vec3fEq(380.665863037109375, 95.51773834228515625, -12.127681732177734375),
-                Vec3fEq(406.111785888671875, 83.05649566650390625, -7.5963191986083984375),
-                Vec3fEq(431.557708740234375, 70.5952606201171875, -3.0649592876434326171875),
-                Vec3fEq(457.003662109375, 58.134021759033203125, 1.4664003849029541015625),
-                Vec3fEq(460, 56.66666412353515625, 1.99998295307159423828125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 1.99999392032623291015625),
+                Vec3fEq(181.33331298828125, 215.33331298828125, -20.6666717529296875),
+                Vec3fEq(215.33331298828125, 181.33331298828125, -20.6666717529296875),
+                Vec3fEq(460, 56.66664886474609375, 1.99999392032623291015625)))
             << mPath;
     }
 
@@ -984,15 +718,8 @@ namespace
 
     TEST_F(DetourNavigatorNavigatorTest, update_then_raycast_should_return_position)
     {
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addHeightfield(mCellPosition, cellSize, surface, nullptr);
@@ -1010,15 +737,8 @@ namespace
     TEST_F(DetourNavigatorNavigatorTest,
         update_for_oscillating_object_that_does_not_change_navmesh_should_not_trigger_navmesh_update)
     {
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         CollisionShapeInstance oscillatingBox(std::make_unique<btBoxShape>(btVector3(20, 20, 20)));
         const btVector3 oscillatingBoxShapePosition(288, 288, 400);
@@ -1058,54 +778,26 @@ namespace
     TEST_F(DetourNavigatorNavigatorTest, should_provide_path_over_flat_heightfield)
     {
         const HeightfieldPlane plane{ 100 };
-        const int cellSize = mHeightfieldTileSize * 4;
+        const int cellSize = heightfieldTileSize * 4;
 
         ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
         mNavigator->addHeightfield(mCellPosition, cellSize, plane, nullptr);
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::requiredTilesPresent, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, 101.99999237060546875),
-                Vec3fEq(76.70135498046875, 439.965301513671875, 101.99999237060546875),
-                Vec3fEq(96.73604583740234375, 419.93060302734375, 101.99999237060546875),
-                Vec3fEq(116.770751953125, 399.89593505859375, 101.99999237060546875),
-                Vec3fEq(136.8054351806640625, 379.861236572265625, 101.99999237060546875),
-                Vec3fEq(156.840118408203125, 359.826568603515625, 101.99999237060546875),
-                Vec3fEq(176.8748016357421875, 339.7918701171875, 101.99999237060546875),
-                Vec3fEq(196.90948486328125, 319.757171630859375, 101.99999237060546875),
-                Vec3fEq(216.944183349609375, 299.722503662109375, 101.99999237060546875),
-                Vec3fEq(236.9788665771484375, 279.68780517578125, 101.99999237060546875),
-                Vec3fEq(257.0135498046875, 259.65313720703125, 101.99999237060546875),
-                Vec3fEq(277.048248291015625, 239.618438720703125, 101.99999237060546875),
-                Vec3fEq(297.082916259765625, 219.583740234375, 101.99999237060546875),
-                Vec3fEq(317.11761474609375, 199.549041748046875, 101.99999237060546875),
-                Vec3fEq(337.15228271484375, 179.5143585205078125, 101.99999237060546875),
-                Vec3fEq(357.186981201171875, 159.47967529296875, 101.99999237060546875),
-                Vec3fEq(377.221649169921875, 139.4449920654296875, 101.99999237060546875),
-                Vec3fEq(397.25634765625, 119.41030120849609375, 101.99999237060546875),
-                Vec3fEq(417.291046142578125, 99.3756103515625, 101.99999237060546875),
-                Vec3fEq(437.325714111328125, 79.340911865234375, 101.99999237060546875),
-                Vec3fEq(457.360443115234375, 59.3062286376953125, 101.99999237060546875),
-                Vec3fEq(460, 56.66666412353515625, 101.99999237060546875)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, 102), Vec3fEq(460, 56.66664886474609375, 102)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, for_not_reachable_destination_find_path_should_provide_partial_path)
     {
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         CollisionShapeInstance compound(std::make_unique<btCompoundShape>());
         compound.shape().addChildShape(btTransform(btMatrix3x3::getIdentity(), btVector3(204, -204, 0)),
@@ -1118,35 +810,20 @@ namespace
         mNavigator->update(mPlayerPosition, nullptr);
         mNavigator->wait(WaitConditionType::allJobsDone, &mListener);
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, mEndTolerance, mOut),
             Status::PartialPath);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66664886474609375, 460, -2.5371043682098388671875),
-                Vec3fEq(76.42063140869140625, 439.6884765625, -2.9134314060211181640625),
-                Vec3fEq(96.17461395263671875, 419.376953125, -4.50826549530029296875),
-                Vec3fEq(115.9285888671875, 399.0654296875, -6.1030979156494140625),
-                Vec3fEq(135.6825714111328125, 378.753936767578125, -7.697928905487060546875),
-                Vec3fEq(155.436553955078125, 358.442413330078125, -20.9574985504150390625),
-                Vec3fEq(175.190521240234375, 338.130889892578125, -35.907512664794921875),
-                Vec3fEq(194.9445037841796875, 317.8193359375, -50.85752105712890625),
-                Vec3fEq(214.698486328125, 297.5078125, -65.807525634765625),
-                Vec3fEq(222.0001068115234375, 290.000091552734375, -71.333465576171875)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, -2.5371119976043701171875),
+                Vec3fEq(222, 290, -71.33342742919921875)))
             << mPath;
     }
 
     TEST_F(DetourNavigatorNavigatorTest, end_tolerance_should_extent_available_destinations)
     {
-        const std::array<float, 5 * 5> heightfieldData{ {
-            0, 0, 0, 0, 0, // row 0
-            0, -25, -25, -25, -25, // row 1
-            0, -25, -100, -100, -100, // row 2
-            0, -25, -100, -100, -100, // row 3
-            0, -25, -100, -100, -100, // row 4
-        } };
-        const HeightfieldSurface surface = makeSquareHeightfieldSurface(heightfieldData);
-        const int cellSize = mHeightfieldTileSize * (surface.mSize - 1);
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
 
         CollisionShapeInstance compound(std::make_unique<btCompoundShape>());
         compound.shape().addChildShape(btTransform(btMatrix3x3::getIdentity(), btVector3(204, -204, 0)),
@@ -1161,29 +838,13 @@ namespace
 
         const float endTolerance = 1000.0f;
 
-        EXPECT_EQ(
-            findPath(*mNavigator, mAgentBounds, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, endTolerance, mOut),
+        EXPECT_EQ(findPath(*mNavigator, mAgentBounds, mStart, mEnd, Flag_walk, mAreaCosts, endTolerance, mOut),
             Status::Success);
 
         EXPECT_THAT(mPath,
-            ElementsAre(Vec3fEq(56.66666412353515625, 460, -2.5371043682098388671875),
-                Vec3fEq(71.5649566650390625, 435.899810791015625, -5.817593097686767578125),
-                Vec3fEq(86.46324920654296875, 411.79962158203125, -9.66499996185302734375),
-                Vec3fEq(101.36154937744140625, 387.699462890625, -13.512401580810546875),
-                Vec3fEq(116.2598419189453125, 363.599273681640625, -17.359806060791015625),
-                Vec3fEq(131.1581268310546875, 339.499114990234375, -21.2072086334228515625),
-                Vec3fEq(146.056427001953125, 315.39892578125, -25.0546112060546875),
-                Vec3fEq(160.9547271728515625, 291.298736572265625, -28.9020137786865234375),
-                Vec3fEq(175.8530120849609375, 267.198577880859375, -32.749416351318359375),
-                Vec3fEq(190.751312255859375, 243.098388671875, -33.819454193115234375),
-                Vec3fEq(205.64959716796875, 218.9982147216796875, -31.020172119140625),
-                Vec3fEq(220.5478973388671875, 194.898040771484375, -26.844608306884765625),
-                Vec3fEq(235.446197509765625, 170.7978668212890625, -26.785541534423828125),
-                Vec3fEq(250.3444671630859375, 146.6976776123046875, -26.7264766693115234375),
-                Vec3fEq(265.242767333984375, 122.59751129150390625, -20.59339141845703125),
-                Vec3fEq(280.141021728515625, 98.4973297119140625, -14.040531158447265625),
-                Vec3fEq(295.039306640625, 74.39715576171875, -7.48766994476318359375),
-                Vec3fEq(306, 56.66666412353515625, -2.6667339801788330078125)))
+            ElementsAre( //
+                Vec3fEq(56.66664886474609375, 460, -2.5371119976043701171875),
+                Vec3fEq(305.999969482421875, 56.66664886474609375, -2.6667406558990478515625)))
             << mPath;
     }
 
@@ -1210,7 +871,7 @@ namespace
 
     TEST_F(DetourNavigatorNavigatorTest, update_for_very_big_object_should_be_limited)
     {
-        const float size = static_cast<float>(2 * static_cast<std::int64_t>(std::numeric_limits<int>::max()) - 1);
+        const float size = static_cast<float>((1 << 22) - 1);
         CollisionShapeInstance bigBox(std::make_unique<btBoxShape>(btVector3(size, size, 1)));
         const ObjectTransform objectTransform{
             .mPosition = ESM::Position{ .pos = { 0, 0, 0 }, .rot{ 0, 0, 0 } },
@@ -1284,4 +945,196 @@ namespace
 
     INSTANTIATE_TEST_SUITE_P(NotSupportedAgentBounds, DetourNavigatorNavigatorNotSupportedAgentBoundsTest,
         ValuesIn(notSupportedAgentBounds));
+
+    TEST_F(DetourNavigatorNavigatorTest, find_nearest_nav_mesh_position_should_return_nav_mesh_position)
+    {
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
+
+        ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
+        auto updateGuard = mNavigator->makeUpdateGuard();
+        mNavigator->addHeightfield(mCellPosition, cellSize, surface, updateGuard.get());
+        mNavigator->update(mPlayerPosition, updateGuard.get());
+        updateGuard.reset();
+        mNavigator->wait(WaitConditionType::requiredTilesPresent, &mListener);
+
+        const osg::Vec3f position(250, 250, 0);
+        const osg::Vec3f searchAreaHalfExtents(1000, 1000, 1000);
+        EXPECT_THAT(findNearestNavMeshPosition(*mNavigator, mAgentBounds, position, searchAreaHalfExtents, Flag_walk),
+            Optional(Vec3fEq(250, 250, -62.5186)));
+    }
+
+    TEST_F(DetourNavigatorNavigatorTest, find_nearest_nav_mesh_position_should_return_nullopt_when_too_far)
+    {
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
+
+        ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
+        auto updateGuard = mNavigator->makeUpdateGuard();
+        mNavigator->addHeightfield(mCellPosition, cellSize, surface, updateGuard.get());
+        mNavigator->update(mPlayerPosition, updateGuard.get());
+        updateGuard.reset();
+        mNavigator->wait(WaitConditionType::requiredTilesPresent, &mListener);
+
+        const osg::Vec3f position(250, 250, 250);
+        const osg::Vec3f searchAreaHalfExtents(100, 100, 100);
+        EXPECT_EQ(findNearestNavMeshPosition(*mNavigator, mAgentBounds, position, searchAreaHalfExtents, Flag_walk),
+            std::nullopt);
+    }
+
+    TEST_F(DetourNavigatorNavigatorTest, find_nearest_nav_mesh_position_should_return_nullopt_when_flags_do_not_match)
+    {
+        const HeightfieldSurface surface = makeSquareHeightfieldSurface(defaultHeightfieldData);
+        const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
+
+        ASSERT_TRUE(mNavigator->addAgent(mAgentBounds));
+        auto updateGuard = mNavigator->makeUpdateGuard();
+        mNavigator->addHeightfield(mCellPosition, cellSize, surface, updateGuard.get());
+        mNavigator->update(mPlayerPosition, updateGuard.get());
+        updateGuard.reset();
+        mNavigator->wait(WaitConditionType::requiredTilesPresent, &mListener);
+
+        const osg::Vec3f position(250, 250, 0);
+        const osg::Vec3f searchAreaHalfExtents(1000, 1000, 1000);
+        EXPECT_EQ(findNearestNavMeshPosition(*mNavigator, mAgentBounds, position, searchAreaHalfExtents, Flag_swim),
+            std::nullopt);
+    }
+
+    struct DetourNavigatorUpdateTest : TestWithParam<std::function<void(Navigator&)>>
+    {
+    };
+
+    std::vector<TilePosition> getUsedTiles(const NavMeshCacheItem& navMesh)
+    {
+        std::vector<TilePosition> result;
+        navMesh.forEachUsedTile([&](const TilePosition& position, const auto&...) { result.push_back(position); });
+        return result;
+    }
+
+    TEST_P(DetourNavigatorUpdateTest, update_should_change_covered_area_when_player_moves)
+    {
+        Loading::Listener listener;
+        Settings settings = makeSettings();
+        settings.mMaxTilesNumber = 5;
+        NavigatorImpl navigator(settings, nullptr);
+        const AgentBounds agentBounds{ CollisionShapeType::Aabb, { 29, 29, 66 } };
+        ASSERT_TRUE(navigator.addAgent(agentBounds));
+
+        GetParam()(navigator);
+
+        {
+            auto updateGuard = navigator.makeUpdateGuard();
+            navigator.update(osg::Vec3f(3000, 3000, 0), updateGuard.get());
+        }
+
+        navigator.wait(WaitConditionType::allJobsDone, &listener);
+
+        {
+            const auto navMesh = navigator.getNavMesh(agentBounds);
+            ASSERT_NE(navMesh, nullptr);
+
+            const TilePosition expectedTiles[] = { { 3, 4 }, { 4, 3 }, { 4, 4 }, { 4, 5 }, { 5, 4 } };
+            const auto usedTiles = getUsedTiles(*navMesh->lockConst());
+            EXPECT_THAT(usedTiles, UnorderedElementsAreArray(expectedTiles)) << usedTiles;
+        }
+
+        {
+            auto updateGuard = navigator.makeUpdateGuard();
+            navigator.update(osg::Vec3f(4000, 3000, 0), updateGuard.get());
+        }
+
+        navigator.wait(WaitConditionType::allJobsDone, &listener);
+
+        {
+            const auto navMesh = navigator.getNavMesh(agentBounds);
+            ASSERT_NE(navMesh, nullptr);
+
+            const TilePosition expectedTiles[] = { { 4, 4 }, { 5, 3 }, { 5, 4 }, { 5, 5 }, { 6, 4 } };
+            const auto usedTiles = getUsedTiles(*navMesh->lockConst());
+            EXPECT_THAT(usedTiles, UnorderedElementsAreArray(expectedTiles)) << usedTiles;
+        }
+    }
+
+    struct AddHeightfieldSurface
+    {
+        static constexpr std::size_t sSize = 65;
+        static constexpr float sHeights[sSize * sSize]{};
+
+        void operator()(Navigator& navigator) const
+        {
+            const osg::Vec2i cellPosition(0, 0);
+            const HeightfieldSurface surface{
+                .mHeights = sHeights,
+                .mSize = sSize,
+                .mMinHeight = -1,
+                .mMaxHeight = 1,
+            };
+            const int cellSize = heightfieldTileSize * static_cast<int>(surface.mSize - 1);
+            navigator.addHeightfield(cellPosition, cellSize, surface, nullptr);
+        }
+    };
+
+    struct AddHeightfieldPlane
+    {
+        void operator()(Navigator& navigator) const
+        {
+            const osg::Vec2i cellPosition(0, 0);
+            const HeightfieldPlane plane{ .mHeight = 0 };
+            const int cellSize = 8192;
+            navigator.addHeightfield(cellPosition, cellSize, plane, nullptr);
+        }
+    };
+
+    struct AddWater
+    {
+        void operator()(Navigator& navigator) const
+        {
+            const osg::Vec2i cellPosition(0, 0);
+            const float level = 0;
+            const int cellSize = 8192;
+            navigator.addWater(cellPosition, cellSize, level, nullptr);
+        }
+    };
+
+    struct AddObject
+    {
+        const float mSize = 8192;
+        CollisionShapeInstance<btBoxShape> mBox{ std::make_unique<btBoxShape>(btVector3(mSize, mSize, 1)) };
+        const ObjectTransform mTransform{
+            .mPosition = ESM::Position{ .pos = { 0, 0, 0 }, .rot{ 0, 0, 0 } },
+            .mScale = 1.0f,
+        };
+
+        void operator()(Navigator& navigator) const
+        {
+            navigator.addObject(ObjectId(&mBox.shape()), ObjectShapes(mBox.instance(), mTransform),
+                btTransform::getIdentity(), nullptr);
+        }
+    };
+
+    struct AddAll
+    {
+        AddHeightfieldSurface mAddHeightfieldSurface;
+        AddHeightfieldPlane mAddHeightfieldPlane;
+        AddWater mAddWater;
+        AddObject mAddObject;
+
+        void operator()(Navigator& navigator) const
+        {
+            mAddHeightfieldSurface(navigator);
+            mAddHeightfieldPlane(navigator);
+            mAddWater(navigator);
+            mAddObject(navigator);
+        }
+    };
+
+    const std::function<void(Navigator&)> addNavMeshData[] = {
+        AddHeightfieldSurface{},
+        AddHeightfieldPlane{},
+        AddWater{},
+        AddObject{},
+        AddAll{},
+    };
+
+    INSTANTIATE_TEST_SUITE_P(DifferentNavMeshData, DetourNavigatorUpdateTest, ValuesIn(addNavMeshData));
 }

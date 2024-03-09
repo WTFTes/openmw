@@ -28,7 +28,7 @@ namespace
     struct BaseNifOsgLoaderTest
     {
         VFS::Manager mVfs;
-        Resource::ImageManager mImageManager{ &mVfs };
+        Resource::ImageManager mImageManager{ &mVfs, 0 };
         const osgDB::ReaderWriter* mReaderWriter = osgDB::Registry::instance()->getReaderWriterForExtension("osgt");
         osg::ref_ptr<osgDB::Options> mOptions = new osgDB::Options;
 
@@ -66,7 +66,7 @@ namespace
 
     TEST_F(NifOsgLoaderTest, shouldLoadFileWithDefaultNode)
     {
-        Nif::Node node;
+        Nif::NiAVObject node;
         init(node);
         Nif::NIFFile file("test.nif");
         file.mRoots.push_back(&node);
@@ -108,7 +108,7 @@ osg::Group {
 )");
     }
 
-    std::string formatOsgNodeForShaderProperty(std::string_view shaderPrefix)
+    std::string formatOsgNodeForBSShaderProperty(std::string_view shaderPrefix)
     {
         std::ostringstream oss;
         oss << R"(
@@ -165,6 +165,72 @@ osg::Group {
         return oss.str();
     }
 
+    std::string formatOsgNodeForBSLightingShaderProperty(std::string_view shaderPrefix)
+    {
+        std::ostringstream oss;
+        oss << R"(
+osg::Group {
+  UniqueID 1
+  DataVariance STATIC
+  UserDataContainer TRUE {
+    osg::DefaultUserDataContainer {
+      UniqueID 2
+      UDC_UserObjects 1 {
+        osg::StringValueObject {
+          UniqueID 3
+          Name "fileHash"
+        }
+      }
+    }
+  }
+  Children 1 {
+    osg::Group {
+      UniqueID 4
+      DataVariance STATIC
+      UserDataContainer TRUE {
+        osg::DefaultUserDataContainer {
+          UniqueID 5
+          UDC_UserObjects 3 {
+            osg::UIntValueObject {
+              UniqueID 6
+              Name "recIndex"
+              Value 4294967295
+            }
+            osg::StringValueObject {
+              UniqueID 7
+              Name "shaderPrefix"
+              Value ")"
+            << shaderPrefix << R"("
+            }
+            osg::BoolValueObject {
+              UniqueID 8
+              Name "shaderRequired"
+              Value TRUE
+            }
+          }
+        }
+      }
+      StateSet TRUE {
+        osg::StateSet {
+          UniqueID 9
+          ModeList 1 {
+            GL_DEPTH_TEST ON
+          }
+          AttributeList 1 {
+            osg::Depth {
+              UniqueID 10
+            }
+            Value OFF
+          }
+        }
+      }
+    }
+  }
+}
+)";
+        return oss.str();
+    }
+
     struct ShaderPrefixParams
     {
         unsigned int mShaderType;
@@ -183,18 +249,18 @@ osg::Group {
 
     TEST_P(NifOsgLoaderBSShaderPrefixTest, shouldAddShaderPrefix)
     {
-        Nif::Node node;
+        Nif::NiAVObject node;
         init(node);
         Nif::BSShaderPPLightingProperty property;
         property.recType = Nif::RC_BSShaderPPLightingProperty;
-        property.textureSet = nullptr;
-        property.controller = nullptr;
-        property.type = GetParam().mShaderType;
-        node.props.push_back(Nif::RecordPtrT<Nif::Property>(&property));
+        property.mTextureSet = nullptr;
+        property.mController = nullptr;
+        property.mType = GetParam().mShaderType;
+        node.mProperties.push_back(Nif::RecordPtrT<Nif::NiProperty>(&property));
         Nif::NIFFile file("test.nif");
         file.mRoots.push_back(&node);
         auto result = Loader::load(file, &mImageManager);
-        EXPECT_EQ(serialize(*result), formatOsgNodeForShaderProperty(GetParam().mExpectedShaderPrefix));
+        EXPECT_EQ(serialize(*result), formatOsgNodeForBSShaderProperty(GetParam().mExpectedShaderPrefix));
     }
 
     INSTANTIATE_TEST_SUITE_P(Params, NifOsgLoaderBSShaderPrefixTest, ValuesIn(NifOsgLoaderBSShaderPrefixTest::sParams));
@@ -211,18 +277,20 @@ osg::Group {
 
     TEST_P(NifOsgLoaderBSLightingShaderPrefixTest, shouldAddShaderPrefix)
     {
-        Nif::Node node;
+        Nif::NiAVObject node;
         init(node);
         Nif::BSLightingShaderProperty property;
         property.recType = Nif::RC_BSLightingShaderProperty;
         property.mTextureSet = nullptr;
-        property.controller = nullptr;
-        property.type = GetParam().mShaderType;
-        node.props.push_back(Nif::RecordPtrT<Nif::Property>(&property));
+        property.mController = nullptr;
+        property.mType = GetParam().mShaderType;
+        property.mShaderFlags1 |= Nif::BSShaderFlags1::BSSFlag1_DepthTest;
+        property.mShaderFlags2 |= Nif::BSShaderFlags2::BSSFlag2_DepthWrite;
+        node.mProperties.push_back(Nif::RecordPtrT<Nif::NiProperty>(&property));
         Nif::NIFFile file("test.nif");
         file.mRoots.push_back(&node);
         auto result = Loader::load(file, &mImageManager);
-        EXPECT_EQ(serialize(*result), formatOsgNodeForShaderProperty(GetParam().mExpectedShaderPrefix));
+        EXPECT_EQ(serialize(*result), formatOsgNodeForBSLightingShaderProperty(GetParam().mExpectedShaderPrefix));
     }
 
     INSTANTIATE_TEST_SUITE_P(

@@ -10,6 +10,8 @@
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_Window.h>
 
+#include <components/debug/debuglog.hpp>
+
 #include <components/esm3/loadbsgn.hpp>
 #include <components/esm3/loadclas.hpp>
 #include <components/esm3/loadfact.hpp>
@@ -30,7 +32,6 @@
 #include "../mwmechanics/npcstats.hpp"
 
 #include "tooltips.hpp"
-#include "ustring.hpp"
 
 namespace MWGui
 {
@@ -155,7 +156,7 @@ namespace MWGui
         mMainWidget->castType<MyGUI::Window>()->setCaption(playerName);
     }
 
-    void StatsWindow::setValue(ESM::Attribute::AttributeID id, const MWMechanics::AttributeValue& value)
+    void StatsWindow::setAttribute(ESM::RefId id, const MWMechanics::AttributeValue& value)
     {
         auto it = mAttributeWidgets.find(id);
         if (it != mAttributeWidgets.end())
@@ -415,7 +416,7 @@ namespace MWGui
         MyGUI::TextBox* groupWidget = mSkillView->createWidget<MyGUI::TextBox>("SandBrightText",
             MyGUI::IntCoord(0, coord1.top, coord1.width + coord2.width, coord1.height),
             MyGUI::Align::Left | MyGUI::Align::Top | MyGUI::Align::HStretch);
-        groupWidget->setCaption(toUString(label));
+        groupWidget->setCaption(MyGUI::UString(label));
         groupWidget->eventMouseWheel += MyGUI::newDelegate(this, &StatsWindow::onMouseWheel);
         mSkillWidgets.push_back(groupWidget);
 
@@ -431,7 +432,7 @@ namespace MWGui
 
         skillNameWidget = mSkillView->createWidget<MyGUI::TextBox>(
             "SandText", coord1, MyGUI::Align::Left | MyGUI::Align::Top | MyGUI::Align::HStretch);
-        skillNameWidget->setCaption(toUString(text));
+        skillNameWidget->setCaption(MyGUI::UString(text));
         skillNameWidget->eventMouseWheel += MyGUI::newDelegate(this, &StatsWindow::onMouseWheel);
 
         skillValueWidget = mSkillView->createWidget<MyGUI::TextBox>(
@@ -496,11 +497,19 @@ namespace MWGui
             if (!skill) // Skip unknown skills
                 continue;
 
-            const ESM::Attribute* attr = esmStore.get<ESM::Attribute>().find(skill->mData.mAttribute);
+            auto skillValue = mSkillValues.find(skill->mId);
+            if (skillValue == mSkillValues.end())
+            {
+                Log(Debug::Error) << "Failed to update stats window: can not find value for skill " << skill->mId;
+                continue;
+            }
+
+            const ESM::Attribute* attr
+                = esmStore.get<ESM::Attribute>().find(ESM::Attribute::indexToRefId(skill->mData.mAttribute));
 
             std::pair<MyGUI::TextBox*, MyGUI::TextBox*> widgets
                 = addValueItem(skill->mName, {}, "normal", coord1, coord2);
-            mSkillWidgetMap[skill->mId] = widgets;
+            mSkillWidgetMap[skill->mId] = std::move(widgets);
 
             for (int i = 0; i < 2; ++i)
             {
@@ -516,7 +525,7 @@ namespace MWGui
                 mSkillWidgets[mSkillWidgets.size() - 1 - i]->setUserString("Range_SkillProgress", "100");
             }
 
-            setValue(skill->mId, mSkillValues.find(skill->mId)->second);
+            setValue(skill->mId, skillValue->second);
         }
     }
 
@@ -611,8 +620,10 @@ namespace MWGui
                         text += std::string("\n\n#{fontcolourhtml=header}#{sNextRank} ") + faction->mRanks[rank + 1];
 
                         const ESM::RankData& rankData = faction->mData.mRankData[rank + 1];
-                        const ESM::Attribute* attr1 = store.get<ESM::Attribute>().find(faction->mData.mAttribute[0]);
-                        const ESM::Attribute* attr2 = store.get<ESM::Attribute>().find(faction->mData.mAttribute[1]);
+                        const ESM::Attribute* attr1 = store.get<ESM::Attribute>().find(
+                            ESM::Attribute::indexToRefId(faction->mData.mAttribute[0]));
+                        const ESM::Attribute* attr2 = store.get<ESM::Attribute>().find(
+                            ESM::Attribute::indexToRefId(faction->mData.mAttribute[1]));
 
                         text += "\n#{fontcolourhtml=normal}" + MyGUI::TextIterator::toTagsString(attr1->mName) + ": "
                             + MyGUI::utility::toString(rankData.mAttribute1) + ", "

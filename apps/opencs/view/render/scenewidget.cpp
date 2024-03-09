@@ -48,6 +48,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/lightmanager.hpp>
 
 #include "../widget/scenetoolmode.hpp"
@@ -76,6 +77,8 @@ namespace CSVRender
             = new osgViewer::GraphicsWindowEmbedded(0, 0, width(), height());
         mWidget->setGraphicsWindowEmbedded(window);
 
+        mRenderer->setRealizeOperation(new SceneUtil::GetGLExtensionsOperation());
+
         int frameRateLimit = CSMPrefs::get()["Rendering"]["framerate-limit"].toInt();
         mRenderer->setRunMaxFrameRate(frameRateLimit);
         mRenderer->setUseConfigureAffinity(false);
@@ -87,10 +90,10 @@ namespace CSVRender
 
         mView->getCamera()->setGraphicsContext(window);
 
-        SceneUtil::LightManager* lightMgr = new SceneUtil::LightManager;
+        osg::ref_ptr<SceneUtil::LightManager> lightMgr = new SceneUtil::LightManager;
         lightMgr->setStartLight(1);
         lightMgr->setLightingMask(Mask_Lighting);
-        mRootNode = lightMgr;
+        mRootNode = std::move(lightMgr);
 
         mView->getCamera()->setViewport(new osg::Viewport(0, 0, width(), height()));
 
@@ -154,7 +157,7 @@ namespace CSVRender
     SceneWidget::SceneWidget(std::shared_ptr<Resource::ResourceSystem> resourceSystem, QWidget* parent,
         Qt::WindowFlags f, bool retrieveInput)
         : RenderWidget(parent, f)
-        , mResourceSystem(resourceSystem)
+        , mResourceSystem(std::move(resourceSystem))
         , mLighting(nullptr)
         , mHasDefaultAmbient(false)
         , mIsExterior(true)
@@ -225,7 +228,7 @@ namespace CSVRender
         mResourceSystem->releaseGLObjects(mView->getCamera()->getGraphicsContext()->getState());
     }
 
-    osg::ref_ptr<osg::Geometry> SceneWidget::createGradientRectangle(QColor bgColour, QColor gradientColour)
+    osg::ref_ptr<osg::Geometry> SceneWidget::createGradientRectangle(QColor& bgColour, QColor& gradientColour)
     {
         osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry;
 
@@ -266,7 +269,7 @@ namespace CSVRender
         return geometry;
     }
 
-    osg::ref_ptr<osg::Camera> SceneWidget::createGradientCamera(QColor bgColour, QColor gradientColour)
+    osg::ref_ptr<osg::Camera> SceneWidget::createGradientCamera(QColor& bgColour, QColor& gradientColour)
     {
         osg::ref_ptr<osg::Camera> camera = new osg::Camera();
         camera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
@@ -284,11 +287,11 @@ namespace CSVRender
 
         osg::ref_ptr<osg::Geometry> gradientQuad = createGradientRectangle(bgColour, gradientColour);
 
-        camera->addChild(gradientQuad);
+        camera->addChild(std::move(gradientQuad));
         return camera;
     }
 
-    void SceneWidget::updateGradientCamera(QColor bgColour, QColor gradientColour)
+    void SceneWidget::updateGradientCamera(QColor& bgColour, QColor& gradientColour)
     {
         osg::ref_ptr<osg::Geometry> gradientRect = createGradientRectangle(bgColour, gradientColour);
         // Replaces previous rectangle

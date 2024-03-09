@@ -352,9 +352,9 @@ namespace Resource
         std::vector<osg::ref_ptr<SceneUtil::RigGeometryHolder>> mRigGeometryHolders;
     };
 
-    SceneManager::SceneManager(
-        const VFS::Manager* vfs, Resource::ImageManager* imageManager, Resource::NifFileManager* nifFileManager)
-        : ResourceManager(vfs)
+    SceneManager::SceneManager(const VFS::Manager* vfs, Resource::ImageManager* imageManager,
+        Resource::NifFileManager* nifFileManager, double expiryDelay)
+        : ResourceManager(vfs, expiryDelay)
         , mShaderManager(new Shader::ShaderManager)
         , mForceShaders(false)
         , mClampLighting(true)
@@ -649,6 +649,7 @@ namespace Resource
                 node->getOrCreateStateSet()->addUniform(new osg::Uniform("specStrength", 1.f));
                 node->getOrCreateStateSet()->addUniform(new osg::Uniform("envMapColor", osg::Vec4f(1, 1, 1, 1)));
                 node->getOrCreateStateSet()->addUniform(new osg::Uniform("useFalloff", false));
+                node->getOrCreateStateSet()->addUniform(new osg::Uniform("distortionStrength", 0.f));
             }
 
             node->setUserValue(Misc::OsgUserValues::sFileHash,
@@ -726,6 +727,11 @@ namespace Resource
         auto ext = Misc::getFileExtension(normalizedFilename);
         if (ext == "nif")
             return NifOsg::Loader::load(*nifFileManager->get(normalizedFilename), imageManager);
+        else if (ext == "spt")
+        {
+            Log(Debug::Warning) << "Ignoring SpeedTree data file " << normalizedFilename;
+            return new osg::Node();
+        }
         else
             return loadNonNif(normalizedFilename, *vfs->get(normalizedFilename), imageManager);
     }
@@ -861,7 +867,7 @@ namespace Resource
         return static_cast<osg::Node*>(mErrorMarker->clone(osg::CopyOp::DEEP_COPY_ALL));
     }
 
-    osg::ref_ptr<const osg::Node> SceneManager::getTemplate(const std::string& name, bool compile)
+    osg::ref_ptr<const osg::Node> SceneManager::getTemplate(std::string_view name, bool compile)
     {
         std::string normalized = VFS::Path::normalizeFilename(name);
 
@@ -921,7 +927,7 @@ namespace Resource
         }
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(const std::string& name)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(std::string_view name)
     {
         osg::ref_ptr<const osg::Node> scene = getTemplate(name);
         return getInstance(scene);
@@ -962,7 +968,7 @@ namespace Resource
         return cloned;
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(const std::string& name, osg::Group* parentNode)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(std::string_view name, osg::Group* parentNode)
     {
         osg::ref_ptr<osg::Node> cloned = getInstance(name);
         attachTo(cloned, parentNode);
@@ -1113,10 +1119,10 @@ namespace Resource
         stats->setAttribute(frameNumber, "Node", mCache->getCacheSize());
     }
 
-    Shader::ShaderVisitor* SceneManager::createShaderVisitor(const std::string& shaderPrefix)
+    osg::ref_ptr<Shader::ShaderVisitor> SceneManager::createShaderVisitor(const std::string& shaderPrefix)
     {
-        Shader::ShaderVisitor* shaderVisitor
-            = new Shader::ShaderVisitor(*mShaderManager.get(), *mImageManager, shaderPrefix);
+        osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor(
+            new Shader::ShaderVisitor(*mShaderManager.get(), *mImageManager, shaderPrefix));
         shaderVisitor->setForceShaders(mForceShaders);
         shaderVisitor->setAutoUseNormalMaps(mAutoUseNormalMaps);
         shaderVisitor->setNormalMapPattern(mNormalMapPattern);
@@ -1127,6 +1133,7 @@ namespace Resource
         shaderVisitor->setConvertAlphaTestToAlphaToCoverage(mConvertAlphaTestToAlphaToCoverage);
         shaderVisitor->setAdjustCoverageForAlphaTest(mAdjustCoverageForAlphaTest);
         shaderVisitor->setSupportsNormalsRT(mSupportsNormalsRT);
+        shaderVisitor->setWeatherParticleOcclusion(mWeatherParticleOcclusion);
         return shaderVisitor;
     }
 }

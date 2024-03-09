@@ -7,12 +7,14 @@
 
 namespace MWGui
 {
-    class SettingsWindow : public WindowBase
+    class SettingsWindow : public WindowModal
     {
     public:
         SettingsWindow();
 
         void onOpen() override;
+
+        void onFrame(float duration) override;
 
         void updateControlsBox();
 

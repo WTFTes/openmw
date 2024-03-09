@@ -97,7 +97,7 @@ CSMWorld::RefIdCollection::RefIdCollection()
     inventoryColumns.mIcon = &mColumns.back();
     mColumns.emplace_back(Columns::ColumnId_Weight, ColumnBase::Display_Float);
     inventoryColumns.mWeight = &mColumns.back();
-    mColumns.emplace_back(Columns::ColumnId_CoinValue, ColumnBase::Display_Integer);
+    mColumns.emplace_back(Columns::ColumnId_StackCount, ColumnBase::Display_Integer);
     inventoryColumns.mValue = &mColumns.back();
 
     IngredientColumns ingredientColumns(inventoryColumns);
@@ -744,7 +744,9 @@ void CSMWorld::RefIdCollection::cloneRecord(
     const ESM::RefId& origin, const ESM::RefId& destination, const CSMWorld::UniversalId::Type type)
 {
     std::unique_ptr<RecordBase> newRecord = mData.getRecord(mData.searchId(origin)).modifiedCopy();
-    mAdapters.find(type)->second->setId(*newRecord, destination.getRefIdString());
+    auto adapter = mAdapters.find(type);
+    assert(adapter != mAdapters.end());
+    adapter->second->setId(*newRecord, destination.getRefIdString());
     mData.insertRecord(std::move(newRecord), type, destination);
 }
 

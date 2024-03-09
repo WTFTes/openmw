@@ -33,8 +33,7 @@
 
 void ESM4::AcousticSpace::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -49,22 +48,24 @@ void ESM4::AcousticSpace::load(ESM4::Reader& reader)
                 reader.get(mEnvironmentType);
                 break;
             case ESM4::SUB_SNAM:
-            {
-                FormId id;
-                reader.getFormId(id);
-                mAmbientLoopSounds.push_back(id);
+                reader.getFormId(mAmbientLoopSounds.emplace_back());
                 break;
-            }
             case ESM4::SUB_RDAT:
                 reader.getFormId(mSoundRegion);
                 break;
             case ESM4::SUB_INAM:
                 reader.get(mIsInterior);
                 break;
-            case ESM4::SUB_WNAM: // usually 0 for FONV (maybe # of close Actors for Walla to trigger)
+            case ESM4::SUB_XTRI:
+                std::uint8_t isInterior;
+                reader.get(isInterior);
+                mIsInterior = isInterior;
+                break;
+            case ESM4::SUB_WNAM:
             {
-                std::uint32_t dummy;
-                reader.get(dummy);
+                // usually 0 for FONV (maybe # of close Actors for Walla to trigger) (4 bytes)
+                // Weather attenuation in FO4 (2 bytes)
+                reader.skipSubRecordData();
                 break;
             }
             case ESM4::SUB_BNAM: // TES5 reverb formid

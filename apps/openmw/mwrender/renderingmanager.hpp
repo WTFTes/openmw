@@ -1,6 +1,8 @@
 #ifndef OPENMW_MWRENDER_RENDERINGMANAGER_H
 #define OPENMW_MWRENDER_RENDERINGMANAGER_H
 
+#include <span>
+
 #include <osg/Camera>
 #include <osg/Light>
 #include <osg/ref_ptr>
@@ -9,7 +11,6 @@
 
 #include <osgUtil/IncrementalCompileOperation>
 
-#include "navmeshmode.hpp"
 #include "objects.hpp"
 #include "renderinginterface.hpp"
 #include "rendermode.hpp"
@@ -88,6 +89,7 @@ namespace MWRender
     class StateUpdater;
     class SharedUniformStateUpdater;
     class PerViewUniformStateUpdater;
+    class IntersectionVisitorWithIgnoreList;
 
     class EffectManager;
     class ScreenshotManager;
@@ -178,8 +180,8 @@ namespace MWRender
             float mRatio;
         };
 
-        RayResult castRay(
-            const osg::Vec3f& origin, const osg::Vec3f& dest, bool ignorePlayer, bool ignoreActors = false);
+        RayResult castRay(const osg::Vec3f& origin, const osg::Vec3f& dest, bool ignorePlayer,
+            bool ignoreActors = false, std::span<const MWWorld::Ptr> ignoreList = {});
 
         /// Return the object under the mouse cursor / crosshair position, given by nX and nY normalized screen
         /// coordinates, where (0,0) is the top left corner.
@@ -275,7 +277,7 @@ namespace MWRender
 
         void setScreenRes(int width, int height);
 
-        void setNavMeshMode(NavMeshMode value);
+        void setNavMeshMode(Settings::NavMeshRenderMode value);
 
     private:
         void updateTextureFiltering();
@@ -300,10 +302,10 @@ namespace MWRender
 
         const bool mSkyBlending;
 
-        osg::ref_ptr<osgUtil::IntersectionVisitor> getIntersectionVisitor(
-            osgUtil::Intersector* intersector, bool ignorePlayer, bool ignoreActors);
+        osg::ref_ptr<osgUtil::IntersectionVisitor> getIntersectionVisitor(osgUtil::Intersector* intersector,
+            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList = {});
 
-        osg::ref_ptr<osgUtil::IntersectionVisitor> mIntersectionVisitor;
+        osg::ref_ptr<IntersectionVisitorWithIgnoreList> mIntersectionVisitor;
 
         osg::ref_ptr<osgViewer::Viewer> mViewer;
         osg::ref_ptr<osg::Group> mRootNode;
@@ -336,14 +338,13 @@ namespace MWRender
         osg::ref_ptr<NpcAnimation> mPlayerAnimation;
         osg::ref_ptr<SceneUtil::PositionAttitudeTransform> mPlayerNode;
         std::unique_ptr<Camera> mCamera;
-        std::unique_ptr<Debug::DebugDrawer> mDebugDraw;
+        osg::ref_ptr<Debug::DebugDrawer> mDebugDraw;
 
         osg::ref_ptr<StateUpdater> mStateUpdater;
         osg::ref_ptr<SharedUniformStateUpdater> mSharedUniformStateUpdater;
         osg::ref_ptr<PerViewUniformStateUpdater> mPerViewUniformStateUpdater;
 
         osg::Vec4f mAmbientColor;
-        float mMinimumAmbientLuminance;
         float mNightEyeFactor;
 
         float mNearClip;

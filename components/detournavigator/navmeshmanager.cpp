@@ -166,6 +166,7 @@ namespace DetourNavigator
             return;
         mLastRecastMeshManagerRevision = mRecastMeshManager.getRevision();
         mPlayerTile = playerTile;
+        mRecastMeshManager.setRange(makeRange(playerTile, mSettings.mMaxTilesNumber), guard);
         const auto changedTiles = mRecastMeshManager.takeChangedTiles(guard);
         const TilesPositionsRange range = mRecastMeshManager.getLimitedObjectsRange();
         for (const auto& [agentBounds, cached] : mCache)
@@ -177,7 +178,6 @@ namespace DetourNavigator
         const std::map<osg::Vec2i, ChangeType>& changedTiles)
     {
         std::map<osg::Vec2i, ChangeType> tilesToPost = changedTiles;
-        std::map<osg::Vec2i, ChangeType> tilesToPost1;
         {
             const auto locked = cached->lockConst();
             const auto& navMesh = locked->getImpl();

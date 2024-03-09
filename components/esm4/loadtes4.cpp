@@ -29,7 +29,6 @@
 #include <stdexcept>
 
 #include "common.hpp"
-#include "formid.hpp"
 #include "reader.hpp"
 //#include "writer.hpp"
 
@@ -81,13 +80,13 @@ void ESM4::Header::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_ONAM:
             {
-                mOverrides.resize(subHdr.dataSize / sizeof(FormId32));
-                for (FormId& mOverride : mOverrides)
+                mOverrides.resize(subHdr.dataSize / sizeof(ESM::FormId32));
+                for (ESM::FormId& mOverride : mOverrides)
                 {
                     uint32_t v;
                     if (!reader.getExact(v))
                         throw std::runtime_error("TES4 ONAM data read error");
-                    mOverride = FormId::fromUint32(v);
+                    mOverride = ESM::FormId::fromUint32(v);
 #if 0
                     std::string padding;
                     padding.insert(0, reader.stackSize()*2, ' ');
@@ -100,6 +99,8 @@ void ESM4::Header::load(ESM4::Reader& reader)
             case ESM4::SUB_INCC:
             case ESM4::SUB_OFST: // Oblivion only?
             case ESM4::SUB_DELE: // Oblivion only?
+            case ESM4::SUB_TNAM: // Fallout 4 (CK only)
+            case ESM::fourCC("MMSB"): // Fallout 76
                 reader.skipSubRecordData();
                 break;
             default:

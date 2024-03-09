@@ -102,7 +102,7 @@ namespace MWWorld
         std::unique_ptr<MWRender::RenderingManager> mRendering;
         std::unique_ptr<MWWorld::Scene> mWorldScene;
         std::unique_ptr<MWWorld::WeatherManager> mWeatherManager;
-        std::unique_ptr<MWWorld::DateTimeManager> mCurrentDate;
+        std::unique_ptr<MWWorld::DateTimeManager> mTimeManager;
         std::unique_ptr<ProjectileManager> mProjectileManager;
 
         bool mSky;
@@ -135,16 +135,14 @@ namespace MWWorld
 
         uint32_t mRandomSeed{};
 
-        float mSimulationTimeScale = 1.0;
-
         // not implemented
-        World(const World&);
-        World& operator=(const World&);
+        World(const World&) = delete;
+        World& operator=(const World&) = delete;
 
         void updateWeather(float duration, bool paused = false);
 
         void initObjectInCell(const Ptr& ptr, CellStore& cell, bool adjustPos);
-        Ptr moveObjectToCell(const Ptr& ptr, CellStore* cell, ESM::Position pos, int count, bool adjustPos);
+        Ptr moveObjectToCell(const Ptr& ptr, CellStore* cell, ESM::Position pos, bool adjustPos);
         Ptr copyObjectToCell(const ConstPtr& ptr, CellStore* cell, ESM::Position pos, int count, bool adjustPos);
 
         void updateSoundListener();
@@ -195,11 +193,16 @@ namespace MWWorld
         void addContainerScripts(const Ptr& reference, CellStore* cell) override;
         void removeContainerScripts(const Ptr& reference) override;
 
-        World(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, Resource::ResourceSystem* resourceSystem,
-            SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue,
-            const Files::Collections& fileCollections, const std::vector<std::string>& contentFiles,
+        World(Resource::ResourceSystem* resourceSystem, int activationDistanceOverride, const std::string& startCell,
+            const std::filesystem::path& userDataPath);
+
+        void loadData(const Files::Collections& fileCollections, const std::vector<std::string>& contentFiles,
             const std::vector<std::string>& groundcoverFiles, ToUTF8::Utf8Encoder* encoder,
-            int activationDistanceOverride, const std::string& startCell, const std::filesystem::path& userDataPath);
+            Loading::Listener* listener);
+
+        // Must be called after `loadData`.
+        void init(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, SceneUtil::WorkQueue* workQueue,
+            SceneUtil::UnrefQueue& unrefQueue);
 
         virtual ~World();
 
@@ -215,7 +218,7 @@ namespace MWWorld
 
         void write(ESM::ESMWriter& writer, Loading::Listener& progress) const override;
 
-        void readRecord(ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap) override;
+        void readRecord(ESM::ESMReader& reader, uint32_t type) override;
 
         // switch to POV before showing player's death animation
         void useDeathCamera() override;
@@ -272,7 +275,7 @@ namespace MWWorld
         std::string_view getCellName(const MWWorld::Cell& cell) const override;
         std::string_view getCellName(const ESM::Cell* cell) const override;
 
-        void removeRefScript(MWWorld::RefData* ref) override;
+        void removeRefScript(const MWWorld::CellRef* ref) override;
         //< Remove the script attached to ref from mLocalScripts
 
         Ptr getPtr(const ESM::RefId& name, bool activeOnly) override;
@@ -304,14 +307,8 @@ namespace MWWorld
         void advanceTime(double hours, bool incremental = false) override;
         ///< Advance in-game time.
 
-        std::string_view getMonthName(int month = -1) const override;
-        ///< Return name of month (-1: current month)
-
         TimeStamp getTimeStamp() const override;
         ///< Return current in-game time and number of day since new game start.
-
-        ESM::EpochTimeStamp getEpochTimeStamp() const override;
-        ///< Return current in-game date and time.
 
         bool toggleSky() override;
         ///< \return Resulting mode
@@ -332,13 +329,7 @@ namespace MWWorld
 
         void setMoonColour(bool red) override;
 
-        void modRegion(const ESM::RefId& regionid, const std::vector<char>& chances) override;
-
-        float getTimeScaleFactor() const override;
-
-        float getSimulationTimeScale() const override { return mSimulationTimeScale; }
-
-        void setSimulationTimeScale(float scale) override;
+        void modRegion(const ESM::RefId& regionid, const std::vector<uint8_t>& chances) override;
 
         void changeToInteriorCell(const std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos,
             bool changeEvent = true) override;
@@ -353,12 +344,6 @@ namespace MWWorld
         ///< Return pointer to the object the player is looking at, if it is within activation range
 
         float getDistanceToFacedObject() override;
-
-        /// Returns a pointer to the object the provided object would hit (if within the
-        /// specified distance), and the point where the hit occurs. This will attempt to
-        /// use the "Head" node as a basis.
-        std::pair<MWWorld::Ptr, osg::Vec3f> getHitContact(
-            const MWWorld::ConstPtr& ptr, float distance, std::vector<MWWorld::Ptr>& targets) override;
 
         /// @note No-op for items in containers. Use ContainerStore::removeItem instead.
         void deleteObject(const Ptr& ptr) override;
@@ -407,7 +392,7 @@ namespace MWWorld
         const MWPhysics::RayCastingInterface* getRayCasting() const override;
 
         bool castRenderingRay(MWPhysics::RayCastingResult& res, const osg::Vec3f& from, const osg::Vec3f& to,
-            bool ignorePlayer, bool ignoreActors) override;
+            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList) override;
 
         void setActorCollisionMode(const Ptr& ptr, bool internal, bool external) override;
         bool isActorCollisionEnabled(const Ptr& ptr) override;
@@ -468,7 +453,7 @@ namespace MWWorld
         bool toggleVanityMode(bool enable) override;
 
         MWRender::Camera* getCamera() override;
-        bool vanityRotateCamera(float* rot) override;
+        bool vanityRotateCamera(const float* rot) override;
 
         void applyDeferredPreviewRotationToPlayer(float dt) override;
         void disableDeferredPreviewRotation() override;
@@ -574,7 +559,7 @@ namespace MWWorld
         void castSpell(const MWWorld::Ptr& actor, bool manualSpell = false) override;
 
         void launchMagicBolt(const ESM::RefId& spellId, const MWWorld::Ptr& caster, const osg::Vec3f& fallbackDirection,
-            int slot) override;
+            ESM::RefNum item) override;
         void launchProjectile(MWWorld::Ptr& actor, MWWorld::Ptr& projectile, const osg::Vec3f& worldPos,
             const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength) override;
         void updateProjectilesCasters() override;
@@ -620,8 +605,6 @@ namespace MWWorld
         void spawnEffect(const std::string& model, const std::string& textureOverride, const osg::Vec3f& worldPos,
             float scale = 1.f, bool isMagicVFX = true) override;
 
-        void activate(const MWWorld::Ptr& object, const MWWorld::Ptr& actor) override;
-
         /// @see MWWorld::WeatherManager::isInStorm
         bool isInStorm() const override;
 
@@ -637,9 +620,6 @@ namespace MWWorld
         /// @note The length of the vector is the distance between actor and target.
         osg::Vec3f aimToTarget(
             const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target, bool isRangedCombat) override;
-
-        /// Return the distance between actor's weapon and target's collision box.
-        float getHitDistance(const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target) override;
 
         bool isPlayerInJail() const override;
 
@@ -686,6 +666,8 @@ namespace MWWorld
         MWRender::RenderingManager* getRenderingManager() override { return mRendering.get(); }
 
         MWRender::PostProcessor* getPostProcessor() override;
+
+        DateTimeManager* getTimeManager() override { return mTimeManager.get(); }
 
         void setActorActive(const MWWorld::Ptr& ptr, bool value) override;
     };

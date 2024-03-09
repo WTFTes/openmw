@@ -6,6 +6,8 @@
 #include "tilespositionsrange.hpp"
 #include "version.hpp"
 
+#include <components/debug/writeflags.hpp>
+
 #include <DetourNavMesh.h>
 #include <DetourStatus.h>
 
@@ -36,9 +38,11 @@ namespace DetourNavigator
             OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(NavMeshNotFound)
             OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(StartPolygonNotFound)
             OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(EndPolygonNotFound)
+            OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(TargetPolygonNotFound)
             OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(MoveAlongSurfaceFailed)
             OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(FindPathOverPolygonsFailed)
             OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(InitNavMeshQueryFailed)
+            OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE(FindStraightPathFailed)
         }
 #undef OPENMW_COMPONENTS_DETOURNAVIGATOR_DEBUG_STATUS_MESSAGE
         return stream << "DetourNavigator::Error::" << static_cast<int>(value);
@@ -92,40 +96,25 @@ namespace DetourNavigator
 
     namespace
     {
-        struct StatusString
-        {
-            dtStatus mStatus;
-            std::string_view mString;
+        using StatusString = Debug::FlagString<unsigned int>;
+
+        constexpr std::array dtStatuses{
+            StatusString{ DT_FAILURE, "DT_FAILURE" },
+            StatusString{ DT_SUCCESS, "DT_SUCCESS" },
+            StatusString{ DT_IN_PROGRESS, "DT_IN_PROGRESS" },
+            StatusString{ DT_WRONG_MAGIC, "DT_WRONG_MAGIC" },
+            StatusString{ DT_WRONG_VERSION, "DT_WRONG_VERSION" },
+            StatusString{ DT_OUT_OF_MEMORY, "DT_OUT_OF_MEMORY" },
+            StatusString{ DT_INVALID_PARAM, "DT_INVALID_PARAM" },
+            StatusString{ DT_BUFFER_TOO_SMALL, "DT_BUFFER_TOO_SMALL" },
+            StatusString{ DT_OUT_OF_NODES, "DT_OUT_OF_NODES" },
+            StatusString{ DT_PARTIAL_RESULT, "DT_PARTIAL_RESULT" },
         };
     }
 
-    static constexpr std::array dtStatuses{
-        StatusString{ DT_FAILURE, "DT_FAILURE" },
-        StatusString{ DT_SUCCESS, "DT_SUCCESS" },
-        StatusString{ DT_IN_PROGRESS, "DT_IN_PROGRESS" },
-        StatusString{ DT_WRONG_MAGIC, "DT_WRONG_MAGIC" },
-        StatusString{ DT_WRONG_VERSION, "DT_WRONG_VERSION" },
-        StatusString{ DT_OUT_OF_MEMORY, "DT_OUT_OF_MEMORY" },
-        StatusString{ DT_INVALID_PARAM, "DT_INVALID_PARAM" },
-        StatusString{ DT_BUFFER_TOO_SMALL, "DT_BUFFER_TOO_SMALL" },
-        StatusString{ DT_OUT_OF_NODES, "DT_OUT_OF_NODES" },
-        StatusString{ DT_PARTIAL_RESULT, "DT_PARTIAL_RESULT" },
-    };
-
     std::ostream& operator<<(std::ostream& stream, const WriteDtStatus& value)
     {
-        bool first = true;
-        for (const auto& v : dtStatuses)
-        {
-            if ((value.mStatus & v.mStatus) == 0)
-                continue;
-            if (first)
-                first = false;
-            else
-                stream << " | ";
-            stream << v.mString;
-        }
-        return stream;
+        return Debug::writeFlags(stream, value.mStatus, dtStatuses);
     }
 
     std::ostream& operator<<(std::ostream& stream, const Flag value)

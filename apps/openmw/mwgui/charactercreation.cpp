@@ -4,6 +4,7 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/fallback/fallback.hpp>
+#include <components/misc/resourcehelpers.hpp>
 #include <components/misc/rng.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -13,7 +14,7 @@
 #include "../mwbase/world.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
-#include "../mwmechanics/npcstats.hpp"
+#include "../mwmechanics/creaturestats.hpp"
 
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
@@ -38,7 +39,7 @@ namespace
     {
         const std::string mText;
         const Response mResponses[3];
-        const std::string mSound;
+        const VFS::Path::Normalized mSound;
     };
 
     Step sGenerateClassSteps(int number)
@@ -52,9 +53,9 @@ namespace
             "Question_" + MyGUI::utility::toString(number) + "_AnswerThree") };
         std::string sound = "vo\\misc\\chargen qa" + MyGUI::utility::toString(number) + ".wav";
 
-        Response r0 = { answer0, ESM::Class::Combat };
-        Response r1 = { answer1, ESM::Class::Magic };
-        Response r2 = { answer2, ESM::Class::Stealth };
+        Response r0 = { std::move(answer0), ESM::Class::Combat };
+        Response r1 = { std::move(answer1), ESM::Class::Magic };
+        Response r2 = { std::move(answer2), ESM::Class::Stealth };
 
         // randomize order in which responses are displayed
         int order = Misc::Rng::rollDice(6);
@@ -62,17 +63,17 @@ namespace
         switch (order)
         {
             case 0:
-                return { question, { r0, r1, r2 }, sound };
+                return { std::move(question), { std::move(r0), std::move(r1), std::move(r2) }, std::move(sound) };
             case 1:
-                return { question, { r0, r2, r1 }, sound };
+                return { std::move(question), { std::move(r0), std::move(r2), std::move(r1) }, std::move(sound) };
             case 2:
-                return { question, { r1, r0, r2 }, sound };
+                return { std::move(question), { std::move(r1), std::move(r0), std::move(r2) }, std::move(sound) };
             case 3:
-                return { question, { r1, r2, r0 }, sound };
+                return { std::move(question), { std::move(r1), std::move(r2), std::move(r0) }, std::move(sound) };
             case 4:
-                return { question, { r2, r0, r1 }, sound };
+                return { std::move(question), { std::move(r2), std::move(r0), std::move(r1) }, std::move(sound) };
             default:
-                return { question, { r2, r1, r0 }, sound };
+                return { std::move(question), { std::move(r2), std::move(r1), std::move(r0) }, std::move(sound) };
         }
     }
 }
@@ -102,7 +103,7 @@ namespace MWGui
             mPlayerSkillValues.emplace(skill.mId, MWMechanics::SkillValue());
     }
 
-    void CharacterCreation::setValue(ESM::Attribute::AttributeID id, const MWMechanics::AttributeValue& value)
+    void CharacterCreation::setAttribute(ESM::RefId id, const MWMechanics::AttributeValue& value)
     {
         mPlayerAttributes[id] = value;
         if (mReviewDialog)
@@ -245,7 +246,7 @@ namespace MWGui
 
                     const ESM::NPC* playerNpc = world->getPlayerPtr().get<ESM::NPC>()->mBase;
 
-                    const MWWorld::Player player = world->getPlayer();
+                    const MWWorld::Player& player = world->getPlayer();
 
                     const ESM::Class* playerClass = world->getStore().get<ESM::Class>().find(playerNpc->mClass);
 
@@ -262,8 +263,7 @@ namespace MWGui
                     mReviewDialog->setFatigue(stats.getFatigue());
                     for (auto& attributePair : mPlayerAttributes)
                     {
-                        mReviewDialog->setAttribute(
-                            static_cast<ESM::Attribute::AttributeID>(attributePair.first), attributePair.second);
+                        mReviewDialog->setAttribute(attributePair.first, attributePair.second);
                     }
                     for (const auto& [skill, value] : mPlayerSkillValues)
                     {
@@ -333,10 +333,10 @@ namespace MWGui
             if (!classId.empty())
                 MWBase::Environment::get().getMechanicsManager()->setPlayerClass(classId);
 
-            const ESM::Class* klass = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(classId);
-            if (klass)
+            const ESM::Class* pickedClass = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(classId);
+            if (pickedClass)
             {
-                mPlayerClass = *klass;
+                mPlayerClass = *pickedClass;
             }
             MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mPickClassDialog));
         }
@@ -454,29 +454,30 @@ namespace MWGui
     {
         if (mCreateClassDialog)
         {
-            ESM::Class klass;
-            klass.mName = mCreateClassDialog->getName();
-            klass.mDescription = mCreateClassDialog->getDescription();
-            klass.mData.mSpecialization = mCreateClassDialog->getSpecializationId();
-            klass.mData.mIsPlayable = 0x1;
-            klass.mRecordFlags = 0;
+            ESM::Class createdClass;
+            createdClass.mName = mCreateClassDialog->getName();
+            createdClass.mDescription = mCreateClassDialog->getDescription();
+            createdClass.mData.mSpecialization = mCreateClassDialog->getSpecializationId();
+            createdClass.mData.mIsPlayable = 0x1;
+            createdClass.mRecordFlags = 0;
 
-            std::vector<int> attributes = mCreateClassDialog->getFavoriteAttributes();
-            assert(attributes.size() == klass.mData.mAttribute.size());
-            std::copy(attributes.begin(), attributes.end(), klass.mData.mAttribute.begin());
+            std::vector<ESM::RefId> attributes = mCreateClassDialog->getFavoriteAttributes();
+            assert(attributes.size() >= createdClass.mData.mAttribute.size());
+            for (size_t i = 0; i < createdClass.mData.mAttribute.size(); ++i)
+                createdClass.mData.mAttribute[i] = ESM::Attribute::refIdToIndex(attributes[i]);
 
             std::vector<ESM::RefId> majorSkills = mCreateClassDialog->getMajorSkills();
             std::vector<ESM::RefId> minorSkills = mCreateClassDialog->getMinorSkills();
-            assert(majorSkills.size() >= klass.mData.mSkills.size());
-            assert(minorSkills.size() >= klass.mData.mSkills.size());
-            for (size_t i = 0; i < klass.mData.mSkills.size(); ++i)
+            assert(majorSkills.size() >= createdClass.mData.mSkills.size());
+            assert(minorSkills.size() >= createdClass.mData.mSkills.size());
+            for (size_t i = 0; i < createdClass.mData.mSkills.size(); ++i)
             {
-                klass.mData.mSkills[i][1] = majorSkills[i].getIf<ESM::IndexRefId>()->getValue();
-                klass.mData.mSkills[i][0] = minorSkills[i].getIf<ESM::IndexRefId>()->getValue();
+                createdClass.mData.mSkills[i][1] = ESM::Skill::refIdToIndex(majorSkills[i]);
+                createdClass.mData.mSkills[i][0] = ESM::Skill::refIdToIndex(minorSkills[i]);
             }
 
-            MWBase::Environment::get().getMechanicsManager()->setPlayerClass(klass);
-            mPlayerClass = klass;
+            MWBase::Environment::get().getMechanicsManager()->setPlayerClass(createdClass);
+            mPlayerClass = std::move(createdClass);
 
             // Do not delete dialog, so that choices are remembered in case we want to go back and adjust them later
             mCreateClassDialog->setVisible(false);
@@ -656,7 +657,7 @@ namespace MWGui
             += MyGUI::newDelegate(this, &CharacterCreation::onClassQuestionChosen);
         mGenerateClassQuestionDialog->setVisible(true);
 
-        MWBase::Environment::get().getSoundManager()->say(step.mSound);
+        MWBase::Environment::get().getSoundManager()->say(Misc::ResourceHelpers::correctSoundPath(step.mSound));
     }
 
     void CharacterCreation::selectGeneratedClass()
@@ -665,9 +666,10 @@ namespace MWGui
 
         MWBase::Environment::get().getMechanicsManager()->setPlayerClass(mGenerateClass);
 
-        const ESM::Class* klass = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(mGenerateClass);
+        const ESM::Class* generatedClass
+            = MWBase::Environment::get().getESMStore()->get<ESM::Class>().find(mGenerateClass);
 
-        mPlayerClass = *klass;
+        mPlayerClass = *generatedClass;
     }
 
     void CharacterCreation::onGenerateClassBack()

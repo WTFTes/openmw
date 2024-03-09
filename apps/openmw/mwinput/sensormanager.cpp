@@ -1,6 +1,7 @@
 #include "sensormanager.hpp"
 
 #include <components/debug/debuglog.hpp>
+#include <components/settings/values.hpp>
 
 namespace MWInput
 {
@@ -30,7 +31,7 @@ namespace MWInput
 
     void SensorManager::correctGyroscopeAxes()
     {
-        if (!Settings::Manager::getBool("enable gyroscope", "Input"))
+        if (!Settings::input().mEnableGyroscope)
             return;
 
         // Treat setting from config as axes for landscape mode.
@@ -41,8 +42,7 @@ namespace MWInput
 
         float angle = 0;
 
-        SDL_DisplayOrientation currentOrientation
-            = SDL_GetDisplayOrientation(Settings::Manager::getInt("screen", "Video"));
+        SDL_DisplayOrientation currentOrientation = SDL_GetDisplayOrientation(Settings::video().mScreen);
         switch (currentOrientation)
         {
             case SDL_ORIENTATION_UNKNOWN:
@@ -71,7 +71,7 @@ namespace MWInput
 
     void SensorManager::updateSensors()
     {
-        if (Settings::Manager::getBool("enable gyroscope", "Input"))
+        if (Settings::input().mEnableGyroscope)
         {
             int numSensors = SDL_NumSensors();
             for (int i = 0; i < numSensors; ++i)
@@ -128,7 +128,7 @@ namespace MWInput
 
     void SensorManager::sensorUpdated(const SDL_SensorEvent& arg)
     {
-        if (!Settings::Manager::getBool("enable gyroscope", "Input"))
+        if (!Settings::input().mEnableGyroscope)
             return;
 
         SDL_Sensor* sensor = SDL_SensorFromInstanceID(arg.which);

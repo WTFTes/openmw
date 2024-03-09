@@ -91,8 +91,8 @@ namespace
 
         MWGui::BookPage* getPage(std::string_view name) { return getWidget<MWGui::BookPage>(name); }
 
-        JournalWindowImpl(MWGui::JournalViewModel::Ptr Model, bool questList, ToUTF8::FromType encoding)
-            : JournalBooks(Model, encoding)
+        JournalWindowImpl(MWGui::JournalViewModel::Ptr model, bool questList, ToUTF8::FromType encoding)
+            : JournalBooks(std::move(model), encoding)
             , JournalWindow()
         {
             center();
@@ -126,7 +126,7 @@ namespace
                 MWGui::BookPage::ClickCallback callback = [this](intptr_t linkId) { notifyTopicClicked(linkId); };
 
                 getPage(LeftBookPage)->adviseLinkClicked(callback);
-                getPage(RightBookPage)->adviseLinkClicked(callback);
+                getPage(RightBookPage)->adviseLinkClicked(std::move(callback));
 
                 getPage(LeftBookPage)->eventMouseWheel
                     += MyGUI::newDelegate(this, &JournalWindowImpl::notifyMouseWheel);
@@ -140,7 +140,7 @@ namespace
 
                 getPage(LeftTopicIndex)->adviseLinkClicked(callback);
                 getPage(CenterTopicIndex)->adviseLinkClicked(callback);
-                getPage(RightTopicIndex)->adviseLinkClicked(callback);
+                getPage(RightTopicIndex)->adviseLinkClicked(std::move(callback));
             }
 
             adjustButton(PrevPageBTN);
@@ -226,10 +226,6 @@ namespace
 
         void onOpen() override
         {
-            if (!MWBase::Environment::get().getWindowManager()->getJournalAllowed())
-            {
-                MWBase::Environment::get().getWindowManager()->popGuiMode();
-            }
             mModel->load();
 
             setBookMode();
@@ -313,7 +309,7 @@ namespace
                 notifyTopics(getWidget<MyGUI::Widget>(TopicsList));
         }
 
-        void pushBook(Book book, unsigned int page)
+        void pushBook(Book& book, unsigned int page)
         {
             DisplayState bs;
             bs.mPage = page;
@@ -323,7 +319,7 @@ namespace
             updateCloseJournalButton();
         }
 
-        void replaceBook(Book book, unsigned int page)
+        void replaceBook(Book& book, unsigned int page)
         {
             assert(!mStates.empty());
             mStates.top().mBook = book;
@@ -380,7 +376,7 @@ namespace
             setVisible(PageTwoNum, relPages > 1);
 
             getPage(LeftBookPage)->showPage((relPages > 0) ? book : Book(), page + 0);
-            getPage(RightBookPage)->showPage((relPages > 0) ? book : Book(), page + 1);
+            getPage(RightBookPage)->showPage((relPages > 0) ? std::move(book) : Book(), page + 1);
 
             setText(PageOneNum, page + 1);
             setText(PageTwoNum, page + 2);

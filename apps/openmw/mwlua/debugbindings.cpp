@@ -3,7 +3,9 @@
 #include "luamanagerimp.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/world.hpp"
+
 #include "../mwrender/postprocessor.hpp"
 #include "../mwrender/renderingmanager.hpp"
 
@@ -38,19 +40,27 @@ namespace MWLua
         api["toggleGodMode"] = []() { MWBase::Environment::get().getWorld()->toggleGodMode(); };
         api["isGodMode"] = []() { return MWBase::Environment::get().getWorld()->getGodModeState(); };
 
+        api["toggleAI"] = []() { MWBase::Environment::get().getMechanicsManager()->toggleAI(); };
+        api["isAIEnabled"] = []() { return MWBase::Environment::get().getMechanicsManager()->isAIActive(); };
+
         api["toggleCollision"] = []() { MWBase::Environment::get().getWorld()->toggleCollisionMode(); };
         api["isCollisionEnabled"] = []() {
             auto world = MWBase::Environment::get().getWorld();
             return world->isActorCollisionEnabled(world->getPlayerPtr());
         };
 
+        api["toggleMWScript"] = []() { MWBase::Environment::get().getWorld()->toggleScripts(); };
+        api["isMWScriptEnabled"] = []() { return MWBase::Environment::get().getWorld()->getScriptsEnabled(); };
+
+        api["reloadLua"] = []() { MWBase::Environment::get().getLuaManager()->reloadAllScripts(); };
+
         api["NAV_MESH_RENDER_MODE"]
-            = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, MWRender::NavMeshMode>({
-                { "AreaType", MWRender::NavMeshMode::AreaType },
-                { "UpdateFrequency", MWRender::NavMeshMode::UpdateFrequency },
+            = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, Settings::NavMeshRenderMode>({
+                { "AreaType", Settings::NavMeshRenderMode::AreaType },
+                { "UpdateFrequency", Settings::NavMeshRenderMode::UpdateFrequency },
             }));
 
-        api["setNavMeshRenderMode"] = [context](MWRender::NavMeshMode value) {
+        api["setNavMeshRenderMode"] = [context](Settings::NavMeshRenderMode value) {
             context.mLuaManager->addAction(
                 [value] { MWBase::Environment::get().getWorld()->getRenderingManager()->setNavMeshMode(value); });
         };

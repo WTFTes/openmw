@@ -10,7 +10,9 @@
 #include "../mwworld/class.hpp"
 
 #include "actorutil.hpp"
+#include "character.hpp"
 #include "creaturestats.hpp"
+#include "npcstats.hpp"
 
 namespace MWMechanics
 {
@@ -36,7 +38,7 @@ namespace MWMechanics
 
         // Stop if the target doesn't exist
         // Really we should be checking whether the target is currently registered with the MechanicsManager
-        if (target == MWWorld::Ptr() || !target.getRefData().getCount() || !target.getRefData().isEnabled())
+        if (target == MWWorld::Ptr() || !target.getCellRef().getCount() || !target.getRefData().isEnabled())
             return true;
 
         if (isTargetMagicallyHidden(target)
@@ -44,6 +46,9 @@ namespace MWMechanics
             return false;
 
         if (target.getClass().getCreatureStats(target).isDead())
+            return true;
+
+        if (target.getClass().getNpcStats(target).getBounty() <= 0)
             return true;
 
         actor.getClass().getCreatureStats(actor).setDrawState(DrawState::Nothing);
@@ -55,7 +60,8 @@ namespace MWMechanics
         const float pathTolerance = 100.f;
 
         // check the true distance in case the target is far away in Z-direction
-        bool reached = pathTo(actor, dest, duration, pathTolerance, (actorPos - dest).length(), PathType::Partial)
+        bool reached = pathTo(actor, dest, duration, characterController.getSupportedMovementDirections(),
+                           pathTolerance, (actorPos - dest).length(), PathType::Partial)
             && std::abs(dest.z() - actorPos.z()) < pathTolerance;
 
         if (reached)
@@ -77,7 +83,7 @@ namespace MWMechanics
     {
         if (!mCachedTarget.isEmpty())
         {
-            if (mCachedTarget.getRefData().isDeleted() || !mCachedTarget.getRefData().isEnabled())
+            if (mCachedTarget.mRef->isDeleted() || !mCachedTarget.getRefData().isEnabled())
                 mCachedTarget = MWWorld::Ptr();
             else
                 return mCachedTarget;

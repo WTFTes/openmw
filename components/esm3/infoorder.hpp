@@ -31,40 +31,31 @@ namespace ESM
                 return;
             }
 
-            if (it == mInfoPositions.end())
-                it = mInfoPositions.emplace(value.mId, Item{ .mPosition = mOrderedInfo.end(), .mDeleted = deleted })
-                         .first;
-
-            Item& item = it->second;
-
-            const auto insertOrSplice = [&](typename std::list<T>::const_iterator before) {
-                if (item.mPosition == mOrderedInfo.end())
-                    item.mPosition = mOrderedInfo.insert(before, std::forward<V>(value));
+            auto before = mOrderedInfo.begin();
+            if (!value.mPrev.empty())
+            {
+                const auto prevIt = mInfoPositions.find(value.mPrev);
+                if (prevIt != mInfoPositions.end())
+                    before = std::next(prevIt->second.mPosition);
                 else
-                    mOrderedInfo.splice(before, mOrderedInfo, item.mPosition);
-            };
-
-            if (value.mPrev.empty())
-            {
-                insertOrSplice(mOrderedInfo.begin());
-                return;
+                    before = mOrderedInfo.end();
             }
 
-            const auto prevIt = mInfoPositions.find(value.mPrev);
-            if (prevIt != mInfoPositions.end())
+            if (it == mInfoPositions.end())
             {
-                insertOrSplice(std::next(prevIt->second.mPosition));
-                return;
+                const RefId id = value.mId;
+                mInfoPositions.emplace(id,
+                    Item{
+                        .mPosition = mOrderedInfo.insert(before, std::forward<V>(value)),
+                        .mDeleted = deleted,
+                    });
             }
-
-            const auto nextIt = mInfoPositions.find(value.mNext);
-            if (nextIt != mInfoPositions.end())
+            else
             {
-                insertOrSplice(nextIt->second.mPosition);
-                return;
+                *it->second.mPosition = std::forward<V>(value);
+                it->second.mDeleted = deleted;
+                mOrderedInfo.splice(before, mOrderedInfo, it->second.mPosition);
             }
-
-            insertOrSplice(mOrderedInfo.end());
         }
 
         void removeInfo(const RefId& infoRefId)

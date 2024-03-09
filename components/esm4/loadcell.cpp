@@ -47,11 +47,10 @@ float ESM4::Cell::sInvalidWaterLevel = -200000.f;
 // longer/shorter/same as loading the subrecords.
 void ESM4::Cell::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
-    mId = ESM::RefId::formIdRefId(mFormId);
+    ESM::FormId formId = reader.getFormIdFromHeader();
+    mId = formId;
     mFlags = reader.hdr().record.flags;
-    mParent = ESM::RefId::formIdRefId(reader.currWorld());
+    mParent = reader.currWorld();
     mWaterHeight = sInvalidWaterLevel;
     reader.clearCellGrid(); // clear until XCLC FIXME: somehow do this automatically?
 
@@ -70,9 +69,8 @@ void ESM4::Cell::load(ESM4::Reader& reader)
     // WARN: we need to call setCurrCell (and maybe setCurrCellGrid?) again before loading
     // cell child groups if we are loading them after restoring the context
     // (may be easier to update the context before saving?)
-    reader.setCurrCell(mFormId); // save for LAND (and other children) to access later
+    reader.setCurrCell(formId); // save for LAND (and other children) to access later
     std::uint32_t esmVer = reader.esmVersion();
-    bool isFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
     bool isSkyrim = (esmVer == ESM::VER_170 || esmVer == ESM::VER_094);
 
     while (reader.getSubRecordHeader())
@@ -107,16 +105,8 @@ void ESM4::Cell::load(ESM4::Reader& reader)
                 uint32_t flags;
                 reader.get(mX);
                 reader.get(mY);
-#if 0
-                std::string padding;
-                padding.insert(0, reader.stackSize()*2, ' ');
-                std::cout << padding << "CELL group " << ESM4::printLabel(reader.grp().label, reader.grp().type) << std::endl;
-                std::cout << padding << "CELL formId " << std::hex << reader.hdr().record.id << std::endl;
-                std::cout << padding << "CELL X " << std::dec << mX << ", Y " << mY << std::endl;
-#endif
-                if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || isFONV)
-                    if (subHdr.dataSize == 12)
-                        reader.get(flags); // not in Obvlivion, nor FO3/FONV
+                if (subHdr.dataSize == 12)
+                    reader.get(flags);
 
                 // Remember cell grid for later (loading LAND, NAVM which should be CELL temporary children)
                 // Note that grids only apply for external cells.  For interior cells use the cell's formid.
@@ -129,30 +119,22 @@ void ESM4::Cell::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_DATA:
             {
-                if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || isFONV)
-                    if (subHdr.dataSize == 2)
-                        reader.get(mCellFlags);
-                    else
-                    {
-                        if (subHdr.dataSize != 1)
-                            throw std::runtime_error("CELL unexpected DATA flag size");
-                        reader.get(&mCellFlags, sizeof(std::uint8_t));
-                    }
+                if (subHdr.dataSize == 2)
+                    reader.get(mCellFlags);
                 else
                 {
-                    reader.get((std::uint8_t&)mCellFlags); // 8 bits in Obvlivion
+                    if (subHdr.dataSize != 1)
+                        throw std::runtime_error("CELL unexpected DATA flag size");
+                    std::uint8_t value = 0;
+                    reader.get(value);
+                    mCellFlags = value;
                 }
-#if 0
-                std::string padding;
-                padding.insert(0, reader.stackSize()*2, ' ');
-                std::cout << padding  << "flags: " << std::hex << mCellFlags << std::endl;
-#endif
                 break;
             }
             case ESM4::SUB_XCLR: // for exterior cells
             {
-                mRegions.resize(subHdr.dataSize / sizeof(FormId32));
-                for (std::vector<FormId>::iterator it = mRegions.begin(); it != mRegions.end(); ++it)
+                mRegions.resize(subHdr.dataSize / sizeof(ESM::FormId32));
+                for (std::vector<ESM::FormId>::iterator it = mRegions.begin(); it != mRegions.end(); ++it)
                 {
                     reader.getFormId(*it);
 #if 0
@@ -164,8 +146,26 @@ void ESM4::Cell::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_XOWN:
-                reader.getFormId(mOwner);
+            {
+                switch (subHdr.dataSize)
+                {
+                    case 4:
+                        reader.getFormId(mOwner);
+                        break;
+                    case 12:
+                    {
+                        reader.getFormId(mOwner);
+                        std::uint32_t dummy;
+                        reader.get(dummy); // Unknown
+                        reader.get(dummy); // No crime flag, FO4
+                        break;
+                    }
+                    default:
+                        reader.skipSubRecordData();
+                        break;
+                }
                 break;
+            }
             case ESM4::SUB_XGLB:
                 reader.getFormId(mGlobal);
                 break; // Oblivion only?
@@ -180,21 +180,21 @@ void ESM4::Cell::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_XCLL:
             {
-                if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || isFONV)
+                switch (subHdr.dataSize)
                 {
-                    if (subHdr.dataSize == 40) // FO3/FONV
+                    case 36: // TES4
+                        reader.get(&mLighting, 36);
+                        break;
+                    case 40: // FO3/FNV
+                    case 92: // TES5 (FIXME)
+                    case 136: // FO4 (FIXME)
                         reader.get(mLighting);
-                    else if (subHdr.dataSize == 92) // TES5
-                    {
-                        reader.get(mLighting);
-                        reader.skipSubRecordData(52); // FIXME
-                    }
-                    else
+                        reader.skipSubRecordData(subHdr.dataSize - 40);
+                        break;
+                    default:
                         reader.skipSubRecordData();
+                        break;
                 }
-                else
-                    reader.get(&mLighting, 36); // TES4
-
                 break;
             }
             case ESM4::SUB_XCMT:
@@ -224,9 +224,18 @@ void ESM4::Cell::load(ESM4::Reader& reader)
             case ESM4::SUB_XEZN:
             case ESM4::SUB_XWEM:
             case ESM4::SUB_XILL:
-            case ESM4::SUB_XRNK: // Oblivion only?
+            case ESM4::SUB_XRNK:
             case ESM4::SUB_XCET: // FO3
             case ESM4::SUB_IMPF: // FO3 Zeta
+            case ESM4::SUB_CNAM: // FO4
+            case ESM4::SUB_PCMB: // FO4
+            case ESM4::SUB_RVIS: // FO4
+            case ESM4::SUB_VISI: // FO4
+            case ESM4::SUB_XGDR: // FO4
+            case ESM4::SUB_XILW: // FO4
+            case ESM4::SUB_XCRI: // FO4
+            case ESM4::SUB_XPRI: // FO4
+            case ESM4::SUB_ZNAM: // FO4
                 reader.skipSubRecordData();
                 break;
             default:

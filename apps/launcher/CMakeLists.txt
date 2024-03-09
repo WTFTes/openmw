@@ -35,13 +35,12 @@ set(LAUNCHER_HEADER
 
 # Headers that must be pre-processed
 set(LAUNCHER_UI
-    ${CMAKE_SOURCE_DIR}/files/ui/datafilespage.ui
-    ${CMAKE_SOURCE_DIR}/files/ui/graphicspage.ui
-    ${CMAKE_SOURCE_DIR}/files/ui/mainwindow.ui
-    ${CMAKE_SOURCE_DIR}/files/ui/contentselector.ui
-    ${CMAKE_SOURCE_DIR}/files/ui/importpage.ui
-    ${CMAKE_SOURCE_DIR}/files/ui/settingspage.ui
-    ${CMAKE_SOURCE_DIR}/files/ui/directorypicker.ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/datafilespage.ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/graphicspage.ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/mainwindow.ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/importpage.ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/settingspage.ui
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/directorypicker.ui
 )
 
 source_group(launcher FILES ${LAUNCHER} ${LAUNCHER_HEADER})
@@ -72,12 +71,14 @@ openmw_add_executable(openmw-launcher
     ${UI_HDRS}
 )
 
+add_dependencies(openmw-launcher qm-files)
+
 if (WIN32)
     INSTALL(TARGETS openmw-launcher RUNTIME DESTINATION ".")
 endif (WIN32)
 
 target_link_libraries(openmw-launcher
-    ${SDL2_LIBRARY_ONLY}
+    SDL2::SDL2
     ${OPENAL_LIBRARY}
     components_qt
 )
@@ -93,7 +94,7 @@ if(USE_QT)
     set_property(TARGET openmw-launcher PROPERTY AUTOMOC ON)
 endif(USE_QT)
 
-if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.16 AND MSVC)
+if (MSVC)
     target_precompile_headers(openmw-launcher PRIVATE
         <boost/program_options/options_description.hpp>
 

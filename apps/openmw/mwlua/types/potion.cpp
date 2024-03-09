@@ -5,9 +5,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 
-#include <apps/openmw/mwbase/environment.hpp>
-#include <apps/openmw/mwbase/world.hpp>
-#include <apps/openmw/mwworld/esmstore.hpp>
+#include "apps/openmw/mwbase/environment.hpp"
 
 namespace sol
 {
@@ -23,18 +21,33 @@ namespace
     ESM::Potion tableToPotion(const sol::table& rec)
     {
         ESM::Potion potion;
-        potion.mName = rec["name"];
-        potion.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
-        potion.mIcon = rec["icon"];
-        std::string_view scriptId = rec["mwscript"].get<std::string_view>();
-        potion.mScript = ESM::RefId::deserializeText(scriptId);
-        potion.mData.mWeight = rec["weight"];
-        potion.mData.mValue = rec["value"];
-        sol::table effectsTable = rec["effects"];
-        size_t numEffects = effectsTable.size();
-        potion.mEffects.mList.resize(numEffects);
-        for (size_t i = 0; i < numEffects; ++i)
-            potion.mEffects.mList[i] = LuaUtil::cast<ESM::ENAMstruct>(effectsTable[i + 1]);
+        if (rec["template"] != sol::nil)
+            potion = LuaUtil::cast<ESM::Potion>(rec["template"]);
+        else
+            potion.blank();
+        if (rec["name"] != sol::nil)
+            potion.mName = rec["name"];
+        if (rec["model"] != sol::nil)
+            potion.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
+        if (rec["icon"] != sol::nil)
+            potion.mIcon = rec["icon"];
+        if (rec["mwscript"] != sol::nil)
+        {
+            std::string_view scriptId = rec["mwscript"].get<std::string_view>();
+            potion.mScript = ESM::RefId::deserializeText(scriptId);
+        }
+        if (rec["weight"] != sol::nil)
+            potion.mData.mWeight = rec["weight"];
+        if (rec["value"] != sol::nil)
+            potion.mData.mValue = rec["value"];
+        if (rec["effects"] != sol::nil)
+        {
+            sol::table effectsTable = rec["effects"];
+            size_t numEffects = effectsTable.size();
+            potion.mEffects.mList.resize(numEffects);
+            for (size_t i = 0; i < numEffects; ++i)
+                potion.mEffects.mList[i] = LuaUtil::cast<ESM::ENAMstruct>(effectsTable[i + 1]);
+        }
         return potion;
     }
 }
@@ -58,9 +71,8 @@ namespace MWLua
         record["id"]
             = sol::readonly_property([](const ESM::Potion& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Potion& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property([vfs](const ESM::Potion& rec) -> std::string {
-            return Misc::ResourceHelpers::correctMeshPath(rec.mModel, vfs);
-        });
+        record["model"] = sol::readonly_property(
+            [](const ESM::Potion& rec) -> std::string { return Misc::ResourceHelpers::correctMeshPath(rec.mModel); });
         record["icon"] = sol::readonly_property([vfs](const ESM::Potion& rec) -> std::string {
             return Misc::ResourceHelpers::correctIconPath(rec.mIcon, vfs);
         });

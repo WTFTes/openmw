@@ -1,6 +1,7 @@
 #include "postprocessingbindings.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
 #include "../mwrender/postprocessor.hpp"
 
 #include "luamanagerimp.hpp"
@@ -84,7 +85,7 @@ namespace MWLua
             }
 
             context.mLuaManager->addAction(
-                [=] {
+                [shader, name, values = std::move(values)] {
                     MWBase::Environment::get().getWorld()->getPostProcessor()->setUniform(shader.mShader, name, values);
                 },
                 "SetUniformShaderAction");

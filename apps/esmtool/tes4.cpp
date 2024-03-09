@@ -2,11 +2,14 @@
 #include "arguments.hpp"
 #include "labels.hpp"
 
+#include <array>
 #include <fstream>
 #include <iostream>
 #include <type_traits>
 
+#include <components/debug/writeflags.hpp>
 #include <components/esm/esmcommon.hpp>
+#include <components/esm/refid.hpp>
 #include <components/esm/typetraits.hpp>
 #include <components/esm4/reader.hpp>
 #include <components/esm4/readerutils.hpp>
@@ -108,6 +111,29 @@ namespace EsmTool
             return stream;
         }
 
+        struct WriteCellFlags
+        {
+            std::uint16_t mValue;
+        };
+
+        using CellFlagString = Debug::FlagString<std::uint16_t>;
+
+        constexpr std::array cellFlags{
+            CellFlagString{ ESM4::CELL_Interior, "Interior" },
+            CellFlagString{ ESM4::CELL_HasWater, "HasWater" },
+            CellFlagString{ ESM4::CELL_NoTravel, "NoTravel" },
+            CellFlagString{ ESM4::CELL_HideLand, "HideLand" },
+            CellFlagString{ ESM4::CELL_Public, "Public" },
+            CellFlagString{ ESM4::CELL_HandChgd, "HandChgd" },
+            CellFlagString{ ESM4::CELL_QuasiExt, "QuasiExt" },
+            CellFlagString{ ESM4::CELL_SkyLight, "SkyLight" },
+        };
+
+        std::ostream& operator<<(std::ostream& stream, const WriteCellFlags& write)
+        {
+            return Debug::writeFlags(stream, write.mValue, cellFlags);
+        }
+
         template <class T>
         void readTypedRecord(const Params& params, ESM4::Reader& reader)
         {
@@ -120,23 +146,22 @@ namespace EsmTool
                 return;
 
             std::cout << "\n  Record: " << ESM::NAME(reader.hdr().record.typeId).toStringView();
-            if constexpr (ESM4::hasFormId<T>)
-                std::cout << "\n  FormId: 0x" << ESM4::formIdToString(value.mFormId);
             if constexpr (ESM::hasId<T>)
-            {
-                if constexpr (std::is_same_v<decltype(value.mId), ESM4::FormId>)
-                    std::cout << "\n  FormId: 0x" << ESM4::formIdToString(value.mId);
-                else
-                    std::cout << "\n  Id: " << value.mId;
-            }
+                std::cout << "\n  Id: " << value.mId;
             if constexpr (ESM4::hasFlags<T>)
                 std::cout << "\n  Record flags: " << recordFlags(value.mFlags);
-            if constexpr (ESM4::hasParentFormId<T>)
-                std::cout << "\n  ParentFormId: 0x" << ESM4::formIdToString(value.mParentFormId);
             if constexpr (ESM4::hasParent<T>)
                 std::cout << "\n  Parent: " << value.mParent;
             if constexpr (ESM4::hasEditorId<T>)
                 std::cout << "\n  EditorId: " << value.mEditorId;
+            if constexpr (ESM4::hasFullName<T>)
+                std::cout << "\n  FullName: " << value.mFullName;
+            if constexpr (ESM4::hasCellFlags<T>)
+                std::cout << "\n  CellFlags: " << WriteCellFlags{ value.mCellFlags };
+            if constexpr (ESM4::hasX<T>)
+                std::cout << "\n  X: " << value.mX;
+            if constexpr (ESM4::hasY<T>)
+                std::cout << "\n  Y: " << value.mY;
             if constexpr (ESM::hasModel<T>)
                 std::cout << "\n  Model: " << value.mModel;
             if constexpr (ESM4::hasNif<T>)
@@ -304,8 +329,7 @@ namespace EsmTool
                     readTypedRecord<ESM4::HeadPart>(params, reader);
                     return true;
                 case ESM4::REC_IDLE:
-                    // FIXME: ESM4::IdleAnimation::load does not work with Oblivion.esm
-                    // readTypedRecord<ESM4::IdleAnimation>(params, reader);
+                    readTypedRecord<ESM4::IdleAnimation>(params, reader);
                     return true;
                     break;
                 case ESM4::REC_IDLM:
@@ -538,7 +562,7 @@ namespace EsmTool
             {
                 std::cout << "Author: " << reader.getAuthor() << '\n'
                           << "Description: " << reader.getDesc() << '\n'
-                          << "File format version: " << reader.esmVersion() << '\n';
+                          << "File format version: " << reader.esmVersionF() << '\n';
 
                 if (const std::vector<ESM::MasterData>& masterData = reader.getGameFiles(); !masterData.empty())
                 {

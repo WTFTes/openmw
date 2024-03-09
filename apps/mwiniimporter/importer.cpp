@@ -434,15 +434,12 @@ void MwIniImporter::insertMultistrmap(multistrmap& cfg, const std::string& key, 
 void MwIniImporter::importArchives(multistrmap& cfg, const multistrmap& ini) const
 {
     std::vector<std::string> archives;
-    std::string baseArchive("Archives:Archive ");
-    std::string archive;
 
     // Search archives listed in ini file
     auto it = ini.begin();
     for (int i = 0; it != ini.end(); i++)
     {
-        archive = baseArchive;
-        archive.append(std::to_string(i));
+        std::string archive("Archives:Archive " + std::to_string(i));
 
         it = ini.find(archive);
         if (it == ini.end())
@@ -522,7 +519,6 @@ void MwIniImporter::importGameFiles(
     multistrmap& cfg, const multistrmap& ini, const std::filesystem::path& iniFilename) const
 {
     std::vector<std::pair<std::time_t, std::filesystem::path>> contentFiles;
-    std::string baseGameFile("Game Files:GameFile");
     std::time_t defaultTime = 0;
     ToUTF8::Utf8Encoder encoder(mEncoding);
 
@@ -538,8 +534,7 @@ void MwIniImporter::importGameFiles(
     auto it = ini.begin();
     for (int i = 0; it != ini.end(); i++)
     {
-        std::string gameFile = baseGameFile;
-        gameFile.append(std::to_string(i));
+        std::string gameFile("Game Files:GameFile" + std::to_string(i));
 
         it = ini.find(gameFile);
         if (it == ini.end())
@@ -589,7 +584,7 @@ void MwIniImporter::importGameFiles(
         reader.close();
     }
 
-    auto sortedFiles = dependencySort(unsortedFiles);
+    auto sortedFiles = dependencySort(std::move(unsortedFiles));
 
     // hard-coded dependency Morrowind - Tribunal - Bloodmoon
     if (findString(sortedFiles, "Morrowind.esm") != sortedFiles.end())

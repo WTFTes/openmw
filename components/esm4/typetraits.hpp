@@ -6,32 +6,6 @@
 namespace ESM4
 {
     template <class T, class = std::void_t<>>
-    struct HasFormId : std::false_type
-    {
-    };
-
-    template <class T>
-    struct HasFormId<T, std::void_t<decltype(T::mFormId)>> : std::true_type
-    {
-    };
-
-    template <class T>
-    inline constexpr bool hasFormId = HasFormId<T>::value;
-
-    template <class T, class = std::void_t<>>
-    struct HasParentFormId : std::false_type
-    {
-    };
-
-    template <class T>
-    struct HasParentFormId<T, std::void_t<decltype(T::mParentFormId)>> : std::true_type
-    {
-    };
-
-    template <class T>
-    inline constexpr bool hasParentFormId = HasParentFormId<T>::value;
-
-    template <class T, class = std::void_t<>>
     struct HasParent : std::false_type
     {
     };
@@ -69,6 +43,58 @@ namespace ESM4
 
     template <class T>
     inline constexpr bool hasEditorId = HasEditorId<T>::value;
+
+    template <class T, class = std::void_t<>>
+    struct HasFullName : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasFullName<T, std::void_t<decltype(T::mFullName)>> : std::true_type
+    {
+    };
+
+    template <class T>
+    inline constexpr bool hasFullName = HasFullName<T>::value;
+
+    template <class T, class = std::void_t<>>
+    struct HasCellFlags : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasCellFlags<T, std::void_t<decltype(T::mCellFlags)>> : std::true_type
+    {
+    };
+
+    template <class T>
+    inline constexpr bool hasCellFlags = HasCellFlags<T>::value;
+
+    template <class T, class = std::void_t<>>
+    struct HasX : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasX<T, std::void_t<decltype(T::mX)>> : std::true_type
+    {
+    };
+
+    template <class T>
+    inline constexpr bool hasX = HasX<T>::value;
+
+    template <class T, class = std::void_t<>>
+    struct HasY : std::false_type
+    {
+    };
+
+    template <class T>
+    struct HasY<T, std::void_t<decltype(T::mY)>> : std::true_type
+    {
+    };
+
+    template <class T>
+    inline constexpr bool hasY = HasY<T>::value;
 
     template <class T, class = std::void_t<>>
     struct HasNif : std::false_type

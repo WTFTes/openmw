@@ -36,7 +36,7 @@ namespace ESM
 
         esm.getSubNameIs("MEDT");
         esm.getSubHeader();
-        int school;
+        int32_t school;
         esm.getT(school);
         mData.mSchool = MagicSchool::indexToSkillRefId(school);
         esm.getT(mData.mBaseCost);
@@ -631,7 +631,7 @@ namespace ESM
     {
         auto name = sIndexNameToIndexMap.find(effect);
         if (name == sIndexNameToIndexMap.end())
-            throw std::runtime_error("Unimplemented effect " + std::string(effect));
+            return -1;
 
         return name->second;
     }

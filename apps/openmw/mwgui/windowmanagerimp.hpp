@@ -149,8 +149,8 @@ namespace MWGui
 
         void pushGuiMode(GuiMode mode, const MWWorld::Ptr& arg) override;
         void pushGuiMode(GuiMode mode) override;
-        void popGuiMode(bool noSound = false) override;
-        void removeGuiMode(GuiMode mode, bool noSound = false) override; ///< can be anywhere in the stack
+        void popGuiMode() override;
+        void removeGuiMode(GuiMode mode) override; ///< can be anywhere in the stack
 
         void goToJail(int days) override;
 
@@ -160,8 +160,8 @@ namespace MWGui
         bool isGuiMode() const override;
 
         bool isConsoleMode() const override;
-
         bool isPostProcessorHudVisible() const override;
+        bool isInteractiveMessageBoxActive() const override;
 
         void toggleVisible(GuiWindow wnd) override;
 
@@ -182,6 +182,7 @@ namespace MWGui
         MWGui::ConfirmationDialog* getConfirmationDialog() override;
         MWGui::TradeWindow* getTradeWindow() override;
         MWGui::PostProcessorHud* getPostProcessorHud() override;
+        MWGui::SettingsWindow* getSettingsWindow() override;
 
         /// Make the player use an item, while updating GUI state accordingly
         void useItem(const MWWorld::Ptr& item, bool bypassBeastRestrictions = false) override;
@@ -191,7 +192,8 @@ namespace MWGui
         void setConsoleSelectedObject(const MWWorld::Ptr& object) override;
         MWWorld::Ptr getConsoleSelectedObject() const override;
         void printToConsole(const std::string& msg, std::string_view color) override;
-        void setConsoleMode(const std::string& mode) override;
+        void setConsoleMode(std::string_view mode) override;
+        const std::string& getConsoleMode() override;
 
         /// Set time left for the player to start drowning (update the drowning bar)
         /// @param time time left to start drowning
@@ -247,7 +249,8 @@ namespace MWGui
         void showCrosshair(bool show) override;
 
         /// Turn visibility of HUD on or off
-        bool toggleHud() override;
+        bool setHudVisibility(bool show) override;
+        bool isHudVisible() const override { return mHudEnabled; }
 
         void disallowMouse() override;
         void allowMouse() override;
@@ -267,8 +270,8 @@ namespace MWGui
             enum MWGui::ShowInDialogueMode showInDialogueMode = MWGui::ShowInDialogueMode_IfPossible) override;
         void staticMessageBox(std::string_view message) override;
         void removeStaticMessageBox() override;
-        void interactiveMessageBox(
-            std::string_view message, const std::vector<std::string>& buttons = {}, bool block = false) override;
+        void interactiveMessageBox(std::string_view message, const std::vector<std::string>& buttons = {},
+            bool block = false, int defaultFocus = -1) override;
 
         int readPressedButton() override; ///< returns the index of the pressed button or -1 if no button was pressed
                                           ///< (->MessageBoxmanager->InteractiveMessageBox)
@@ -387,6 +390,12 @@ namespace MWGui
 
         void asyncPrepareSaveMap() override;
 
+        // Used in Lua bindings
+        const std::vector<GuiMode>& getGuiModeStack() const override { return mGuiModes; }
+        void setDisabledByLua(std::string_view windowId, bool disabled) override;
+        std::vector<std::string_view> getAllWindowIds() const override;
+        std::vector<std::string_view> getAllowedWindowIds(GuiMode mode) const override;
+
     private:
         unsigned int mOldUpdateMask;
         unsigned int mOldCullMask;
@@ -451,13 +460,15 @@ namespace MWGui
 
         std::vector<std::unique_ptr<WindowBase>> mWindows;
 
+        // Mapping windowId -> Window; used by Lua bindings.
+        std::map<std::string_view, WindowBase*> mLuaIdToWindow;
+
         Translation::Storage& mTranslationDataStorage;
 
         std::unique_ptr<CharacterCreation> mCharGen;
 
         MyGUI::Widget* mInputBlocker;
 
-        bool mCrosshairEnabled;
         bool mHudEnabled;
         bool mCursorVisible;
         bool mCursorActive;
@@ -480,9 +491,6 @@ namespace MWGui
             void update(bool visible);
 
             std::vector<WindowBase*> mWindows;
-
-            ESM::RefId mCloseSound;
-            ESM::RefId mOpenSound;
         };
         // Defines the windows that should be shown in a particular GUI mode.
         std::map<GuiMode, GuiModeState> mGuiModeStates;
@@ -555,7 +563,7 @@ namespace MWGui
          */
         void onRetrieveTag(const MyGUI::UString& _tag, MyGUI::UString& _result);
 
-        void onCursorChange(const std::string& name);
+        void onCursorChange(std::string_view name);
         void onKeyFocusChanged(MyGUI::Widget* widget);
 
         // Key pressed while playing a video
@@ -563,8 +571,8 @@ namespace MWGui
 
         void sizeVideo(int screenWidth, int screenHeight);
 
-        void onClipboardChanged(const std::string& _type, const std::string& _data);
-        void onClipboardRequested(const std::string& _type, std::string& _data);
+        void onClipboardChanged(std::string_view _type, std::string_view _data);
+        void onClipboardRequested(std::string_view _type, std::string& _data);
 
         void createTextures();
         void createCursors();

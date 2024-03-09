@@ -115,20 +115,20 @@ namespace LuaUtil
                     std::string_view handlerName = cast<std::string_view>(key);
                     sol::function fn = cast<sol::function>(handler);
                     if (handlerName == HANDLER_INIT)
-                        onInit = fn;
+                        onInit = std::move(fn);
                     else if (handlerName == HANDLER_LOAD)
-                        onLoad = fn;
+                        onLoad = std::move(fn);
                     else if (handlerName == HANDLER_SAVE)
-                        script.mOnSave = fn;
+                        script.mOnSave = std::move(fn);
                     else if (handlerName == HANDLER_INTERFACE_OVERRIDE)
-                        script.mOnOverride = fn;
+                        script.mOnOverride = std::move(fn);
                     else
                     {
                         auto it = mEngineHandlers.find(handlerName);
                         if (it == mEngineHandlers.end())
                             Log(Debug::Error) << "Not supported handler '" << handlerName << "' in " << debugName;
                         else
-                            insertHandler(it->second->mList, scriptId, fn);
+                            insertHandler(it->second->mList, scriptId, std::move(fn));
                     }
                 }
             }
@@ -297,11 +297,7 @@ namespace LuaUtil
     {
         auto it = mEventHandlers.find(eventName);
         if (it == mEventHandlers.end())
-        {
-            Log(Debug::Warning) << mNamePrefix << " has received event '" << eventName
-                                << "', but there are no handlers for this event";
             return;
-        }
         sol::object data;
         try
         {
@@ -532,7 +528,7 @@ namespace LuaUtil
         t.mScriptId = scriptId;
         t.mSerializable = true;
         t.mTime = time;
-        t.mArg = callbackArg;
+        t.mArg = std::move(callbackArg);
         t.mSerializedArg = serialize(t.mArg, mSerializer);
         insertTimer(type == TimerType::GAME_TIME ? mGameTimersQueue : mSimulationTimersQueue, std::move(t));
     }

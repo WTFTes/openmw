@@ -34,8 +34,7 @@
 
 void ESM4::Dialogue::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -47,22 +46,14 @@ void ESM4::Dialogue::load(ESM4::Reader& reader)
                 reader.getZString(mEditorId);
                 break;
             case ESM4::SUB_FULL:
-                reader.getZString(mTopicName);
+                reader.getLocalizedString(mTopicName);
                 break;
             case ESM4::SUB_QSTI:
-            {
-                FormId questId;
-                reader.getFormId(questId);
-                mQuests.push_back(questId);
+                reader.getFormId(mQuests.emplace_back());
                 break;
-            }
             case ESM4::SUB_QSTR: // Seems never used in TES4
-            {
-                FormId questRem;
-                reader.getFormId(questRem);
-                mQuestsRemoved.push_back(questRem);
+                reader.getFormId(mQuestsRemoved.emplace_back());
                 break;
-            }
             case ESM4::SUB_DATA:
             {
                 if (subHdr.dataSize == 4) // TES5
@@ -96,6 +87,7 @@ void ESM4::Dialogue::load(ESM4::Reader& reader)
             case ESM4::SUB_BNAM: // TES5
             case ESM4::SUB_SNAM: // TES5
             case ESM4::SUB_TIFC: // TES5
+            case ESM4::SUB_KNAM: // FO4
                 reader.skipSubRecordData();
                 break;
             default:

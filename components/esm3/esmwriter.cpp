@@ -43,10 +43,10 @@ namespace ESM
                 mWriter.write(v.getValue().data(), v.getValue().size());
             }
 
-            void operator()(FormIdRefId v) const
+            void operator()(FormId v) const
             {
                 mWriter.writeT(RefIdType::FormId);
-                mWriter.writeT(v.getValue());
+                mWriter.writeT(v);
             }
 
             void operator()(GeneratedRefId v) const
@@ -84,12 +84,12 @@ namespace ESM
 
     unsigned int ESMWriter::getVersion() const
     {
-        return mHeader.mData.version;
+        return mHeader.mData.version.ui;
     }
 
     void ESMWriter::setVersion(unsigned int ver)
     {
-        mHeader.mData.version = ver;
+        mHeader.mData.version.ui = ver;
     }
 
     void ESMWriter::setType(int type)

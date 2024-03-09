@@ -1,6 +1,7 @@
 #include "util.hpp"
 
 #include <algorithm>
+#include <array>
 #include <iomanip>
 #include <sstream>
 
@@ -17,25 +18,45 @@
 
 namespace SceneUtil
 {
-
-    class FindLowestUnusedTexUnitVisitor : public osg::NodeVisitor
+    namespace
     {
-    public:
-        FindLowestUnusedTexUnitVisitor()
-            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
-            , mLowestUnusedTexUnit(0)
+        std::array<std::string, 32> generateGlowTextureNames()
         {
+            std::array<std::string, 32> result;
+            for (std::size_t i = 0; i < result.size(); ++i)
+            {
+                std::stringstream stream;
+                stream << "textures/magicitem/caust";
+                stream << std::setw(2);
+                stream << std::setfill('0');
+                stream << i;
+                stream << ".dds";
+                result[i] = std::move(stream).str();
+            }
+            return result;
         }
 
-        void apply(osg::Node& node) override
-        {
-            if (osg::StateSet* stateset = node.getStateSet())
-                mLowestUnusedTexUnit = std::max(mLowestUnusedTexUnit, int(stateset->getTextureAttributeList().size()));
+        const std::array<std::string, 32> glowTextureNames = generateGlowTextureNames();
 
-            traverse(node);
-        }
-        int mLowestUnusedTexUnit;
-    };
+        struct FindLowestUnusedTexUnitVisitor : public osg::NodeVisitor
+        {
+            FindLowestUnusedTexUnitVisitor()
+                : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            {
+            }
+
+            void apply(osg::Node& node) override
+            {
+                if (osg::StateSet* stateset = node.getStateSet())
+                    mLowestUnusedTexUnit
+                        = std::max(mLowestUnusedTexUnit, int(stateset->getTextureAttributeList().size()));
+
+                traverse(node);
+            }
+
+            int mLowestUnusedTexUnit = 0;
+        };
+    }
 
     GlowUpdater::GlowUpdater(int texUnit, const osg::Vec4f& color,
         const std::vector<osg::ref_ptr<osg::Texture2D>>& textures, osg::Node* node, float duration,
@@ -197,16 +218,9 @@ namespace SceneUtil
         const osg::Vec4f& glowColor, float glowDuration)
     {
         std::vector<osg::ref_ptr<osg::Texture2D>> textures;
-        for (int i = 0; i < 32; ++i)
+        for (const std::string& name : glowTextureNames)
         {
-            std::stringstream stream;
-            stream << "textures/magicitem/caust";
-            stream << std::setw(2);
-            stream << std::setfill('0');
-            stream << i;
-            stream << ".dds";
-
-            osg::ref_ptr<osg::Image> image = resourceSystem->getImageManager()->getImage(stream.str());
+            osg::ref_ptr<osg::Image> image = resourceSystem->getImageManager()->getImage(name);
             osg::ref_ptr<osg::Texture2D> tex(new osg::Texture2D(image));
             tex->setName("envMap");
             tex->setWrap(osg::Texture::WRAP_S, osg::Texture2D::REPEAT);
@@ -234,18 +248,17 @@ namespace SceneUtil
         }
         writableStateSet->setTextureAttributeAndModes(texUnit, textures.front(), osg::StateAttribute::ON);
         writableStateSet->addUniform(new osg::Uniform("envMapColor", glowColor));
-        resourceSystem->getSceneManager()->recreateShaders(node);
+        resourceSystem->getSceneManager()->recreateShaders(std::move(node));
 
         return glowUpdater;
     }
 
-    bool attachAlphaToCoverageFriendlyFramebufferToCamera(osg::Camera* camera, osg::Camera::BufferComponent buffer,
-        osg::Texture* texture, unsigned int level, unsigned int face, bool mipMapGeneration)
+    void attachAlphaToCoverageFriendlyFramebufferToCamera(osg::Camera* camera, osg::Camera::BufferComponent buffer,
+        osg::Texture* texture, unsigned int level, unsigned int face, bool mipMapGeneration,
+        bool addMSAAIntermediateTarget)
     {
         unsigned int samples = 0;
         unsigned int colourSamples = 0;
-        bool addMSAAIntermediateTarget = Settings::Manager::getBool("antialias alpha test", "Shaders")
-            && Settings::Manager::getInt("antialiasing", "Video") > 1;
         if (addMSAAIntermediateTarget)
         {
             // Alpha-to-coverage requires a multisampled framebuffer.
@@ -255,7 +268,6 @@ namespace SceneUtil
             colourSamples = 1;
         }
         camera->attach(buffer, texture, level, face, mipMapGeneration, samples, colourSamples);
-        return addMSAAIntermediateTarget;
     }
 
     OperationSequence::OperationSequence(bool keep)

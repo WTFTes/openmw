@@ -21,9 +21,10 @@ namespace ESM
 
         mTradeTime.mDay = 0;
         mTradeTime.mHour = 0;
-        esm.getHNOT(mTradeTime, "TIME");
+        if (esm.peekNextSub("TIME"))
+            mTradeTime.load(esm);
 
-        int flags = 0;
+        int32_t flags = 0;
         mDead = false;
         mDeathAnimationFinished = false;
         mDied = false;
@@ -37,23 +38,15 @@ namespace ESM
         mHitRecovery = false;
         mBlock = false;
         mRecalcDynamicStats = false;
-        if (esm.getFormatVersion() <= MaxWerewolfDeprecatedDataFormatVersion)
+        if (esm.getFormatVersion() <= MaxUnoptimizedCharacterDataFormatVersion)
         {
             esm.getHNOT(mDead, "DEAD");
             esm.getHNOT(mDeathAnimationFinished, "DFNT");
-            if (esm.getFormatVersion() <= MaxOldDeathAnimationFormatVersion && mDead)
-                mDeathAnimationFinished = true;
             esm.getHNOT(mDied, "DIED");
             esm.getHNOT(mMurdered, "MURD");
-            if (esm.isNextSub("FRHT"))
-                esm.skipHSub(); // Friendly hits, no longer used
             esm.getHNOT(mTalkedTo, "TALK");
             esm.getHNOT(mAlarmed, "ALRM");
             esm.getHNOT(mAttacked, "ATKD");
-            if (esm.isNextSub("HOST"))
-                esm.skipHSub(); // Hostile, no longer used
-            if (esm.isNextSub("ATCK"))
-                esm.skipHSub(); // attackingOrSpell, no longer used
             esm.getHNOT(mKnockdown, "KNCK");
             esm.getHNOT(mKnockdownOneFrame, "KNC1");
             esm.getHNOT(mKnockdownOverOneFrame, "KNCO");
@@ -81,9 +74,6 @@ namespace ESM
         mMovementFlags = 0;
         esm.getHNOT(mMovementFlags, "MOVE");
 
-        if (esm.isNextSub("ASTR"))
-            esm.skipHSub(); // attackStrength, no longer used
-
         mFallHeight = 0;
         esm.getHNOT(mFallHeight, "FALL");
 
@@ -91,7 +81,7 @@ namespace ESM
 
         mLastHitAttemptObject = esm.getHNORefId("LHAT");
 
-        if (esm.getFormatVersion() <= MaxWerewolfDeprecatedDataFormatVersion)
+        if (esm.getFormatVersion() <= MaxUnoptimizedCharacterDataFormatVersion)
             esm.getHNOT(mRecalcDynamicStats, "CALC");
 
         mDrawState = 0;
@@ -108,7 +98,8 @@ namespace ESM
 
         mTimeOfDeath.mDay = 0;
         mTimeOfDeath.mHour = 0;
-        esm.getHNOT(mTimeOfDeath, "DTIM");
+        if (esm.peekNextSub("DTIM"))
+            mTimeOfDeath.load(esm, "DTIM");
 
         mSpells.load(esm);
         mActiveSpells.load(esm);
@@ -119,12 +110,12 @@ namespace ESM
         {
             while (esm.isNextSub("SUMM"))
             {
-                int magicEffect;
+                int32_t magicEffect;
                 esm.getHT(magicEffect);
                 ESM::RefId source = esm.getHNORefId("SOUR");
-                int effectIndex = -1;
+                int32_t effectIndex = -1;
                 esm.getHNOT(effectIndex, "EIND");
-                int actorId;
+                int32_t actorId;
                 esm.getHNT(actorId, "ACID");
                 mSummonedCreatureMap[SummonKey(magicEffect, source, effectIndex)] = actorId;
                 mSummonedCreatures.emplace(magicEffect, actorId);
@@ -134,9 +125,9 @@ namespace ESM
         {
             while (esm.isNextSub("SUMM"))
             {
-                int magicEffect;
+                int32_t magicEffect;
                 esm.getHT(magicEffect);
-                int actorId;
+                int32_t actorId;
                 esm.getHNT(actorId, "ACID");
                 mSummonedCreatures.emplace(magicEffect, actorId);
             }
@@ -144,7 +135,7 @@ namespace ESM
 
         while (esm.isNextSub("GRAV"))
         {
-            int actorId;
+            int32_t actorId;
             esm.getHT(actorId);
             mSummonGraveyard.push_back(actorId);
         }
@@ -164,7 +155,7 @@ namespace ESM
 
             CorprusStats stats;
             esm.getHNT(stats.mWorsenings, "WORS");
-            esm.getHNT(stats.mNextWorsening, "TIME");
+            stats.mNextWorsening.load(esm);
 
             mCorprusSpells[id] = stats;
         }
@@ -191,7 +182,7 @@ namespace ESM
         if (mTradeTime.mDay != 0 || mTradeTime.mHour != 0)
             esm.writeHNT("TIME", mTradeTime);
 
-        int flags = 0;
+        int32_t flags = 0;
         if (mDead)
             flags |= Dead;
         if (mDeathAnimationFinished)
@@ -260,7 +251,7 @@ namespace ESM
             esm.writeHNT("ACID", actorId);
         }
 
-        for (int key : mSummonGraveyard)
+        for (int32_t key : mSummonGraveyard)
         {
             esm.writeHNT("GRAV", key);
         }

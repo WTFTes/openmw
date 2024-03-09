@@ -119,7 +119,7 @@ namespace MWGui
 
     void EditEffectDialog::newEffect(const ESM::MagicEffect* effect)
     {
-        bool allowSelf = (effect->mData.mFlags & ESM::MagicEffect::CastSelf) != 0;
+        bool allowSelf = (effect->mData.mFlags & ESM::MagicEffect::CastSelf) != 0 || mConstantEffect;
         bool allowTouch = (effect->mData.mFlags & ESM::MagicEffect::CastTouch) && !mConstantEffect;
 
         setMagicEffect(effect);
@@ -240,7 +240,7 @@ namespace MWGui
         // cycle through range types until we find something that's allowed
         // does not handle the case where nothing is allowed (this should be prevented before opening the Add Effect
         // dialog)
-        bool allowSelf = (mMagicEffect->mData.mFlags & ESM::MagicEffect::CastSelf) != 0;
+        bool allowSelf = (mMagicEffect->mData.mFlags & ESM::MagicEffect::CastSelf) != 0 || mConstantEffect;
         bool allowTouch = (mMagicEffect->mData.mFlags & ESM::MagicEffect::CastTouch) && !mConstantEffect;
         bool allowTarget = (mMagicEffect->mData.mFlags & ESM::MagicEffect::CastTarget) && !mConstantEffect;
         if (mEffect.mRange == ESM::RT_Self && !allowSelf)
@@ -287,13 +287,13 @@ namespace MWGui
 
     void EditEffectDialog::setSkill(ESM::RefId skill)
     {
-        mEffect.mSkill = skill.getIf<ESM::IndexRefId>()->getValue();
+        mEffect.mSkill = ESM::Skill::refIdToIndex(skill);
         eventEffectModified(mEffect);
     }
 
-    void EditEffectDialog::setAttribute(int attribute)
+    void EditEffectDialog::setAttribute(ESM::RefId attribute)
     {
-        mEffect.mAttribute = attribute;
+        mEffect.mAttribute = ESM::Attribute::refIdToIndex(attribute);
         eventEffectModified(mEffect);
     }
 
@@ -364,6 +364,9 @@ namespace MWGui
 
     void SpellCreationDialog::setPtr(const MWWorld::Ptr& actor)
     {
+        if (actor.isEmpty() || !actor.getClass().isActor())
+            throw std::runtime_error("Invalid argument in SpellCreationDialog::setPtr");
+
         mPtr = actor;
         mNameEdit->setCaption({});
 
@@ -469,7 +472,7 @@ namespace MWGui
 
         ESM::EffectList effectList;
         effectList.mList = mEffects;
-        mSpell.mEffects = effectList;
+        mSpell.mEffects = std::move(effectList);
         mSpell.mData.mCost = int(y);
         mSpell.mData.mType = ESM::Spell::ST_Spell;
         mSpell.mData.mFlags = 0;
@@ -626,7 +629,7 @@ namespace MWGui
         const ESM::MagicEffect* effect
             = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(mSelectedKnownEffectId);
 
-        bool allowSelf = (effect->mData.mFlags & ESM::MagicEffect::CastSelf) != 0;
+        bool allowSelf = (effect->mData.mFlags & ESM::MagicEffect::CastSelf) != 0 || mConstantEffect;
         bool allowTouch = (effect->mData.mFlags & ESM::MagicEffect::CastTouch) && !mConstantEffect;
         bool allowTarget = (effect->mData.mFlags & ESM::MagicEffect::CastTarget) && !mConstantEffect;
 
@@ -689,8 +692,8 @@ namespace MWGui
         {
             Widgets::SpellEffectParams params;
             params.mEffectID = effectInfo.mEffectID;
-            params.mSkill = effectInfo.mSkill;
-            params.mAttribute = effectInfo.mAttribute;
+            params.mSkill = ESM::Skill::indexToRefId(effectInfo.mSkill);
+            params.mAttribute = ESM::Attribute::indexToRefId(effectInfo.mAttribute);
             params.mDuration = effectInfo.mDuration;
             params.mMagnMin = effectInfo.mMagnMin;
             params.mMagnMax = effectInfo.mMagnMax;
@@ -748,25 +751,9 @@ namespace MWGui
     void EffectEditorBase::setConstantEffect(bool constant)
     {
         mAddEffectDialog.setConstantEffect(constant);
+        if (!mConstantEffect && constant)
+            for (ESM::ENAMstruct& effect : mEffects)
+                effect.mRange = ESM::RT_Self;
         mConstantEffect = constant;
-
-        if (!constant)
-            return;
-
-        for (auto it = mEffects.begin(); it != mEffects.end();)
-        {
-            if (it->mRange != ESM::RT_Self)
-            {
-                auto& store = *MWBase::Environment::get().getESMStore();
-                auto magicEffect = store.get<ESM::MagicEffect>().find(it->mEffectID);
-                if ((magicEffect->mData.mFlags & ESM::MagicEffect::CastSelf) == 0)
-                {
-                    it = mEffects.erase(it);
-                    continue;
-                }
-                it->mRange = ESM::RT_Self;
-            }
-            ++it;
-        }
     }
 }

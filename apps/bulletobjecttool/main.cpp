@@ -76,10 +76,6 @@ namespace
             bpo::value<StringsVector>()->default_value(StringsVector(), "fallback-archive")->multitoken()->composing(),
             "set fallback BSA archives (later archives have higher priority)");
 
-        addOption("resources",
-            bpo::value<Files::MaybeQuotedPath>()->default_value(Files::MaybeQuotedPath(), "resources"),
-            "set resources directory");
-
         addOption("content", bpo::value<StringsVector>()->default_value(StringsVector(), "")->multitoken()->composing(),
             "content file(s): esm/esp, or omwgame/omwaddon/omwscripts");
 
@@ -145,13 +141,12 @@ namespace
 
         config.filterOutNonExistingPaths(dataDirs);
 
-        const auto resDir = variables["resources"].as<Files::MaybeQuotedPath>();
-        const auto v = Version::getOpenmwVersion(resDir);
-        Log(Debug::Info) << v.describe();
+        const auto& resDir = variables["resources"].as<Files::MaybeQuotedPath>();
+        Log(Debug::Info) << Version::getOpenmwVersionDescription();
         dataDirs.insert(dataDirs.begin(), resDir / "vfs");
-        const auto fileCollections = Files::Collections(dataDirs);
-        const auto archives = variables["fallback-archive"].as<StringsVector>();
-        const auto contentFiles = variables["content"].as<StringsVector>();
+        const Files::Collections fileCollections(dataDirs);
+        const auto& archives = variables["fallback-archive"].as<StringsVector>();
+        const auto& contentFiles = variables["content"].as<StringsVector>();
 
         Fallback::Map::init(variables["fallback"].as<Fallback::FallbackMap>().mMap);
 
@@ -173,10 +168,11 @@ namespace
         const EsmLoader::EsmData esmData
             = EsmLoader::loadEsmData(query, contentFiles, fileCollections, readers, &encoder);
 
-        Resource::ImageManager imageManager(&vfs);
-        Resource::NifFileManager nifFileManager(&vfs);
-        Resource::SceneManager sceneManager(&vfs, &imageManager, &nifFileManager);
-        Resource::BulletShapeManager bulletShapeManager(&vfs, &sceneManager, &nifFileManager);
+        constexpr double expiryDelay = 0;
+        Resource::ImageManager imageManager(&vfs, expiryDelay);
+        Resource::NifFileManager nifFileManager(&vfs, &encoder.getStatelessEncoder());
+        Resource::SceneManager sceneManager(&vfs, &imageManager, &nifFileManager, expiryDelay);
+        Resource::BulletShapeManager bulletShapeManager(&vfs, &sceneManager, &nifFileManager, expiryDelay);
 
         Resource::forEachBulletObject(
             readers, vfs, bulletShapeManager, esmData, [](const ESM::Cell& cell, const Resource::BulletObject& object) {

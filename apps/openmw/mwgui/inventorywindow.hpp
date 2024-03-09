@@ -65,6 +65,8 @@ namespace MWGui
         /// Cycle to previous/next weapon
         void cycle(bool next);
 
+        std::string_view getWindowIdForLua() const override { return "Inventory"; }
+
     protected:
         void onTitleDoubleClicked() override;
 
@@ -72,6 +74,7 @@ namespace MWGui
         DragAndDrop* mDragAndDrop;
 
         int mSelectedItem;
+        std::optional<int> mEquippedStackableCount;
 
         MWWorld::Ptr mPtr;
 

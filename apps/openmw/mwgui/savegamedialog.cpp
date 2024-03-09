@@ -7,6 +7,7 @@
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_InputManager.h>
 #include <MyGUI_LanguageManager.h>
+#include <MyGUI_UString.h>
 
 #include <osg/Texture2D>
 #include <osgDB/ReadFile>
@@ -17,7 +18,7 @@
 
 #include <components/misc/strings/lower.hpp>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/files/conversion.hpp>
 #include <components/files/memorystream.hpp>
@@ -29,12 +30,12 @@
 #include "../mwbase/statemanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+#include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/esmstore.hpp"
 
 #include "../mwstate/character.hpp"
 
 #include "confirmationdialog.hpp"
-#include "ustring.hpp"
 
 namespace MWGui
 {
@@ -167,7 +168,7 @@ namespace MWGui
 
         mCurrentCharacter = mgr->getCurrentCharacter();
 
-        const std::string& directory = Settings::Manager::getString("character", "Saves");
+        const std::string& directory = Settings::saves().mCharacter;
 
         size_t selectedIndex = MyGUI::ITEM_NONE;
 
@@ -197,7 +198,7 @@ namespace MWGui
                 }
 
                 title << " (#{sLevel} " << signature.mPlayerLevel << " "
-                      << MyGUI::TextIterator::toTagsString(toUString(className)) << ")";
+                      << MyGUI::TextIterator::toTagsString(MyGUI::UString(className)) << ")";
 
                 mCharacterSelection->addItem(MyGUI::LanguageManager::getInstance().replaceTags(title.str()));
 
@@ -411,6 +412,10 @@ namespace MWGui
 
         text << Misc::fileTimeToString(mCurrentSlot->mTimeStamp, "%Y.%m.%d %T") << "\n";
 
+        if (mCurrentSlot->mProfile.mMaximumHealth > 0)
+            text << "#{sHealth} " << static_cast<int>(mCurrentSlot->mProfile.mCurrentHealth) << "/"
+                 << static_cast<int>(mCurrentSlot->mProfile.mMaximumHealth) << "\n";
+
         text << "#{sLevel} " << mCurrentSlot->mProfile.mPlayerLevel << "\n";
         text << "#{sCell=" << mCurrentSlot->mProfile.mPlayerCellName << "}\n";
 
@@ -421,11 +426,15 @@ namespace MWGui
         if (hour == 0)
             hour = 12;
 
-        text << mCurrentSlot->mProfile.mInGameTime.mDay << " "
-             << MWBase::Environment::get().getWorld()->getMonthName(mCurrentSlot->mProfile.mInGameTime.mMonth) << " "
-             << hour << " " << (pm ? "#{Calendar:pm}" : "#{Calendar:am}");
+        if (mCurrentSlot->mProfile.mCurrentDay > 0)
+            text << "#{Calendar:day} " << mCurrentSlot->mProfile.mCurrentDay << "\n";
 
-        if (Settings::Manager::getBool("timeplayed", "Saves"))
+        text << mCurrentSlot->mProfile.mInGameTime.mDay << " "
+             << MWBase::Environment::get().getWorld()->getTimeManager()->getMonthName(
+                    mCurrentSlot->mProfile.mInGameTime.mMonth)
+             << " " << hour << " " << (pm ? "#{Calendar:pm}" : "#{Calendar:am}");
+
+        if (Settings::saves().mTimeplayed)
         {
             text << "\n"
                  << "#{OMWEngine:TimePlayed}: " << formatTimeplayed(mCurrentSlot->mProfile.mTimePlayed);

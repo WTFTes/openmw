@@ -77,6 +77,7 @@ namespace MWGui
     class JailScreen;
     class MessageBox;
     class PostProcessorHud;
+    class SettingsWindow;
 
     enum ShowInDialogueMode
     {
@@ -119,9 +120,9 @@ namespace MWBase
 
         virtual void pushGuiMode(MWGui::GuiMode mode, const MWWorld::Ptr& arg) = 0;
         virtual void pushGuiMode(MWGui::GuiMode mode) = 0;
-        virtual void popGuiMode(bool noSound = false) = 0;
+        virtual void popGuiMode() = 0;
 
-        virtual void removeGuiMode(MWGui::GuiMode mode, bool noSound = false) = 0;
+        virtual void removeGuiMode(MWGui::GuiMode mode) = 0;
         ///< can be anywhere in the stack
 
         virtual void goToJail(int days) = 0;
@@ -134,8 +135,8 @@ namespace MWBase
         virtual bool isGuiMode() const = 0;
 
         virtual bool isConsoleMode() const = 0;
-
         virtual bool isPostProcessorHudVisible() const = 0;
+        virtual bool isInteractiveMessageBoxActive() const = 0;
 
         virtual void toggleVisible(MWGui::GuiWindow wnd) = 0;
 
@@ -156,6 +157,7 @@ namespace MWBase
         virtual MWGui::ConfirmationDialog* getConfirmationDialog() = 0;
         virtual MWGui::TradeWindow* getTradeWindow() = 0;
         virtual MWGui::PostProcessorHud* getPostProcessorHud() = 0;
+        virtual MWGui::SettingsWindow* getSettingsWindow() = 0;
 
         /// Make the player use an item, while updating GUI state accordingly
         virtual void useItem(const MWWorld::Ptr& item, bool force = false) = 0;
@@ -164,7 +166,8 @@ namespace MWBase
 
         virtual void setConsoleSelectedObject(const MWWorld::Ptr& object) = 0;
         virtual MWWorld::Ptr getConsoleSelectedObject() const = 0;
-        virtual void setConsoleMode(const std::string& mode) = 0;
+        virtual void setConsoleMode(std::string_view mode) = 0;
+        virtual const std::string& getConsoleMode() = 0;
 
         static constexpr std::string_view sConsoleColor_Default = "#FFFFFF";
         static constexpr std::string_view sConsoleColor_Error = "#FF2222";
@@ -229,7 +232,8 @@ namespace MWBase
         virtual void unsetSelectedWeapon() = 0;
 
         virtual void showCrosshair(bool show) = 0;
-        virtual bool toggleHud() = 0;
+        virtual bool setHudVisibility(bool show) = 0;
+        virtual bool isHudVisible() const = 0;
 
         virtual void disallowMouse() = 0;
         virtual void allowMouse() = 0;
@@ -253,8 +257,8 @@ namespace MWBase
             = 0;
         virtual void staticMessageBox(std::string_view message) = 0;
         virtual void removeStaticMessageBox() = 0;
-        virtual void interactiveMessageBox(
-            std::string_view message, const std::vector<std::string>& buttons = {}, bool block = false)
+        virtual void interactiveMessageBox(std::string_view message, const std::vector<std::string>& buttons = {},
+            bool block = false, int defaultFocus = -1)
             = 0;
 
         /// returns the index of the pressed button or -1 if no button was pressed
@@ -378,6 +382,12 @@ namespace MWBase
 
         /// Same as viewer->getCamera()->getCullMask(), provided for consistency.
         virtual uint32_t getCullMask() = 0;
+
+        // Used in Lua bindings
+        virtual const std::vector<MWGui::GuiMode>& getGuiModeStack() const = 0;
+        virtual void setDisabledByLua(std::string_view windowId, bool disabled) = 0;
+        virtual std::vector<std::string_view> getAllWindowIds() const = 0;
+        virtual std::vector<std::string_view> getAllowedWindowIds(MWGui::GuiMode mode) const = 0;
     };
 }
 

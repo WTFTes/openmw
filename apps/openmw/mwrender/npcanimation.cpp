@@ -18,7 +18,6 @@
 #include <components/esm3/loadrace.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
-#include <components/sceneutil/actorutil.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/keyframe.hpp>
 #include <components/sceneutil/lightcommon.hpp>
@@ -40,6 +39,7 @@
 #include "../mwbase/soundmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "actorutil.hpp"
 #include "postprocessor.hpp"
 #include "renderbin.hpp"
 #include "rotatecontroller.hpp"
@@ -48,7 +48,7 @@
 namespace
 {
 
-    std::string getVampireHead(const ESM::RefId& race, bool female, const VFS::Manager& vfs)
+    std::string getVampireHead(const ESM::RefId& race, bool female)
     {
         static std::map<std::pair<ESM::RefId, int>, const ESM::BodyPart*> sVampireMapping;
 
@@ -78,7 +78,7 @@ namespace
         const ESM::BodyPart* bodyPart = sVampireMapping[thisCombination];
         if (!bodyPart)
             return std::string();
-        return Misc::ResourceHelpers::correctMeshPath(bodyPart->mModel, &vfs);
+        return Misc::ResourceHelpers::correctMeshPath(bodyPart->mModel);
     }
 
 }
@@ -255,7 +255,7 @@ namespace MWRender
 
     NpcAnimation::NpcAnimation(const MWWorld::Ptr& ptr, osg::ref_ptr<osg::Group> parentNode,
         Resource::ResourceSystem* resourceSystem, bool disableSounds, ViewMode viewMode, float firstPersonFieldOfView)
-        : ActorAnimation(ptr, parentNode, resourceSystem)
+        : ActorAnimation(ptr, std::move(parentNode), resourceSystem)
         , mViewMode(viewMode)
         , mShowWeapons(false)
         , mShowCarriedLeft(true)
@@ -328,46 +328,34 @@ namespace MWRender
         {
             osg::State* state = renderInfo.getState();
 
-            PostProcessor* postProcessor = dynamic_cast<PostProcessor*>(renderInfo.getCurrentCamera()->getUserData());
+            PostProcessor* postProcessor = static_cast<PostProcessor*>(renderInfo.getCurrentCamera()->getUserData());
 
             state->applyAttribute(mDepth);
 
             unsigned int frameId = state->getFrameStamp()->getFrameNumber() % 2;
 
-            if (postProcessor && postProcessor->getFbo(PostProcessor::FBO_FirstPerson, frameId))
+            postProcessor->getFbo(PostProcessor::FBO_FirstPerson, frameId)->apply(*state);
+            if (mPassNormals)
             {
-                postProcessor->getFbo(PostProcessor::FBO_FirstPerson, frameId)->apply(*state);
-                if (mPassNormals)
-                {
-                    state->get<osg::GLExtensions>()->glColorMaski(1, true, true, true, true);
-                    state->haveAppliedAttribute(osg::StateAttribute::COLORMASK);
-                }
-                glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-                // color accumulation pass
-                bin->drawImplementation(renderInfo, previous);
-
-                auto primaryFBO = postProcessor->getPrimaryFbo(frameId);
-
-                if (postProcessor->getFbo(PostProcessor::FBO_OpaqueDepth, frameId))
-                    postProcessor->getFbo(PostProcessor::FBO_OpaqueDepth, frameId)->apply(*state);
-                else
-                    primaryFBO->apply(*state);
-
-                // depth accumulation pass
-                osg::ref_ptr<osg::StateSet> restore = bin->getStateSet();
-                bin->setStateSet(mStateSet);
-                bin->drawImplementation(renderInfo, previous);
-                bin->setStateSet(restore);
-
-                if (postProcessor->getFbo(PostProcessor::FBO_OpaqueDepth, frameId))
-                    primaryFBO->apply(*state);
+                state->get<osg::GLExtensions>()->glColorMaski(1, true, true, true, true);
+                state->haveAppliedAttribute(osg::StateAttribute::COLORMASK);
             }
-            else
-            {
-                // fallback to standard depth clear when we are not rendering our main scene via an intermediate FBO
-                glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-                bin->drawImplementation(renderInfo, previous);
-            }
+            glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            // color accumulation pass
+            bin->drawImplementation(renderInfo, previous);
+
+            auto primaryFBO = postProcessor->getPrimaryFbo(frameId);
+            primaryFBO->apply(*state);
+
+            postProcessor->getFbo(PostProcessor::FBO_OpaqueDepth, frameId)->apply(*state);
+
+            // depth accumulation pass
+            osg::ref_ptr<osg::StateSet> restore = bin->getStateSet();
+            bin->setStateSet(mStateSet);
+            bin->drawImplementation(renderInfo, previous);
+            bin->setStateSet(restore);
+
+            primaryFBO->apply(*state);
 
             state->checkGLErrors("after DepthClearCallback::drawImplementation");
         }
@@ -479,7 +467,7 @@ namespace MWRender
         {
             const ESM::BodyPart* bp = store.get<ESM::BodyPart>().search(headName);
             if (bp)
-                mHeadModel = Misc::ResourceHelpers::correctMeshPath(bp->mModel, mResourceSystem->getVFS());
+                mHeadModel = Misc::ResourceHelpers::correctMeshPath(bp->mModel);
             else
                 Log(Debug::Warning) << "Warning: Failed to load body part '" << headName << "'";
         }
@@ -488,26 +476,29 @@ namespace MWRender
         {
             const ESM::BodyPart* bp = store.get<ESM::BodyPart>().search(hairName);
             if (bp)
-                mHairModel = Misc::ResourceHelpers::correctMeshPath(bp->mModel, mResourceSystem->getVFS());
+                mHairModel = Misc::ResourceHelpers::correctMeshPath(bp->mModel);
             else
                 Log(Debug::Warning) << "Warning: Failed to load body part '" << hairName << "'";
         }
 
-        const std::string vampireHead = getVampireHead(mNpc->mRace, isFemale, *mResourceSystem->getVFS());
+        const std::string vampireHead = getVampireHead(mNpc->mRace, isFemale);
         if (!isWerewolf && isVampire && !vampireHead.empty())
             mHeadModel = vampireHead;
 
         bool is1stPerson = mViewMode == VM_FirstPerson;
         bool isBeast = (race->mData.mFlags & ESM::Race::Beast) != 0;
 
-        std::string defaultSkeleton = SceneUtil::getActorSkeleton(is1stPerson, isFemale, isBeast, isWerewolf);
-        defaultSkeleton = Misc::ResourceHelpers::correctActorModelPath(defaultSkeleton, mResourceSystem->getVFS());
+        const std::string defaultSkeleton = Misc::ResourceHelpers::correctActorModelPath(
+            getActorSkeleton(is1stPerson, isFemale, isBeast, isWerewolf), mResourceSystem->getVFS());
 
         std::string smodel = defaultSkeleton;
+        bool isBase = !isWerewolf;
         if (!is1stPerson && !isWerewolf && !mNpc->mModel.empty())
-            smodel = Misc::ResourceHelpers::correctActorModelPath(
-                Misc::ResourceHelpers::correctMeshPath(mNpc->mModel, mResourceSystem->getVFS()),
-                mResourceSystem->getVFS());
+        {
+            std::string model = Misc::ResourceHelpers::correctMeshPath(mNpc->mModel);
+            isBase = isDefaultActorSkeleton(model);
+            smodel = Misc::ResourceHelpers::correctActorModelPath(model, mResourceSystem->getVFS());
+        }
 
         setObjectRoot(smodel, true, true, false);
 
@@ -515,25 +506,31 @@ namespace MWRender
 
         if (!is1stPerson)
         {
-            const std::string& base = Settings::Manager::getString("xbaseanim", "Models");
-            if (smodel != base && !isWerewolf)
+            const std::string& base = Settings::models().mXbaseanim;
+            if (!isWerewolf)
                 addAnimSource(base, smodel);
 
-            if (smodel != defaultSkeleton && base != defaultSkeleton)
+            if (!isBase)
+            {
                 addAnimSource(defaultSkeleton, smodel);
+                addAnimSource(smodel, smodel);
+            }
+            else if (base != defaultSkeleton)
+            {
+                addAnimSource(defaultSkeleton, smodel);
+            }
 
-            addAnimSource(smodel, smodel);
-
-            if (!isWerewolf && mNpc->mRace.contains("argonian"))
+            if (!isWerewolf && isBeast && mNpc->mRace.contains("argonian"))
                 addAnimSource("meshes\\xargonian_swimkna.nif", smodel);
         }
         else
         {
-            const std::string& base = Settings::Manager::getString("xbaseanim1st", "Models");
-            if (smodel != base && !isWerewolf)
+            const std::string& base = Settings::models().mXbaseanim1st;
+            if (!isWerewolf)
                 addAnimSource(base, smodel);
 
-            addAnimSource(smodel, smodel);
+            if (!isBase)
+                addAnimSource(smodel, smodel);
 
             mObjectRoot->setNodeMask(Mask_FirstPerson);
             mObjectRoot->addCullCallback(new OverrideFieldOfViewCallback(mFirstPersonFieldOfView));
@@ -658,9 +655,8 @@ namespace MWRender
             if (store != inv.end() && (part = *store).getType() == ESM::Light::sRecordId)
             {
                 const ESM::Light* light = part.get<ESM::Light>()->mBase;
-                const VFS::Manager* const vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
                 addOrReplaceIndividualPart(ESM::PRT_Shield, MWWorld::InventoryStore::Slot_CarriedLeft, 1,
-                    Misc::ResourceHelpers::correctMeshPath(light->mModel, vfs), false, nullptr, true);
+                    Misc::ResourceHelpers::correctMeshPath(light->mModel), false, nullptr, true);
                 if (mObjectParts[ESM::PRT_Shield])
                     addExtraLight(mObjectParts[ESM::PRT_Shield]->getNode()->asGroup(), SceneUtil::LightCommon(*light));
             }
@@ -678,13 +674,9 @@ namespace MWRender
         {
             if (mPartPriorities[part] < 1)
             {
-                const ESM::BodyPart* bodypart = parts[part];
-                if (bodypart)
-                {
-                    const VFS::Manager* const vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
+                if (const ESM::BodyPart* bodypart = parts[part])
                     addOrReplaceIndividualPart(static_cast<ESM::PartReferenceType>(part), -1, 1,
-                        Misc::ResourceHelpers::correctMeshPath(bodypart->mModel, vfs));
-                }
+                        Misc::ResourceHelpers::correctMeshPath(bodypart->mModel));
             }
         }
 
@@ -852,7 +844,7 @@ namespace MWRender
                         }
                     }
                 }
-                SceneUtil::ForceControllerSourcesVisitor assignVisitor(src);
+                SceneUtil::ForceControllerSourcesVisitor assignVisitor(std::move(src));
                 node->accept(assignVisitor);
             }
             else
@@ -860,8 +852,8 @@ namespace MWRender
                 if (type == ESM::PRT_Weapon)
                     src = mWeaponAnimationTime;
                 else
-                    src = std::make_shared<NullAnimationTime>();
-                SceneUtil::AssignControllerSourcesVisitor assignVisitor(src);
+                    src = mAnimationTimePtr[0];
+                SceneUtil::AssignControllerSourcesVisitor assignVisitor(std::move(src));
                 node->accept(assignVisitor);
             }
         }
@@ -913,11 +905,8 @@ namespace MWRender
             }
 
             if (bodypart)
-            {
-                const VFS::Manager* const vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
                 addOrReplaceIndividualPart(static_cast<ESM::PartReferenceType>(part.mPart), group, priority,
-                    Misc::ResourceHelpers::correctMeshPath(bodypart->mModel, vfs), enchantedGlow, glowColor);
-            }
+                    Misc::ResourceHelpers::correctMeshPath(bodypart->mModel), enchantedGlow, glowColor);
             else
                 reserveIndividualPart((ESM::PartReferenceType)part.mPart, group, priority);
         }
@@ -932,13 +921,18 @@ namespace MWRender
 
         if (mViewMode == VM_FirstPerson)
         {
-            NodeMap::iterator found = mNodeMap.find("bip01 neck");
-            if (found != mNodeMap.end())
+            // If there is no active animation, then the bip01 neck node will not be updated each frame, and the
+            // RotateController will accumulate rotations.
+            if (mStates.size() > 0)
             {
-                osg::MatrixTransform* node = found->second.get();
-                mFirstPersonNeckController = new RotateController(mObjectRoot.get());
-                node->addUpdateCallback(mFirstPersonNeckController);
-                mActiveControllers.emplace_back(node, mFirstPersonNeckController);
+                NodeMap::iterator found = mNodeMap.find("bip01 neck");
+                if (found != mNodeMap.end())
+                {
+                    osg::MatrixTransform* node = found->second.get();
+                    mFirstPersonNeckController = new RotateController(mObjectRoot.get());
+                    node->addUpdateCallback(mFirstPersonNeckController);
+                    mActiveControllers.emplace_back(node, mFirstPersonNeckController);
+                }
             }
         }
         else if (mViewMode == VM_Normal)
@@ -958,7 +952,7 @@ namespace MWRender
             if (weapon != inv.end())
             {
                 osg::Vec4f glowColor = weapon->getClass().getEnchantmentColor(*weapon);
-                std::string mesh = weapon->getClass().getModel(*weapon);
+                std::string mesh = weapon->getClass().getCorrectedModel(*weapon);
                 addOrReplaceIndividualPart(ESM::PRT_Weapon, MWWorld::InventoryStore::Slot_CarriedRight, 1, mesh,
                     !weapon->getClass().getEnchantment(*weapon).empty(), &glowColor);
 
@@ -1018,7 +1012,7 @@ namespace MWRender
         if (show && iter != inv.end())
         {
             osg::Vec4f glowColor = iter->getClass().getEnchantmentColor(*iter);
-            std::string mesh = iter->getClass().getModel(*iter);
+            std::string mesh = iter->getClass().getCorrectedModel(*iter);
             // For shields we must try to use the body part model
             if (iter->getType() == ESM::Armor::sRecordId)
             {

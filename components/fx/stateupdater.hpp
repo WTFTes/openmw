@@ -43,6 +43,7 @@ namespace fx
         void setSunPos(const osg::Vec4f& pos, bool night)
         {
             mData.get<SunPos>() = pos;
+            mData.get<SunPos>().normalize();
 
             if (night)
                 mData.get<SunPos>().z() *= -1.f;
@@ -95,13 +96,12 @@ namespace fx
             mData.get<WeatherTransition>() = transition > 0 ? 1 - transition : 0;
         }
 
-        void bindPointLights(std::shared_ptr<SceneUtil::PPLightBuffer> buffer) { mPointLightBuffer = buffer; }
-
-        static std::string getStructDefinition()
+        void bindPointLights(std::shared_ptr<SceneUtil::PPLightBuffer> buffer)
         {
-            static std::string definition = UniformData::getDefinition("_omw_data");
-            return definition;
+            mPointLightBuffer = std::move(buffer);
         }
+
+        static const std::string& getStructDefinition() { return sDefinition; }
 
         void setDefaults(osg::StateSet* stateset) override;
 
@@ -271,6 +271,8 @@ namespace fx
 
         UniformData mData;
         bool mUseUBO;
+
+        static std::string sDefinition;
 
         std::shared_ptr<SceneUtil::PPLightBuffer> mPointLightBuffer;
     };

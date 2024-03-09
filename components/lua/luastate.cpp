@@ -12,6 +12,7 @@
 #include <components/vfs/manager.hpp>
 
 #include "scriptscontainer.hpp"
+#include "utf8.hpp"
 
 namespace LuaUtil
 {
@@ -51,7 +52,7 @@ namespace LuaUtil
 
     static const std::string safeFunctions[] = { "assert", "error", "ipairs", "next", "pairs", "pcall", "select",
         "tonumber", "tostring", "type", "unpack", "xpcall", "rawequal", "rawget", "rawset", "setmetatable" };
-    static const std::string safePackages[] = { "coroutine", "math", "string", "table" };
+    static const std::string safePackages[] = { "coroutine", "math", "string", "table", "utf8" };
 
     static constexpr int64_t countHookStep = 1000;
 
@@ -178,8 +179,14 @@ namespace LuaUtil
         mSol.open_libraries(sol::lib::base, sol::lib::coroutine, sol::lib::math, sol::lib::bit32, sol::lib::string,
             sol::lib::table, sol::lib::os, sol::lib::debug);
 
+#ifndef NO_LUAJIT
+        mSol.open_libraries(sol::lib::jit);
+#endif // NO_LUAJIT
+
         mSol["math"]["randomseed"](static_cast<unsigned>(std::time(nullptr)));
         mSol["math"]["randomseed"] = [] {};
+
+        mSol["utf8"] = LuaUtf8::initUtf8Package(mSol);
 
         mSol["writeToLog"] = [](std::string_view s) { Log(Debug::Level::Info) << s; };
 
@@ -246,6 +253,9 @@ namespace LuaUtil
                 local nextFn, t, firstKey = ipairs(getmetatable(v).t)
                 return function(_, k) return nextFn(t, k) end, v, firstKey
             end
+            function lenForReadOnly(v)
+                return #getmetatable(v).t
+            end
             local function nextForArray(array, index)
                 index = (index or 0) + 1
                 if index <= #array then
@@ -300,6 +310,7 @@ namespace LuaUtil
             meta["__index"] = table;
         meta["__pairs"] = lua["pairsForReadOnly"];
         meta["__ipairs"] = lua["ipairsForReadOnly"];
+        meta["__len"] = lua["lenForReadOnly"];
 
         lua_newuserdata(luaState, 0);
         sol::stack::push(luaState, meta);
@@ -365,8 +376,8 @@ namespace LuaUtil
 
     sol::protected_function_result LuaState::throwIfError(sol::protected_function_result&& res)
     {
-        if (!res.valid() && static_cast<int>(res.get_type()) == LUA_TSTRING)
-            throw std::runtime_error("Lua error: " + res.get<std::string>());
+        if (!res.valid())
+            throw std::runtime_error(std::string("Lua error: ") += res.get<sol::error>().what());
         else
             return std::move(res);
     }
@@ -386,7 +397,7 @@ namespace LuaUtil
         std::string fileContent(std::istreambuf_iterator<char>(*mVFS->get(path)), {});
         sol::load_result res = mSol.load(fileContent, path, sol::load_mode::text);
         if (!res.valid())
-            throw std::runtime_error("Lua error: " + res.get<std::string>());
+            throw std::runtime_error(std::string("Lua error: ") += res.get<sol::error>().what());
         return res;
     }
 

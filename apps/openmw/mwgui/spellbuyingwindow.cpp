@@ -88,6 +88,9 @@ namespace MWGui
 
     void SpellBuyingWindow::setPtr(const MWWorld::Ptr& actor, int startOffset)
     {
+        if (actor.isEmpty() || !actor.getClass().isActor())
+            throw std::runtime_error("Invalid argument in SpellBuyingWindow::setPtr");
+
         center();
         mPtr = actor;
         clearSpells();
@@ -151,7 +154,10 @@ namespace MWGui
 
         MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
         MWMechanics::Spells& spells = stats.getSpells();
-        spells.add(mSpellsWidgetMap.find(_sender)->second);
+        auto spell = mSpellsWidgetMap.find(_sender);
+        assert(spell != mSpellsWidgetMap.end());
+
+        spells.add(spell->second);
         player.getClass().getContainerStore(player).remove(MWWorld::ContainerStore::sGoldId, price);
 
         // add gold to NPC trading gold pool

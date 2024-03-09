@@ -6,9 +6,8 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 
-#include <apps/openmw/mwbase/environment.hpp>
-#include <apps/openmw/mwbase/world.hpp>
-#include <apps/openmw/mwworld/esmstore.hpp>
+#include "apps/openmw/mwbase/environment.hpp"
+#include "apps/openmw/mwworld/esmstore.hpp"
 
 namespace sol
 {
@@ -24,13 +23,25 @@ namespace
     ESM::Miscellaneous tableToMisc(const sol::table& rec)
     {
         ESM::Miscellaneous misc;
-        misc.mName = rec["name"];
-        misc.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
-        misc.mIcon = rec["icon"];
-        std::string_view scriptId = rec["mwscript"].get<std::string_view>();
-        misc.mScript = ESM::RefId::deserializeText(scriptId);
-        misc.mData.mWeight = rec["weight"];
-        misc.mData.mValue = rec["value"];
+        if (rec["template"] != sol::nil)
+            misc = LuaUtil::cast<ESM::Miscellaneous>(rec["template"]);
+        else
+            misc.blank();
+        if (rec["name"] != sol::nil)
+            misc.mName = rec["name"];
+        if (rec["model"] != sol::nil)
+            misc.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
+        if (rec["icon"] != sol::nil)
+            misc.mIcon = rec["icon"];
+        if (rec["mwscript"] != sol::nil)
+        {
+            std::string_view scriptId = rec["mwscript"].get<std::string_view>();
+            misc.mScript = ESM::RefId::deserializeText(scriptId);
+        }
+        if (rec["weight"] != sol::nil)
+            misc.mData.mWeight = rec["weight"];
+        if (rec["value"] != sol::nil)
+            misc.mData.mValue = rec["value"];
         return misc;
     }
 }
@@ -71,8 +82,8 @@ namespace MWLua
         record["id"] = sol::readonly_property(
             [](const ESM::Miscellaneous& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Miscellaneous& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property([vfs](const ESM::Miscellaneous& rec) -> std::string {
-            return Misc::ResourceHelpers::correctMeshPath(rec.mModel, vfs);
+        record["model"] = sol::readonly_property([](const ESM::Miscellaneous& rec) -> std::string {
+            return Misc::ResourceHelpers::correctMeshPath(rec.mModel);
         });
         record["mwscript"] = sol::readonly_property(
             [](const ESM::Miscellaneous& rec) -> std::string { return rec.mScript.serializeText(); });

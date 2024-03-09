@@ -65,7 +65,7 @@ namespace MWWorld
 
         CellStore& getCell(std::string_view name, bool forceLoad = true) const;
 
-        Ptr getPtr(const ESM::RefId& name);
+        Ptr getPtrByRefId(const ESM::RefId& name);
 
         Ptr getPtr(ESM::RefNum refNum) const { return mPtrRegistry.getOrEmpty(refNum); }
 
@@ -79,7 +79,7 @@ namespace MWWorld
 
         void registerPtr(const Ptr& ptr) { mPtrRegistry.insert(ptr); }
 
-        void deregisterPtr(const Ptr& ptr) { mPtrRegistry.remove(ptr); }
+        void deregisterLiveCellRef(const LiveCellRefBase& ref) noexcept { mPtrRegistry.remove(ref); }
 
         template <typename Fn>
         void forEachLoadedCellStore(Fn&& fn)
@@ -99,9 +99,11 @@ namespace MWWorld
 
         void write(ESM::ESMWriter& writer, Loading::Listener& progress) const;
 
-        bool readRecord(ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap);
+        bool readRecord(ESM::ESMReader& reader, uint32_t type);
 
     private:
+        PtrRegistry mPtrRegistry; // defined before mCells because during destruction it should be the last
+
         MWWorld::ESMStore& mStore;
         ESM::ReadersCache& mReaders;
         mutable std::unordered_map<ESM::RefId, CellStore> mCells;
@@ -110,7 +112,6 @@ namespace MWWorld
         ESM::Cell mDraftCell;
         std::vector<std::pair<ESM::RefId, CellStore*>> mIdCache;
         std::size_t mIdCacheIndex = 0;
-        PtrRegistry mPtrRegistry;
 
         CellStore& getOrInsertCellStore(const ESM::Cell& cell);
 

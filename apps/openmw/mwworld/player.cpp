@@ -18,6 +18,7 @@
 #include "../mwworld/worldmodel.hpp"
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/luamanager.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -62,7 +63,7 @@ namespace MWWorld
         for (size_t i = 0; i < mSaveSkills.size(); ++i)
             mSaveSkills[i] = stats.getSkill(ESM::Skill::indexToRefId(i)).getModified();
         for (size_t i = 0; i < mSaveAttributes.size(); ++i)
-            mSaveAttributes[i] = stats.getAttribute(static_cast<ESM::Attribute::AttributeID>(i)).getModified();
+            mSaveAttributes[i] = stats.getAttribute(ESM::Attribute::indexToRefId(i)).getModified();
     }
 
     void Player::restoreStats()
@@ -81,7 +82,7 @@ namespace MWWorld
         }
         for (size_t i = 0; i < mSaveAttributes.size(); ++i)
         {
-            auto id = static_cast<ESM::Attribute::AttributeID>(i);
+            auto id = ESM::Attribute::indexToRefId(i);
             auto attribute = npcStats.getAttribute(id);
             attribute.restore(attribute.getDamage());
             attribute.setModifier(mSaveAttributes[i] - attribute.getBase());
@@ -194,7 +195,7 @@ namespace MWWorld
         if (!toActivate.getClass().hasToolTip(toActivate))
             return;
 
-        MWBase::Environment::get().getWorld()->activate(toActivate, player);
+        MWBase::Environment::get().getLuaManager()->objectActivated(toActivate, player);
     }
 
     bool Player::wasTeleported() const
@@ -333,12 +334,7 @@ namespace MWWorld
 
             if (player.mObject.mNpcStats.mIsWerewolf)
             {
-                if (player.mObject.mNpcStats.mWerewolfDeprecatedData)
-                {
-                    saveStats();
-                    setWerewolfStats();
-                }
-                else if (reader.getFormatVersion() <= ESM::MaxOldSkillsAndAttributesFormatVersion)
+                if (reader.getFormatVersion() <= ESM::MaxOldSkillsAndAttributesFormatVersion)
                 {
                     setWerewolfStats();
                     if (player.mSetWerewolfAcrobatics)

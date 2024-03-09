@@ -37,8 +37,7 @@
 
 void ESM4::Creature::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -64,19 +63,11 @@ void ESM4::Creature::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_SPLO:
-            {
-                FormId id;
-                reader.getFormId(id);
-                mSpell.push_back(id);
+                reader.getFormId(mSpell.emplace_back());
                 break;
-            }
             case ESM4::SUB_PKID:
-            {
-                FormId id;
-                reader.getFormId(id);
-                mAIPackages.push_back(id);
+                reader.getFormId(mAIPackages.emplace_back());
                 break;
-            }
             case ESM4::SUB_SNAM:
                 reader.get(mFaction);
                 reader.adjustFormId(mFaction.faction);
@@ -153,7 +144,7 @@ void ESM4::Creature::load(ESM4::Reader& reader)
                 std::uint32_t nift;
                 reader.get(nift);
                 if (nift)
-                    Log(Debug::Verbose) << "CREA NIFT " << mFormId << ", non-zero " << nift;
+                    Log(Debug::Verbose) << "CREA NIFT " << mId << ", non-zero " << nift;
                 break;
             }
             case ESM4::SUB_KFFZ:
@@ -164,12 +155,8 @@ void ESM4::Creature::load(ESM4::Reader& reader)
                 reader.getFormId(mBaseTemplate);
                 break; // FO3
             case ESM4::SUB_PNAM: // FO3/FONV/TES5
-            {
-                FormId bodyPart;
-                reader.getFormId(bodyPart);
-                mBodyParts.push_back(bodyPart);
+                reader.getFormId(mBodyParts.emplace_back());
                 break;
-            }
             case ESM4::SUB_MODT:
             case ESM4::SUB_RNAM:
             case ESM4::SUB_CSDT:

@@ -4,14 +4,12 @@
 #include <components/misc/strings/lower.hpp>
 
 #include <components/esm3/loadbook.hpp>
+#include <components/esm3/loadskil.hpp>
 #include <components/lua/luastate.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 
-#include <apps/openmw/mwbase/environment.hpp>
-#include <apps/openmw/mwbase/world.hpp>
-#include <apps/openmw/mwworld/esmstore.hpp>
-#include <components/esm3/loadskil.hpp>
+#include "apps/openmw/mwbase/environment.hpp"
 
 namespace sol
 {
@@ -27,33 +25,54 @@ namespace
     ESM::Book tableToBook(const sol::table& rec)
     {
         ESM::Book book;
-        book.mName = rec["name"];
-        book.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
-        book.mIcon = rec["icon"];
-        book.mText = rec["text"];
-        std::string_view enchantId = rec["enchant"].get<std::string_view>();
-        book.mEnchant = ESM::RefId::deserializeText(enchantId);
-
-        book.mData.mEnchant = std::round(rec["enchantCapacity"].get<float>() * 10);
-        std::string_view scriptId = rec["mwscript"].get<std::string_view>();
-        book.mScript = ESM::RefId::deserializeText(scriptId);
-        book.mData.mWeight = rec["weight"];
-        book.mData.mValue = rec["value"];
-        book.mData.mIsScroll = rec["isScroll"];
-
-        std::string_view skill = rec["skill"].get<std::string_view>();
-
-        book.mData.mSkillId = -1;
-        if (skill.length() > 0)
+        if (rec["template"] != sol::nil)
+            book = LuaUtil::cast<ESM::Book>(rec["template"]);
+        else
         {
-            for (std::size_t i = 0; i < std::size(ESM::Skill::sSkillNames); ++i)
-            {
-                if (Misc::StringUtils::ciEqual(ESM::Skill::sSkillNames[i], skill))
-                    book.mData.mSkillId = i;
-            }
-            if (book.mData.mSkillId == -1)
-                throw std::runtime_error("Incorrect skill: " + std::string(skill));
+            book.blank();
+            book.mData.mSkillId = -1;
         }
+        if (rec["name"] != sol::nil)
+            book.mName = rec["name"];
+        if (rec["model"] != sol::nil)
+            book.mModel = Misc::ResourceHelpers::meshPathForESM3(rec["model"].get<std::string_view>());
+        if (rec["icon"] != sol::nil)
+            book.mIcon = rec["icon"];
+        if (rec["text"] != sol::nil)
+            book.mText = rec["text"];
+        if (rec["enchant"] != sol::nil)
+        {
+            std::string_view enchantId = rec["enchant"].get<std::string_view>();
+            book.mEnchant = ESM::RefId::deserializeText(enchantId);
+        }
+
+        if (rec["enchantCapacity"] != sol::nil)
+            book.mData.mEnchant = std::round(rec["enchantCapacity"].get<float>() * 10);
+        if (rec["mwscript"] != sol::nil)
+        {
+            std::string_view scriptId = rec["mwscript"].get<std::string_view>();
+            book.mScript = ESM::RefId::deserializeText(scriptId);
+        }
+        if (rec["weight"] != sol::nil)
+            book.mData.mWeight = rec["weight"];
+        if (rec["value"] != sol::nil)
+            book.mData.mValue = rec["value"];
+        if (rec["isScroll"] != sol::nil)
+            book.mData.mIsScroll = rec["isScroll"] ? 1 : 0;
+
+        if (rec["skill"] != sol::nil)
+        {
+            ESM::RefId skill = ESM::RefId::deserializeText(rec["skill"].get<std::string_view>());
+
+            book.mData.mSkillId = -1;
+            if (!skill.empty())
+            {
+                book.mData.mSkillId = ESM::Skill::refIdToIndex(skill);
+                if (book.mData.mSkillId == -1)
+                    throw std::runtime_error("Incorrect skill: " + skill.toDebugString());
+            }
+        }
+
         return book;
     }
 }
@@ -69,7 +88,7 @@ namespace MWLua
         book["createRecordDraft"] = tableToBook;
         for (int id = 0; id < ESM::Skill::Length; ++id)
         {
-            std::string skillName = Misc::StringUtils::lowerCase(ESM::Skill::sSkillNames[id]);
+            std::string skillName = ESM::Skill::indexToRefId(id).serializeText();
             skill[skillName] = skillName;
         }
 
@@ -83,9 +102,8 @@ namespace MWLua
         record["id"]
             = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property([vfs](const ESM::Book& rec) -> std::string {
-            return Misc::ResourceHelpers::correctMeshPath(rec.mModel, vfs);
-        });
+        record["model"] = sol::readonly_property(
+            [](const ESM::Book& rec) -> std::string { return Misc::ResourceHelpers::correctMeshPath(rec.mModel); });
         record["mwscript"]
             = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mScript.serializeText(); });
         record["icon"] = sol::readonly_property([vfs](const ESM::Book& rec) -> std::string {
@@ -100,10 +118,10 @@ namespace MWLua
         record["enchantCapacity"]
             = sol::readonly_property([](const ESM::Book& rec) -> float { return rec.mData.mEnchant * 0.1f; });
         record["skill"] = sol::readonly_property([](const ESM::Book& rec) -> sol::optional<std::string> {
-            if (rec.mData.mSkillId >= 0)
-                return Misc::StringUtils::lowerCase(ESM::Skill::sSkillNames[rec.mData.mSkillId]);
-            else
-                return sol::nullopt;
+            ESM::RefId skill = ESM::Skill::indexToRefId(rec.mData.mSkillId);
+            if (!skill.empty())
+                return skill.serializeText();
+            return sol::nullopt;
         });
     }
 }

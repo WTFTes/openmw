@@ -33,7 +33,8 @@
 #include <vector>
 
 #include "actor.hpp" // AttributeValues, BodyTemplate
-#include "formid.hpp"
+#include <components/esm/defs.hpp>
+#include <components/esm/formid.hpp>
 
 namespace ESM4
 {
@@ -106,10 +107,10 @@ namespace ESM4
             std::string texture; // can be empty e.g. eye left, eye right
         };
 
-        FormId mFormId; // from the header
+        ESM::FormId mId; // from the header
         std::uint32_t mFlags; // from the header, see enum type RecordFlag for details
 
-        bool mIsTES5;
+        bool mIsTES5 = false;
 
         std::string mEditorId;
         std::string mFullName;
@@ -134,8 +135,8 @@ namespace ESM4
         std::vector<BodyPart> mBodyPartsMale; // see BodyPartIndex
         std::vector<BodyPart> mBodyPartsFemale; // see BodyPartIndex
 
-        std::vector<FormId> mEyeChoices; // texture only
-        std::vector<FormId> mHairChoices; // not for TES5
+        std::vector<ESM::FormId> mEyeChoices; // texture only
+        std::vector<ESM::FormId> mHairChoices; // not for TES5
 
         float mFaceGenMainClamp;
         float mFaceGenFaceClamp;
@@ -146,25 +147,26 @@ namespace ESM4
         std::vector<float> mSymTextureModeCoefficients; // should be 50
         std::vector<float> mSymTextureModeCoeffFemale; // should be 50
 
-        std::map<FormId, std::int32_t> mDisposition; // race adjustments
-        std::vector<FormId> mBonusSpells; // race ability/power
-        std::array<FormId, 2> mVNAM; // don't know what these are; 1 or 2 RACE FormIds
-        std::array<FormId, 2> mDefaultHair; // male/female (HAIR FormId for TES4)
+        std::map<ESM::FormId, std::int32_t> mDisposition; // race adjustments
+        std::vector<ESM::FormId> mBonusSpells; // race ability/power
+        std::array<ESM::FormId, 2> mVNAM; // don't know what these are; 1 or 2 RACE FormIds
+        std::array<ESM::FormId, 2> mDefaultHair; // male/female (HAIR FormId for TES4)
 
         std::uint32_t mNumKeywords;
 
-        FormId mSkin; // TES5
+        ESM::FormId mSkin; // TES5
         BodyTemplate mBodyTemplate; // TES5
 
         // FIXME: there's no fixed order?
         // head, mouth, eyes, brow, hair
-        std::vector<FormId> mHeadPartIdsMale; // TES5
-        std::vector<FormId> mHeadPartIdsFemale; // TES5
+        std::vector<ESM::FormId> mHeadPartIdsMale; // TES5
+        std::vector<ESM::FormId> mHeadPartIdsFemale; // TES5
 
         void load(ESM4::Reader& reader);
         // void save(ESM4::Writer& writer) const;
 
         // void blank();
+        static constexpr ESM::RecNameInts sRecordId = ESM::RecNameInts::REC_RACE4;
     };
 }
 

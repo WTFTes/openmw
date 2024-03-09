@@ -107,12 +107,16 @@ namespace ESM
                         getHTOrSkip(cellRef.mChargeInt);
                         break;
                     case fourCC("NAM9"):
-                        getHTOrSkip(cellRef.mGoldValue);
+                        getHTOrSkip(cellRef.mCount);
                         break;
                     case fourCC("DODT"):
-                        getHTOrSkip(cellRef.mDoorDest);
                         if constexpr (load)
+                        {
+                            esm.getHT(cellRef.mDoorDest.pos, cellRef.mDoorDest.rot);
                             cellRef.mTeleport = true;
+                        }
+                        else
+                            esm.skipHSub();
                         break;
                     case fourCC("DNAM"):
                         getHStringOrSkip(cellRef.mDestCell);
@@ -128,9 +132,9 @@ namespace ESM
                         break;
                     case fourCC("DATA"):
                         if constexpr (load)
-                            esm.getHTSized<24>(cellRef.mPos);
+                            esm.getHT(cellRef.mPos.pos, cellRef.mPos.rot);
                         else
-                            esm.skipHTSized<24, decltype(cellRef.mPos)>();
+                            esm.skipHSub();
                         break;
                     case fourCC("NAM0"):
                     {
@@ -215,8 +219,8 @@ namespace ESM
         if (mChargeInt != -1)
             esm.writeHNT("INTV", mChargeInt);
 
-        if (mGoldValue > 1)
-            esm.writeHNT("NAM9", mGoldValue);
+        if (mCount != 1)
+            esm.writeHNT("NAM9", mCount);
 
         if (!inInventory && mTeleport)
         {
@@ -255,7 +259,7 @@ namespace ESM
         mChargeInt = -1;
         mChargeIntRemainder = 0.0f;
         mEnchantmentCharge = -1;
-        mGoldValue = 1;
+        mCount = 1;
         mDestCell.clear();
         mLockLevel = 0;
         mIsLocked = false;

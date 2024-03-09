@@ -1,6 +1,7 @@
 #ifndef OPENMW_COMPONENTS_ESM_AISEQUENCE_H
 #define OPENMW_COMPONENTS_ESM_AISEQUENCE_H
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -35,31 +36,30 @@ namespace ESM
             virtual ~AiPackage() {}
         };
 
-#pragma pack(push, 1)
         struct AiWanderData
         {
-            short mDistance;
-            short mDuration;
-            unsigned char mTimeOfDay;
-            unsigned char mIdle[8];
-            unsigned char mShouldRepeat;
+            int16_t mDistance;
+            int16_t mDuration;
+            std::uint8_t mTimeOfDay;
+            std::uint8_t mIdle[8];
+            std::uint8_t mShouldRepeat;
         };
+
         struct AiWanderDuration
         {
             float mRemainingDuration;
-            int unused;
         };
+
         struct AiTravelData
         {
             float mX, mY, mZ;
         };
+
         struct AiEscortData
         {
             float mX, mY, mZ;
-            short mDuration;
+            int16_t mDuration;
         };
-
-#pragma pack(pop)
 
         struct AiWander : AiPackage
         {
@@ -89,7 +89,7 @@ namespace ESM
         {
             AiEscortData mData;
 
-            int mTargetActorId;
+            int32_t mTargetActorId;
             ESM::RefId mTargetId;
             std::string mCellId;
             float mRemainingDuration;
@@ -103,7 +103,7 @@ namespace ESM
         {
             AiEscortData mData;
 
-            int mTargetActorId;
+            int32_t mTargetActorId;
             ESM::RefId mTargetId;
             std::string mCellId;
             float mRemainingDuration;
@@ -129,7 +129,7 @@ namespace ESM
 
         struct AiCombat : AiPackage
         {
-            int mTargetActorId;
+            int32_t mTargetActorId;
 
             void load(ESMReader& esm);
             void save(ESMWriter& esm) const;
@@ -137,7 +137,7 @@ namespace ESM
 
         struct AiPursue : AiPackage
         {
-            int mTargetActorId;
+            int32_t mTargetActorId;
 
             void load(ESMReader& esm);
             void save(ESMWriter& esm) const;
@@ -145,7 +145,7 @@ namespace ESM
 
         struct AiPackageContainer
         {
-            int mType;
+            int32_t mType;
 
             std::unique_ptr<AiPackage> mPackage;
         };
@@ -155,7 +155,7 @@ namespace ESM
             AiSequence() { mLastAiPackage = -1; }
 
             std::vector<AiPackageContainer> mPackages;
-            int mLastAiPackage;
+            int32_t mLastAiPackage;
 
             void load(ESMReader& esm);
             void save(ESMWriter& esm) const;

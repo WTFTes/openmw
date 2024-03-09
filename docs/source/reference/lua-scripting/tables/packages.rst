@@ -13,7 +13,11 @@
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
 |:ref:`openmw.types <Package openmw.types>`                  | everywhere         | | Functions for specific types of game objects.               |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
-|:ref:`openmw.async <Package openmw.async>`                  | everywhere         | | Timers (implemented) and coroutine utils (not implemented)  |
+|:ref:`openmw.animation <Package openmw.animation>`          | everywhere         | | Animation controls                                          |
++------------------------------------------------------------+--------------------+---------------------------------------------------------------+
+|:ref:`openmw.async <Package openmw.async>`                  | everywhere         | | Timers and callbacks.                                       |
++------------------------------------------------------------+--------------------+---------------------------------------------------------------+
+|:ref:`openmw.vfs <Package openmw.vfs>`                      | everywhere         | | Read-only access to data directories via VFS.               |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
 |:ref:`openmw.world <Package openmw.world>`                  | by global scripts  | | Read-write access to the game world.                        |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
@@ -21,9 +25,13 @@
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
 |:ref:`openmw.nearby <Package openmw.nearby>`                | by local scripts   | | Read-only access to the nearest area of the game world.     |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
+|:ref:`openmw.ambient <Package openmw.ambient>`              | by player scripts  | | Controls background sounds for given player.                |
++------------------------------------------------------------+--------------------+---------------------------------------------------------------+
 |:ref:`openmw.input <Package openmw.input>`                  | by player scripts  | | User input.                                                 |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
 |:ref:`openmw.ui <Package openmw.ui>`                        | by player scripts  | | Controls :ref:`user interface <User interface reference>`.  |
++------------------------------------------------------------+--------------------+---------------------------------------------------------------+
+|:ref:`openmw.menu <Package openmw.menu>`                    | by menu scripts    | | Main menu functionality, such as managing game saves        |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+
 |:ref:`openmw.camera <Package openmw.camera>`                | by player scripts  | | Controls camera.                                            |
 +------------------------------------------------------------+--------------------+---------------------------------------------------------------+

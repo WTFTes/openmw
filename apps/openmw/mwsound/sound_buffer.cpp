@@ -5,7 +5,8 @@
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadsoun.hpp>
-#include <components/settings/settings.hpp>
+#include <components/misc/resourcehelpers.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/pathutil.hpp>
 
 #include <algorithm>
@@ -36,11 +37,9 @@ namespace MWSound
 
     SoundBufferPool::SoundBufferPool(Sound_Output& output)
         : mOutput(&output)
-        , mBufferCacheMax(std::max(Settings::Manager::getInt("buffer cache max", "Sound"), 1) * 1024 * 1024)
+        , mBufferCacheMax(Settings::sound().mBufferCacheMax * 1024 * 1024)
         , mBufferCacheMin(
-              std::min(static_cast<std::size_t>(std::max(Settings::Manager::getInt("buffer cache min", "Sound"), 1))
-                      * 1024 * 1024,
-                  mBufferCacheMax))
+              std::min(static_cast<std::size_t>(Settings::sound().mBufferCacheMin) * 1024 * 1024, mBufferCacheMax))
     {
     }
 
@@ -59,6 +58,41 @@ namespace MWSound
                 return sfx;
         }
         return nullptr;
+    }
+
+    Sound_Buffer* SoundBufferPool::lookup(std::string_view fileName) const
+    {
+        const auto it = mBufferFileNameMap.find(std::string(fileName));
+        if (it != mBufferFileNameMap.end())
+        {
+            Sound_Buffer* sfx = it->second;
+            if (sfx->getHandle() != nullptr)
+                return sfx;
+        }
+        return nullptr;
+    }
+
+    Sound_Buffer* SoundBufferPool::loadSfx(Sound_Buffer* sfx)
+    {
+        if (sfx->getHandle() != nullptr)
+            return sfx;
+
+        auto [handle, size] = mOutput->loadSound(sfx->getResourceName());
+        if (handle == nullptr)
+            return {};
+
+        sfx->mHandle = handle;
+
+        mBufferCacheSize += size;
+        if (mBufferCacheSize > mBufferCacheMax)
+        {
+            unloadUnused();
+            if (!mUnusedBuffers.empty() && mBufferCacheSize > mBufferCacheMax)
+                Log(Debug::Warning) << "No unused sound buffers to free, using " << mBufferCacheSize << " bytes!";
+        }
+        mUnusedBuffers.push_front(sfx);
+
+        return sfx;
     }
 
     Sound_Buffer* SoundBufferPool::load(const ESM::RefId& soundId)
@@ -81,25 +115,21 @@ namespace MWSound
             sfx = insertSound(soundId, *sound);
         }
 
-        if (sfx->getHandle() == nullptr)
+        return loadSfx(sfx);
+    }
+
+    Sound_Buffer* SoundBufferPool::load(std::string_view fileName)
+    {
+        Sound_Buffer* sfx;
+        const auto it = mBufferFileNameMap.find(std::string(fileName));
+        if (it != mBufferFileNameMap.end())
+            sfx = it->second;
+        else
         {
-            auto [handle, size] = mOutput->loadSound(sfx->getResourceName());
-            if (handle == nullptr)
-                return {};
-
-            sfx->mHandle = handle;
-
-            mBufferCacheSize += size;
-            if (mBufferCacheSize > mBufferCacheMax)
-            {
-                unloadUnused();
-                if (!mUnusedBuffers.empty() && mBufferCacheSize > mBufferCacheMax)
-                    Log(Debug::Warning) << "No unused sound buffers to free, using " << mBufferCacheSize << " bytes!";
-            }
-            mUnusedBuffers.push_front(sfx);
+            sfx = insertSound(fileName);
         }
 
-        return sfx;
+        return loadSfx(sfx);
     }
 
     void SoundBufferPool::clear()
@@ -110,7 +140,28 @@ namespace MWSound
                 mOutput->unloadSound(sfx.mHandle);
             sfx.mHandle = nullptr;
         }
+
+        mBufferFileNameMap.clear();
+        mBufferNameMap.clear();
         mUnusedBuffers.clear();
+    }
+
+    Sound_Buffer* SoundBufferPool::insertSound(std::string_view fileName)
+    {
+        static const AudioParams audioParams
+            = makeAudioParams(MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>());
+
+        float volume = 1.f;
+        float min = std::max(audioParams.mAudioDefaultMinDistance * audioParams.mAudioMinDistanceMult, 1.f);
+        float max = std::max(min, audioParams.mAudioDefaultMaxDistance * audioParams.mAudioMaxDistanceMult);
+
+        min = std::max(min, 1.0f);
+        max = std::max(min, max);
+
+        Sound_Buffer& sfx = mSoundBuffers.emplace_back(fileName, volume, min, max);
+
+        mBufferFileNameMap.emplace(fileName, &sfx);
+        return &sfx;
     }
 
     Sound_Buffer* SoundBufferPool::insertSound(const ESM::RefId& soundId, const ESM::Sound& sound)
@@ -132,8 +183,8 @@ namespace MWSound
         min = std::max(min, 1.0f);
         max = std::max(min, max);
 
-        Sound_Buffer& sfx = mSoundBuffers.emplace_back("Sound/" + sound.mSound, volume, min, max);
-        VFS::Path::normalizeFilenameInPlace(sfx.mResourceName);
+        Sound_Buffer& sfx = mSoundBuffers.emplace_back(
+            Misc::ResourceHelpers::correctSoundPath(VFS::Path::Normalized(sound.mSound)), volume, min, max);
 
         mBufferNameMap.emplace(soundId, &sfx);
         return &sfx;

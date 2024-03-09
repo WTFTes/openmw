@@ -11,15 +11,16 @@ namespace MWLua
 {
     class LuaEvents;
     class LuaManager;
-    class WorldView;
+    class ObjectLists;
 
     struct Context
     {
+        bool mIsMenu;
         bool mIsGlobal;
         LuaManager* mLuaManager;
         LuaUtil::LuaState* mLua;
         LuaUtil::UserdataSerializer* mSerializer;
-        WorldView* mWorldView;
+        ObjectLists* mObjectLists;
         LuaEvents* mLuaEvents;
     };
 

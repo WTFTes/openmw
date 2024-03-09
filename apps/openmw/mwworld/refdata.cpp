@@ -1,6 +1,8 @@
 #include "refdata.hpp"
 
 #include <components/esm3/objectstate.hpp>
+#include <components/esm4/loadachr.hpp>
+#include <components/esm4/loadrefr.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 
 #include "customdata.hpp"
@@ -35,7 +37,6 @@ namespace MWWorld
         mBaseNode = refData.mBaseNode;
         mLocals = refData.mLocals;
         mEnabled = refData.mEnabled;
-        mCount = refData.mCount;
         mPosition = refData.mPosition;
         mChanged = refData.mChanged;
         mDeletedByContentFile = refData.mDeletedByContentFile;
@@ -60,7 +61,6 @@ namespace MWWorld
         , mDeletedByContentFile(false)
         , mEnabled(true)
         , mPhysicsPostponed(false)
-        , mCount(1)
         , mCustomData(nullptr)
         , mChanged(false)
         , mFlags(0)
@@ -77,7 +77,6 @@ namespace MWWorld
         , mDeletedByContentFile(false)
         , mEnabled(true)
         , mPhysicsPostponed(false)
-        , mCount(1)
         , mPosition(cellRef.mPos)
         , mCustomData(nullptr)
         , mChanged(false)
@@ -85,13 +84,24 @@ namespace MWWorld
     {
     }
 
-    RefData::RefData(const ESM4::Reference& cellRef)
+    RefData::RefData(const ESM4::Reference& ref)
         : mBaseNode(nullptr)
-        , mDeletedByContentFile(false)
-        , mEnabled(true)
+        , mDeletedByContentFile(ref.mFlags & ESM4::Rec_Deleted)
+        , mEnabled(!(ref.mFlags & ESM4::Rec_Disabled))
         , mPhysicsPostponed(false)
-        , mCount(1)
-        , mPosition(cellRef.mPos)
+        , mPosition(ref.mPos)
+        , mCustomData(nullptr)
+        , mChanged(false)
+        , mFlags(0)
+    {
+    }
+
+    RefData::RefData(const ESM4::ActorCharacter& ref)
+        : mBaseNode(nullptr)
+        , mDeletedByContentFile(ref.mFlags & ESM4::Rec_Deleted)
+        , mEnabled(!(ref.mFlags & ESM4::Rec_Disabled))
+        , mPhysicsPostponed(false)
+        , mPosition(ref.mPos)
         , mCustomData(nullptr)
         , mChanged(false)
         , mFlags(0)
@@ -103,7 +113,6 @@ namespace MWWorld
         , mDeletedByContentFile(deletedByContentFile)
         , mEnabled(objectState.mEnabled != 0)
         , mPhysicsPostponed(false)
-        , mCount(objectState.mCount)
         , mPosition(objectState.mPosition)
         , mAnimationState(objectState.mAnimationState)
         , mCustomData(nullptr)
@@ -138,7 +147,6 @@ namespace MWWorld
         objectState.mHasLocals = mLocals.write(objectState.mLocals, scriptId);
 
         objectState.mEnabled = mEnabled;
-        objectState.mCount = mCount;
         objectState.mPosition = mPosition;
         objectState.mFlags = mFlags;
 
@@ -190,37 +198,15 @@ namespace MWWorld
         return mBaseNode;
     }
 
-    int RefData::getCount(bool absolute) const
-    {
-        if (absolute)
-            return std::abs(mCount);
-        return mCount;
-    }
-
     void RefData::setLocals(const ESM::Script& script)
     {
         if (mLocals.configure(script) && !mLocals.isEmpty())
             mChanged = true;
     }
 
-    void RefData::setCount(int count)
-    {
-        if (count == 0)
-            MWBase::Environment::get().getWorld()->removeRefScript(this);
-
-        mChanged = true;
-
-        mCount = count;
-    }
-
     void RefData::setDeletedByContentFile(bool deleted)
     {
         mDeletedByContentFile = deleted;
-    }
-
-    bool RefData::isDeleted() const
-    {
-        return mDeletedByContentFile || mCount == 0;
     }
 
     bool RefData::isDeletedByContentFile() const

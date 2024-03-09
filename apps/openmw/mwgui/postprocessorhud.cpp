@@ -20,6 +20,7 @@
 #include <components/fx/technique.hpp>
 #include <components/fx/widgets.hpp>
 
+#include <components/misc/strings/algorithm.hpp>
 #include <components/misc/utf8stream.hpp>
 
 #include <components/widgets/box.hpp>
@@ -135,9 +136,9 @@ namespace MWGui
                 return;
 
             if (enabled)
-                processor->enableTechnique(technique);
+                processor->enableTechnique(std::move(technique));
             else
-                processor->disableTechnique(technique);
+                processor->disableTechnique(std::move(technique));
             processor->saveChain();
         }
     }
@@ -170,7 +171,7 @@ namespace MWGui
             if (technique->getDynamic())
                 return;
 
-            if (processor->enableTechnique(technique, index) != MWRender::PostProcessor::Status_Error)
+            if (processor->enableTechnique(std::move(technique), index) != MWRender::PostProcessor::Status_Error)
                 processor->saveChain();
         }
     }
@@ -421,7 +422,12 @@ namespace MWGui
 
         auto* processor = MWBase::Environment::get().getWorld()->getPostProcessor();
 
+        std::vector<std::string> techniques;
         for (const auto& [name, _] : processor->getTechniqueMap())
+            techniques.push_back(name);
+        std::sort(techniques.begin(), techniques.end(), Misc::StringUtils::ciLess);
+
+        for (const std::string& name : techniques)
         {
             auto technique = processor->loadTechnique(name);
 

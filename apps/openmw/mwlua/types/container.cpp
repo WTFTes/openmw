@@ -5,10 +5,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 
-#include <apps/openmw/mwbase/environment.hpp>
-#include <apps/openmw/mwbase/world.hpp>
-#include <apps/openmw/mwworld/class.hpp>
-#include <apps/openmw/mwworld/esmstore.hpp>
+#include "apps/openmw/mwworld/class.hpp"
 
 namespace sol
 {
@@ -28,25 +25,19 @@ namespace MWLua
 
     void addContainerBindings(sol::table container, const Context& context)
     {
-        container["content"] = sol::overload(
-            [](const LObject& o) {
-                containerPtr(o);
-                return Inventory<LObject>{ o };
-            },
-            [](const GObject& o) {
-                containerPtr(o);
-                return Inventory<GObject>{ o };
-            });
-        container["encumbrance"] = [](const Object& obj) -> float {
+        container["content"] = sol::overload([](const LObject& o) { return Inventory<LObject>{ o }; },
+            [](const GObject& o) { return Inventory<GObject>{ o }; });
+        container["inventory"] = container["content"];
+        container["getEncumbrance"] = [](const Object& obj) -> float {
             const MWWorld::Ptr& ptr = containerPtr(obj);
             return ptr.getClass().getEncumbrance(ptr);
         };
-        container["capacity"] = [](const Object& obj) -> float {
+        container["encumbrance"] = container["getEncumbrance"]; // for compatibility; should be removed later
+        container["getCapacity"] = [](const Object& obj) -> float {
             const MWWorld::Ptr& ptr = containerPtr(obj);
             return ptr.getClass().getCapacity(ptr);
         };
-
-        auto vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
+        container["capacity"] = container["getCapacity"]; // for compatibility; should be removed later
 
         addRecordFunctionBinding<ESM::Container>(container, context);
 
@@ -57,8 +48,8 @@ namespace MWLua
         record["id"]
             = sol::readonly_property([](const ESM::Container& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Container& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property([vfs](const ESM::Container& rec) -> std::string {
-            return Misc::ResourceHelpers::correctMeshPath(rec.mModel, vfs);
+        record["model"] = sol::readonly_property([](const ESM::Container& rec) -> std::string {
+            return Misc::ResourceHelpers::correctMeshPath(rec.mModel);
         });
         record["mwscript"] = sol::readonly_property(
             [](const ESM::Container& rec) -> std::string { return rec.mScript.serializeText(); });

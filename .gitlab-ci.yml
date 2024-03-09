@@ -93,19 +93,19 @@ Coverity:
   tags:
     - docker
     - linux
-  image: ubuntu:20.04
+  image: ubuntu:22.04
   stage: build
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   cache:
-    key: Coverity.ubuntu_20.04.v1
+    key: Coverity.ubuntu_22.04.v1
     paths:
     - apt-cache/
     - ccache/
   variables:
     CCACHE_SIZE: 2G
-    CC: clang-11
-    CXX: clang++-11
+    CC: clang-12
+    CXX: clang++-12
     CMAKE_BUILD_TYPE: Debug
     CMAKE_CXX_FLAGS_DEBUG: -O0
   before_script:
@@ -142,7 +142,7 @@ Ubuntu_GCC:
   variables:
     CC: gcc
     CXX: g++
-    CCACHE_SIZE: 4G
+    CCACHE_SIZE: 3G
   # When CCache doesn't exist (e.g. first build on a fork), build takes more than 1h, which is the default for forks.
   timeout: 2h
 
@@ -172,6 +172,20 @@ Clang_Format:
     - CI/check_file_names.sh
     - CI/check_clang_format.sh
 
+Lupdate:
+  extends: .Ubuntu_Image
+  stage: checks
+  cache:
+    key: Ubuntu_lupdate.ubuntu_22.04.v1
+    paths:
+      - apt-cache/
+  variables:
+    LUPDATE: lupdate
+  before_script:
+    - CI/install_debian_deps.sh openmw-qt-translations
+  script:
+    - CI/check_qt_translations.sh
+
 Teal:
   stage: checks
   extends: .Ubuntu_Image
@@ -187,15 +201,16 @@ Teal:
 Ubuntu_GCC_Debug:
   extends: .Ubuntu
   cache:
-    key: Ubuntu_GCC_Debug.ubuntu_22.04.v1
+    key: Ubuntu_GCC_Debug.ubuntu_22.04.v2
   before_script:
     - CI/install_debian_deps.sh gcc openmw-deps openmw-deps-dynamic
   variables:
     CC: gcc
     CXX: g++
-    CCACHE_SIZE: 4G
+    CCACHE_SIZE: 3G
     CMAKE_BUILD_TYPE: Debug
     CMAKE_CXX_FLAGS_DEBUG: -O0
+    BUILD_SHARED_LIBS: 1
   # When CCache doesn't exist (e.g. first build on a fork), build takes more than 1h, which is the default for forks.
   timeout: 2h
 
@@ -506,13 +521,13 @@ Ubuntu_GCC_integration_tests_asan:
       - build/OpenMW-*.dmg
       - "build/**/*.log"
 
-macOS13_Xcode14_arm64:
+macOS14_Xcode15_arm64:
   extends: .MacOS
-  image: macos-12-xcode-14
+  image: macos-14-xcode-15
   tags:
     - saas-macos-medium-m1
   cache:
-    key: macOS12_Xcode14_arm64.v1
+    key: macOS14_Xcode15_arm64.v1
   variables:
     CCACHE_SIZE: 3G
 
@@ -591,7 +606,7 @@ macOS13_Xcode14_arm64:
     - Get-Volume
     - Copy-Item C:\ProgramData\chocolatey\logs\chocolatey.log
   cache:
-    key: ninja-v7
+    key: ninja-v8
     paths:
     - ccache
     - deps
@@ -712,7 +727,7 @@ macOS13_Xcode14_arm64:
     - Get-Volume
     - Copy-Item C:\ProgramData\chocolatey\logs\chocolatey.log
   cache:
-    key: msbuild-v7
+    key: msbuild-v8
     paths:
     - ccache
     - deps

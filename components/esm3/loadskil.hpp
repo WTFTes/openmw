@@ -14,6 +14,8 @@ namespace ESM
     class ESMReader;
     class ESMWriter;
 
+    using SkillId = StringRefId;
+
     struct MagicSchool
     {
         ESM::RefId mAreaSound;
@@ -22,7 +24,7 @@ namespace ESM
         ESM::RefId mFailureSound;
         ESM::RefId mHitSound;
         std::string mName;
-        int mAutoCalcMax;
+        int32_t mAutoCalcMax;
 
         static constexpr int Length = 6;
 
@@ -42,23 +44,50 @@ namespace ESM
         /// Return a string descriptor for this record type. Currently used for debugging / error logs only.
         static std::string_view getRecordType() { return "Skill"; }
 
-        unsigned int mRecordFlags;
-        RefId mId;
+        uint32_t mRecordFlags;
+        SkillId mId;
+
+        //! Enum that defines the index into SKDTstruct::mUseValue for all vanilla skill uses
+        enum UseType
+        {
+            // These are shared by multiple skills
+            Armor_HitByOpponent = 0,
+            Block_Success = 0,
+            Spellcast_Success = 0,
+            Weapon_SuccessfulHit = 0,
+
+            // Skill-specific use types
+            Alchemy_CreatePotion = 0,
+            Alchemy_UseIngredient = 1,
+            Enchant_Recharge = 0,
+            Enchant_UseMagicItem = 1,
+            Enchant_CreateMagicItem = 2,
+            Enchant_CastOnStrike = 3,
+            Acrobatics_Jump = 0,
+            Acrobatics_Fall = 1,
+            Mercantile_Success = 0,
+            Mercantile_Bribe = 1, //!< \Note This is bugged in vanilla and is not actually in use.
+            Security_DisarmTrap = 0,
+            Security_PickLock = 1,
+            Sneak_AvoidNotice = 0,
+            Sneak_PickPocket = 1,
+            Speechcraft_Success = 0,
+            Speechcraft_Fail = 1,
+            Armorer_Repair = 0,
+            Athletics_RunOneSecond = 0,
+            Athletics_SwimOneSecond = 1,
+
+        };
 
         struct SKDTstruct
         {
-            int mAttribute; // see defs.hpp
-            int mSpecialization; // 0 - Combat, 1 - Magic, 2 - Stealth
+            int32_t mAttribute; // see defs.hpp
+            int32_t mSpecialization; // 0 - Combat, 1 - Magic, 2 - Stealth
             float mUseValue[4]; // How much skill improves through use. Meaning
                                 // of each field depends on what skill this
-                                // is. We should document this better later.
+                                // is. See UseType above
         }; // Total size: 24 bytes
         SKDTstruct mData;
-
-        // Skill index. Skils don't have an id ("NAME") like most records,
-        // they only have a numerical index that matches one of the
-        // hard-coded skills in the game.
-        int mIndex{ -1 };
 
         std::string mDescription;
         std::string mName;
@@ -66,37 +95,34 @@ namespace ESM
         float mWerewolfValue{};
         std::optional<MagicSchool> mSchool;
 
-        static constexpr IndexRefId Block{ sRecordId, 0 };
-        static constexpr IndexRefId Armorer{ sRecordId, 1 };
-        static constexpr IndexRefId MediumArmor{ sRecordId, 2 };
-        static constexpr IndexRefId HeavyArmor{ sRecordId, 3 };
-        static constexpr IndexRefId BluntWeapon{ sRecordId, 4 };
-        static constexpr IndexRefId LongBlade{ sRecordId, 5 };
-        static constexpr IndexRefId Axe{ sRecordId, 6 };
-        static constexpr IndexRefId Spear{ sRecordId, 7 };
-        static constexpr IndexRefId Athletics{ sRecordId, 8 };
-        static constexpr IndexRefId Enchant{ sRecordId, 9 };
-        static constexpr IndexRefId Destruction{ sRecordId, 10 };
-        static constexpr IndexRefId Alteration{ sRecordId, 11 };
-        static constexpr IndexRefId Illusion{ sRecordId, 12 };
-        static constexpr IndexRefId Conjuration{ sRecordId, 13 };
-        static constexpr IndexRefId Mysticism{ sRecordId, 14 };
-        static constexpr IndexRefId Restoration{ sRecordId, 15 };
-        static constexpr IndexRefId Alchemy{ sRecordId, 16 };
-        static constexpr IndexRefId Unarmored{ sRecordId, 17 };
-        static constexpr IndexRefId Security{ sRecordId, 18 };
-        static constexpr IndexRefId Sneak{ sRecordId, 19 };
-        static constexpr IndexRefId Acrobatics{ sRecordId, 20 };
-        static constexpr IndexRefId LightArmor{ sRecordId, 21 };
-        static constexpr IndexRefId ShortBlade{ sRecordId, 22 };
-        static constexpr IndexRefId Marksman{ sRecordId, 23 };
-        static constexpr IndexRefId Mercantile{ sRecordId, 24 };
-        static constexpr IndexRefId Speechcraft{ sRecordId, 25 };
-        static constexpr IndexRefId HandToHand{ sRecordId, 26 };
+        static const SkillId Block;
+        static const SkillId Armorer;
+        static const SkillId MediumArmor;
+        static const SkillId HeavyArmor;
+        static const SkillId BluntWeapon;
+        static const SkillId LongBlade;
+        static const SkillId Axe;
+        static const SkillId Spear;
+        static const SkillId Athletics;
+        static const SkillId Enchant;
+        static const SkillId Destruction;
+        static const SkillId Alteration;
+        static const SkillId Illusion;
+        static const SkillId Conjuration;
+        static const SkillId Mysticism;
+        static const SkillId Restoration;
+        static const SkillId Alchemy;
+        static const SkillId Unarmored;
+        static const SkillId Security;
+        static const SkillId Sneak;
+        static const SkillId Acrobatics;
+        static const SkillId LightArmor;
+        static const SkillId ShortBlade;
+        static const SkillId Marksman;
+        static const SkillId Mercantile;
+        static const SkillId Speechcraft;
+        static const SkillId HandToHand;
         static constexpr int Length = 27;
-        static const std::string sSkillNames[Length];
-
-        static int stringToSkillId(std::string_view skill);
 
         void load(ESMReader& esm, bool& isDeleted);
         void save(ESMWriter& esm, bool isDeleted = false) const;
@@ -105,6 +131,7 @@ namespace ESM
         ///< Set record to default state (does not touch the ID/index).
 
         static RefId indexToRefId(int index);
+        static int refIdToIndex(RefId id);
     };
 }
 #endif

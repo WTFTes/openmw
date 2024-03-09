@@ -71,7 +71,7 @@ namespace MWGui
 
         const ItemStack& item = mSortModel->getItem(index);
 
-        // We can't take conjured items from a companion NPC
+        // We can't take conjured items from a companion actor
         if (item.mFlags & ItemStack::Flag_Bound)
         {
             MWBase::Environment::get().getWindowManager()->messageBox("#{sBarterDialog12}");
@@ -119,11 +119,13 @@ namespace MWGui
         }
     }
 
-    void CompanionWindow::setPtr(const MWWorld::Ptr& npc)
+    void CompanionWindow::setPtr(const MWWorld::Ptr& actor)
     {
-        mPtr = npc;
+        if (actor.isEmpty() || !actor.getClass().isActor())
+            throw std::runtime_error("Invalid argument in CompanionWindow::setPtr");
+        mPtr = actor;
         updateEncumbranceBar();
-        auto model = std::make_unique<CompanionItemModel>(npc);
+        auto model = std::make_unique<CompanionItemModel>(actor);
         mModel = model.get();
         auto sortModel = std::make_unique<SortFilterItemModel>(std::move(model));
         mSortModel = sortModel.get();
@@ -131,7 +133,7 @@ namespace MWGui
         mItemView->setModel(std::move(sortModel));
         mItemView->resetScrollBars();
 
-        setTitle(npc.getClass().getName(npc));
+        setTitle(actor.getClass().getName(actor));
     }
 
     void CompanionWindow::onFrame(float dt)

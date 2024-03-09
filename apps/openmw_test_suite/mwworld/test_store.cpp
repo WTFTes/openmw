@@ -16,12 +16,6 @@
 #include <components/esm3/esmwriter.hpp>
 #include <components/esm3/typetraits.hpp>
 #include <components/esm4/common.hpp>
-#include <components/esm4/loadcell.hpp>
-#include <components/esm4/loadland.hpp>
-#include <components/esm4/loadligh.hpp>
-#include <components/esm4/loadrefr.hpp>
-#include <components/esm4/loadstat.hpp>
-#include <components/esm4/loadwrld.hpp>
 #include <components/esm4/reader.hpp>
 #include <components/esm4/readerutils.hpp>
 #include <components/files/configurationmanager.hpp>
@@ -276,10 +270,8 @@ namespace
         std::vector<ESM::FormatVersion> result({
             ESM::DefaultFormatVersion,
             ESM::CurrentContentFormatVersion,
-            ESM::MaxOldWeatherFormatVersion,
-            ESM::MaxOldDeathAnimationFormatVersion,
-            ESM::MaxOldForOfWarFormatVersion,
-            ESM::MaxWerewolfDeprecatedDataFormatVersion,
+            ESM::MaxOldFogOfWarFormatVersion,
+            ESM::MaxUnoptimizedCharacterDataFormatVersion,
             ESM::MaxOldTimeLeftFormatVersion,
             ESM::MaxIntFallbackFormatVersion,
             ESM::MaxClearModifiersFormatVersion,
@@ -462,6 +454,10 @@ namespace
         {
             refId = ESM::RefId::esm3ExteriorCell(0, 0);
         }
+        else if constexpr (std::is_same_v<RecordType, ESM::Attribute>)
+            refId = ESM::Attribute::Strength;
+        else if constexpr (std::is_same_v<RecordType, ESM::Skill>)
+            refId = ESM::Skill::Block;
         else
             refId = ESM::StringRefId(stringId);
 
@@ -489,6 +485,12 @@ namespace
             ESM::Dialogue* dialogue = nullptr;
             MWWorld::ESMStore esmStore;
 
+            if constexpr (std::is_same_v<RecordType, ESM::Attribute>)
+            {
+                ASSERT_ANY_THROW(getEsmFile(record, false, formatVersion));
+                continue;
+            }
+
             reader.open(getEsmFile(record, false, formatVersion), "filename");
             ASSERT_NO_THROW(esmStore.load(reader, &dummyListener, dialogue));
             esmStore.setUp();
@@ -496,7 +498,7 @@ namespace
             const RecordType* result = nullptr;
             if constexpr (std::is_same_v<RecordType, ESM::LandTexture>)
                 result = esmStore.get<RecordType>().search(index, 0);
-            else if constexpr (ESM::hasIndex<RecordType> && !std::is_same_v<RecordType, ESM::Skill>)
+            else if constexpr (ESM::hasIndex<RecordType>)
                 result = esmStore.get<RecordType>().search(index);
             else
                 result = esmStore.get<RecordType>().search(refId);
@@ -579,7 +581,7 @@ namespace
 
     REGISTER_TYPED_TEST_SUITE_P(StoreSaveLoadTest, shouldNotChangeRefId);
 
-    static_assert(std::tuple_size_v<RecordTypesWithSave> == 39);
+    static_assert(std::tuple_size_v<RecordTypesWithSave> == 40);
 
     INSTANTIATE_TYPED_TEST_SUITE_P(
         RecordTypesTest, StoreSaveLoadTest, typename AsTestingTypes<RecordTypesWithSave>::Type);
@@ -640,7 +642,7 @@ namespace
     }
 
     std::unique_ptr<std::stringstream> saveDialogueWithInfos(
-        const ESM::Dialogue& dialogue, std::span<const ESM::DialInfo> infos)
+        const ESM::Dialogue& dialogue, std::span<const ESM::DialInfo> infos, std::span<const std::size_t> deleted = {})
     {
         auto stream = std::make_unique<std::stringstream>();
 
@@ -652,10 +654,10 @@ namespace
         dialogue.save(writer);
         writer.endRecord(ESM::REC_DIAL);
 
-        for (const ESM::DialInfo& info : infos)
+        for (std::size_t i = 0; i < infos.size(); ++i)
         {
             writer.startRecord(ESM::REC_INFO);
-            info.save(writer);
+            infos[i].save(writer, std::find(deleted.begin(), deleted.end(), i) != deleted.end());
             writer.endRecord(ESM::REC_INFO);
         }
 
@@ -690,7 +692,7 @@ namespace
         EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("info2")));
     }
 
-    TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosAndOrderWhenReversed)
+    TEST(MWWorldStoreTest, shouldIgnoreNextWhenLoadingDialogueInfos)
     {
         DialogueData data = generateDialogueWithInfos(3);
 
@@ -702,7 +704,7 @@ namespace
 
         const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
         ASSERT_NE(dialogue, nullptr);
-        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info1"), HasIdEqualTo("info2")));
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info2"), HasIdEqualTo("info1")));
     }
 
     TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosInsertingNewRecordBasedOnPrev)
@@ -801,6 +803,7 @@ namespace
 
         ESM::DialInfo updatedInfo = data.mInfos[0];
         updatedInfo.mPrev = data.mInfos[2].mId;
+        updatedInfo.mActor = ESM::RefId::stringRefId("newActor");
 
         loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ updatedInfo }), esmStore);
 
@@ -809,6 +812,7 @@ namespace
         const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
         ASSERT_NE(dialogue, nullptr);
         EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info1"), HasIdEqualTo("info2"), HasIdEqualTo("info0")));
+        EXPECT_EQ(std::prev(dialogue->mInfo.end())->mActor, "newActor");
     }
 
     TEST(MWWorldStoreTest, shouldLoadDialogueWithInfosMovingBackwardExistingRecordBasedOnPrev)
@@ -820,6 +824,7 @@ namespace
 
         ESM::DialInfo updatedInfo = data.mInfos[2];
         updatedInfo.mPrev = data.mInfos[0].mId;
+        updatedInfo.mActor = ESM::RefId::stringRefId("newActor");
 
         loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ updatedInfo }), esmStore);
 
@@ -828,5 +833,46 @@ namespace
         const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
         ASSERT_NE(dialogue, nullptr);
         EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info2"), HasIdEqualTo("info1")));
+        EXPECT_EQ(std::next(dialogue->mInfo.begin())->mActor, "newActor");
+    }
+
+    TEST(MWWorldStoreTest, shouldPreservePositionWhenPrevIsTheSame)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos), esmStore);
+
+        ESM::DialInfo newInfo = data.mInfos[0];
+        newInfo.mPrev = data.mInfos[2].mId;
+        newInfo.mNext = {};
+
+        loadEsmStore(1, saveDialogueWithInfos(data.mDialogue, std::array{ newInfo }), esmStore);
+
+        newInfo = data.mInfos[1];
+        newInfo.mResponse = "test";
+
+        loadEsmStore(2, saveDialogueWithInfos(data.mDialogue, std::array{ newInfo }), esmStore);
+
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info1"), HasIdEqualTo("info2"), HasIdEqualTo("info0")));
+        EXPECT_EQ(dialogue->mInfo.begin()->mResponse, "test");
+    }
+
+    TEST(MWWorldStoreTest, setUpShouldRemoveDeletedDialogueInfos)
+    {
+        const DialogueData data = generateDialogueWithInfos(3);
+
+        MWWorld::ESMStore esmStore;
+        const std::array<std::size_t, 1> deleted = { 1 };
+        loadEsmStore(0, saveDialogueWithInfos(data.mDialogue, data.mInfos, deleted), esmStore);
+        esmStore.setUp();
+
+        const ESM::Dialogue* dialogue = esmStore.get<ESM::Dialogue>().search(ESM::RefId::stringRefId("dialogue"));
+        ASSERT_NE(dialogue, nullptr);
+        EXPECT_THAT(dialogue->mInfo, ElementsAre(HasIdEqualTo("info0"), HasIdEqualTo("info2")));
     }
 }

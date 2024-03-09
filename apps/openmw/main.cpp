@@ -2,6 +2,7 @@
 #include <components/fallback/fallback.hpp>
 #include <components/fallback/validate.hpp>
 #include <components/files/configurationmanager.hpp>
+#include <components/misc/osgpluginchecker.hpp>
 #include <components/misc/rng.hpp>
 #include <components/platform/platform.hpp>
 #include <components/version/version.hpp>
@@ -14,7 +15,7 @@
 #include <boost/program_options/variables_map.hpp>
 
 #if defined(_WIN32)
-#include <components/windows.hpp>
+#include <components/misc/windows.hpp>
 // makes __argc and __argv available on windows
 #include <cstdlib>
 
@@ -58,27 +59,14 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
 
     if (variables.count("version"))
     {
-        cfgMgr.readConfiguration(variables, desc, true);
-
-        Version::Version v
-            = Version::getOpenmwVersion(variables["resources"]
-                                            .as<Files::MaybeQuotedPath>()
-                                            .u8string()); // This call to u8string is redundant, but required to build
-                                                          // on MSVC 14.26 due to implementation bugs.
-        getRawStdout() << v.describe() << std::endl;
+        getRawStdout() << Version::getOpenmwVersionDescription() << std::endl;
         return false;
     }
 
     cfgMgr.readConfiguration(variables, desc);
 
     setupLogging(cfgMgr.getLogPath(), "OpenMW");
-
-    Version::Version v
-        = Version::getOpenmwVersion(variables["resources"]
-                                        .as<Files::MaybeQuotedPath>()
-                                        .u8string()); // This call to u8string is redundant, but required to build on
-                                                      // MSVC 14.26 due to implementation bugs.
-    Log(Debug::Info) << v.describe();
+    Log(Debug::Info) << Version::getOpenmwVersionDescription();
 
     Settings::Manager::load(cfgMgr);
 
@@ -232,8 +220,6 @@ int runApplication(int argc, char* argv[])
     Platform::init();
 
 #ifdef __APPLE__
-    std::filesystem::path binary_path = std::filesystem::absolute(std::filesystem::path(argv[0]));
-    std::filesystem::current_path(binary_path.parent_path());
     setenv("OSG_GL_TEXTURE_STORAGE", "OFF", 0);
 #endif
 
@@ -243,6 +229,9 @@ int runApplication(int argc, char* argv[])
 
     if (parseOptions(argc, argv, *engine, cfgMgr))
     {
+        if (!Misc::checkRequiredOSGPluginsArePresent())
+            return 1;
+
         engine->go();
     }
 

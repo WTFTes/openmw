@@ -2,6 +2,7 @@
 
 #include <components/compiler/opcodes.hpp>
 
+#include <components/interpreter/context.hpp>
 #include <components/interpreter/interpreter.hpp>
 #include <components/interpreter/opcodes.hpp>
 #include <components/interpreter/runtime.hpp>
@@ -11,11 +12,9 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 
-#include "interpretercontext.hpp"
 #include "ref.hpp"
 
 namespace MWScript
@@ -193,7 +192,8 @@ namespace MWScript
         public:
             void execute(Interpreter::Runtime& runtime) override
             {
-                bool state = MWBase::Environment::get().getWindowManager()->toggleHud();
+                bool state = MWBase::Environment::get().getWindowManager()->setHudVisibility(
+                    !MWBase::Environment::get().getWindowManager()->isHudVisible());
                 runtime.getContext().report(state ? "GUI -> On" : "GUI -> Off");
 
                 if (!state)

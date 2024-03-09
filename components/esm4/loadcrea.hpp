@@ -31,6 +31,9 @@
 #include <string>
 #include <vector>
 
+#include <components/esm/defs.hpp>
+#include <components/esm/formid.hpp>
+
 #include "actor.hpp"
 #include "inventory.hpp"
 
@@ -103,25 +106,25 @@ namespace ESM4
         };
 #pragma pack(pop)
 
-        FormId mFormId; // from the header
+        ESM::FormId mId; // from the header
         std::uint32_t mFlags; // from the header, see enum type RecordFlag for details
 
         std::string mEditorId;
         std::string mFullName;
         std::string mModel;
 
-        FormId mDeathItem;
-        std::vector<FormId> mSpell;
-        FormId mScriptId;
+        ESM::FormId mDeathItem;
+        std::vector<ESM::FormId> mSpell;
+        ESM::FormId mScriptId;
 
         AIData mAIData;
-        std::vector<FormId> mAIPackages;
+        std::vector<ESM::FormId> mAIPackages;
         ActorBaseConfig mBaseConfig;
         ActorFaction mFaction;
         Data mData;
-        FormId mCombatStyle;
-        FormId mSoundBase;
-        FormId mSound;
+        ESM::FormId mCombatStyle;
+        ESM::FormId mSoundBase;
+        ESM::FormId mSound;
         std::uint8_t mSoundChance;
         float mBaseScale;
         float mTurningSpeed;
@@ -135,13 +138,14 @@ namespace ESM4
 
         std::vector<InventoryItem> mInventory;
 
-        FormId mBaseTemplate; // FO3/FONV
-        std::vector<FormId> mBodyParts; // FO3/FONV
+        ESM::FormId mBaseTemplate; // FO3/FONV
+        std::vector<ESM::FormId> mBodyParts; // FO3/FONV
 
         void load(ESM4::Reader& reader);
         // void save(ESM4::Writer& writer) const;
 
         // void blank();
+        static constexpr ESM::RecNameInts sRecordId = ESM::RecNameInts::REC_CREA4;
     };
 }
 

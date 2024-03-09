@@ -4,20 +4,27 @@
 #include <sstream>
 
 #include <components/debug/debuglog.hpp>
+#include <components/misc/concepts.hpp>
 
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
 namespace ESM
 {
+    template <Misc::SameAsWithoutCvref<Script::SCHDstruct> T>
+    void decompose(T&& v, const auto& f)
+    {
+        f(v.mNumShorts, v.mNumLongs, v.mNumFloats, v.mScriptDataSize, v.mStringTableSize);
+    }
+
     void Script::loadSCVR(ESMReader& esm)
     {
-        int s = mData.mStringTableSize;
+        uint32_t s = mData.mStringTableSize;
 
         std::vector<char> tmp(s);
         // not using getHExact, vanilla doesn't seem to mind unused bytes at the end
         esm.getSubHeader();
-        int left = esm.getSubSize();
+        uint32_t left = esm.getSubSize();
         if (left < s)
             esm.fail("SCVR string list is smaller than specified");
         esm.getExact(tmp.data(), s);
@@ -99,7 +106,7 @@ namespace ESM
                 {
                     esm.getSubHeader();
                     mId = esm.getMaybeFixedRefIdSize(32);
-                    esm.getT(mData);
+                    esm.getComposite(mData);
 
                     hasHeader = true;
                     break;
@@ -114,7 +121,7 @@ namespace ESM
                     esm.getSubHeader();
                     uint32_t subSize = esm.getSubSize();
 
-                    if (subSize != static_cast<uint32_t>(mData.mScriptDataSize))
+                    if (subSize != mData.mScriptDataSize)
                     {
                         std::stringstream ss;
                         ss << "Script data size defined in SCHD subrecord does not match size of SCDT subrecord";
@@ -153,7 +160,7 @@ namespace ESM
 
         esm.startSubRecord("SCHD");
         esm.writeMaybeFixedSizeRefId(mId, 32);
-        esm.writeT(mData, 20);
+        esm.writeComposite(mData);
         esm.endRecord("SCHD");
 
         if (isDeleted)

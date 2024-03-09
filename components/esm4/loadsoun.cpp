@@ -33,8 +33,7 @@
 
 void ESM4::Sound::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     while (reader.getSubRecordHeader())
@@ -66,6 +65,7 @@ void ESM4::Sound::load(ESM4::Reader& reader)
             case ESM4::SUB_GNAM: // FO3
             case ESM4::SUB_HNAM: // FO3
             case ESM4::SUB_RNAM: // FONV
+            case ESM4::SUB_REPT: // FO4
                 reader.skipSubRecordData();
                 break;
             default:

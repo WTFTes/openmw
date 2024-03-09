@@ -23,6 +23,8 @@
 #include <components/interpreter/defines.hpp>
 #include <components/interpreter/interpreter.hpp>
 
+#include <components/misc/resourcehelpers.hpp>
+
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -541,7 +543,8 @@ namespace MWDialogue
         mPermanentDispositionChange += perm;
 
         MWWorld::Ptr player = MWMechanics::getPlayer();
-        player.getClass().skillUsageSucceeded(player, ESM::Skill::Speechcraft, success ? 0 : 1);
+        player.getClass().skillUsageSucceeded(
+            player, ESM::Skill::Speechcraft, success ? ESM::Skill::Speechcraft_Success : ESM::Skill::Speechcraft_Fail);
 
         if (success)
         {
@@ -578,7 +581,7 @@ namespace MWDialogue
 
     void DialogueManager::applyBarterDispositionChange(int delta)
     {
-        if (mActor.getClass().isNpc())
+        if (!mActor.isEmpty() && mActor.getClass().isNpc())
         {
             updateOriginalDisposition();
             mCurrentDisposition += delta;
@@ -650,7 +653,7 @@ namespace MWDialogue
             if (Settings::gui().mSubtitles)
                 winMgr->messageBox(info->mResponse);
             if (!info->mSound.empty())
-                sndMgr->say(actor, info->mSound);
+                sndMgr->say(actor, Misc::ResourceHelpers::correctSoundPath(VFS::Path::Normalized(info->mSound)));
             if (!info->mResultScript.empty())
                 executeScript(info->mResultScript, actor);
         }

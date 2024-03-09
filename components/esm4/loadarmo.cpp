@@ -33,11 +33,9 @@
 
 void ESM4::Armor::load(ESM4::Reader& reader)
 {
-    mId = reader.getRefIdFromHeader();
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
-    std::uint32_t esmVer = reader.esmVersion();
-    mIsFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
-
+    uint16_t currentIndex = 0xFFFF;
     while (reader.getSubRecordHeader())
     {
         const ESM4::SubRecordHeader& subHdr = reader.subRecordHeader();
@@ -51,36 +49,45 @@ void ESM4::Armor::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_DATA:
             {
-                // if (reader.esmVersion() == ESM::VER_094 || reader.esmVersion() == ESM::VER_170)
-                if (subHdr.dataSize == 8) // FO3 has 12 bytes even though VER_094
+                switch (subHdr.dataSize)
                 {
-                    reader.get(mData.value);
-                    reader.get(mData.weight);
-                    mIsFO3 = true;
+                    case 14: // TES4
+                        reader.get(mData);
+                        break;
+                    case 12: // FO3, FNV, FO4
+                        reader.get(mData.value);
+                        reader.get(mData.health);
+                        reader.get(mData.weight);
+                        break;
+                    case 8: // TES5
+                        reader.get(mData.value);
+                        reader.get(mData.weight);
+                        break;
+                    default:
+                        reader.skipSubRecordData();
+                        break;
                 }
-                else if (mIsFONV || subHdr.dataSize == 12)
-                {
-                    reader.get(mData.value);
-                    reader.get(mData.health);
-                    reader.get(mData.weight);
-                }
-                else
-                {
-                    reader.get(mData); // TES4
-                    mIsTES4 = true;
-                }
-
                 break;
             }
-            case ESM4::SUB_MODL: // seems only for Dawnguard/Dragonborn?
+            case ESM4::SUB_INDX: // FO4
             {
-                // if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || isFONV)
-                if (subHdr.dataSize == 4) // FO3 has zstring even though VER_094
+                reader.get(currentIndex);
+                break;
+            }
+            case ESM4::SUB_MODL:
+            {
+                if (subHdr.dataSize == 4)
                 {
-                    FormId formId;
-                    reader.getFormId(formId);
-
-                    mAddOns.push_back(formId);
+                    // Assuming TES5
+                    if (currentIndex == 0xFFFF)
+                        reader.getFormId(mAddOns.emplace_back());
+                    // FO4
+                    else
+                    {
+                        if (mAddOns.size() <= currentIndex)
+                            mAddOns.resize(currentIndex + 1);
+                        reader.getFormId(mAddOns[currentIndex]);
+                    }
                 }
                 else
                 {
@@ -140,10 +147,21 @@ void ESM4::Armor::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_BOD2:
-                reader.get(mArmorFlags);
-                reader.get(mGeneralFlags);
-                mGeneralFlags &= 0x0000000f; // 0 (light), 1 (heavy) or 2 (none)
-                mGeneralFlags |= TYPE_TES5;
+                // FO4, TES5
+                if (subHdr.dataSize == 4 || subHdr.dataSize == 8)
+                {
+                    reader.get(mArmorFlags);
+                    if (subHdr.dataSize == 8)
+                    {
+                        reader.get(mGeneralFlags);
+                        mGeneralFlags &= 0x0000000f; // 0 (light), 1 (heavy) or 2 (none)
+                        mGeneralFlags |= TYPE_TES5;
+                    }
+                }
+                else
+                {
+                    reader.skipSubRecordData();
+                }
                 break;
             case ESM4::SUB_SCRI:
                 reader.getFormId(mScriptId);
@@ -196,6 +214,24 @@ void ESM4::Armor::load(ESM4::Reader& reader)
             case ESM4::SUB_MO3S: // FO3
             case ESM4::SUB_BNAM: // FONV
             case ESM4::SUB_SNAM: // FONV
+            case ESM4::SUB_DAMC: // Destructible
+            case ESM4::SUB_DEST:
+            case ESM4::SUB_DMDC:
+            case ESM4::SUB_DMDL:
+            case ESM4::SUB_DMDT:
+            case ESM4::SUB_DMDS:
+            case ESM4::SUB_DSTA:
+            case ESM4::SUB_DSTD:
+            case ESM4::SUB_DSTF: // Destructible end
+            case ESM4::SUB_APPR: // FO4
+            case ESM4::SUB_DAMA: // FO4
+            case ESM4::SUB_FNAM: // FO4
+            case ESM4::SUB_INRD: // FO4
+            case ESM4::SUB_PTRN: // FO4
+            case ESM4::SUB_OBTE: // FO4 object template start
+            case ESM4::SUB_OBTF:
+            case ESM4::SUB_OBTS:
+            case ESM4::SUB_STOP: // FO4 object template end
                 reader.skipSubRecordData();
                 break;
             default:

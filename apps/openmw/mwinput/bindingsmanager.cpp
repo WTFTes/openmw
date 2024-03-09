@@ -5,6 +5,7 @@
 #include <extern/oics/ICSChannelListener.h>
 #include <extern/oics/ICSInputControlSystem.h>
 
+#include <components/debug/debuglog.hpp>
 #include <components/files/conversion.hpp>
 #include <components/sdlutil/sdlmappings.hpp>
 
@@ -76,7 +77,12 @@ namespace MWInput
             // Disallow binding escape key
             if (key == SDL_SCANCODE_ESCAPE)
             {
-                // Stop binding if esc pressed
+                // Unbind if esc pressed
+                if (mDetectingKeyboard)
+                    clearAllKeyBindings(mInputBinder, control);
+                else
+                    clearAllControllerBindings(mInputBinder, control);
+                control->setInitialValue(0.0f);
                 mInputBinder->cancelDetectingBindingState();
                 MWBase::Environment::get().getWindowManager()->notifyInputActionBound();
                 return;
@@ -153,7 +159,14 @@ namespace MWInput
                 return;
             clearAllControllerBindings(mInputBinder, control);
             control->setInitialValue(0.0f);
-            ICS::DetectingBindingListener::joystickButtonBindingDetected(ICS, deviceID, control, button, direction);
+            if (button == SDL_CONTROLLER_BUTTON_START)
+            {
+                // Disallow rebinding SDL_CONTROLLER_BUTTON_START - it is used to open main and without it is not
+                // even possible to exit the game (or change the binding back).
+                mInputBinder->cancelDetectingBindingState();
+            }
+            else
+                ICS::DetectingBindingListener::joystickButtonBindingDetected(ICS, deviceID, control, button, direction);
             MWBase::Environment::get().getWindowManager()->notifyInputActionBound();
         }
 
@@ -177,8 +190,11 @@ namespace MWInput
         mListener = std::make_unique<BindingsListener>(mInputBinder.get(), this);
         mInputBinder->setDetectingBindingListener(mListener.get());
 
-        loadKeyDefaults();
-        loadControllerDefaults();
+        if (!userFileExists)
+        {
+            loadKeyDefaults();
+            loadControllerDefaults();
+        }
 
         for (int i = 0; i < A_Last; ++i)
         {
@@ -193,7 +209,14 @@ namespace MWInput
 
     BindingsManager::~BindingsManager()
     {
-        mInputBinder->save(Files::pathToUnicodeString(mUserFile));
+        try
+        {
+            mInputBinder->save(Files::pathToUnicodeString(mUserFile));
+        }
+        catch (std::exception& e)
+        {
+            Log(Debug::Error) << "Failed to save input bindings: " << e.what();
+        }
     }
 
     void BindingsManager::update(float dt)
@@ -373,10 +396,6 @@ namespace MWInput
         defaultButtonBindings[A_Inventory] = SDL_CONTROLLER_BUTTON_B;
         defaultButtonBindings[A_GameMenu] = SDL_CONTROLLER_BUTTON_START;
         defaultButtonBindings[A_QuickSave] = SDL_CONTROLLER_BUTTON_GUIDE;
-        defaultButtonBindings[A_MoveForward] = SDL_CONTROLLER_BUTTON_DPAD_UP;
-        defaultButtonBindings[A_MoveLeft] = SDL_CONTROLLER_BUTTON_DPAD_LEFT;
-        defaultButtonBindings[A_MoveBackward] = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
-        defaultButtonBindings[A_MoveRight] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
 
         std::map<int, int> defaultAxisBindings;
         defaultAxisBindings[A_MoveForwardBackward] = SDL_CONTROLLER_AXIS_LEFTY;
@@ -586,11 +605,12 @@ namespace MWInput
     }
     const std::initializer_list<int>& BindingsManager::getActionControllerSorting()
     {
-        static const std::initializer_list<int> actions{ A_TogglePOV, A_ZoomIn, A_ZoomOut, A_Sneak, A_Activate, A_Use,
-            A_ToggleWeapon, A_ToggleSpell, A_AutoMove, A_Jump, A_Inventory, A_Journal, A_Rest, A_QuickSave, A_QuickLoad,
-            A_ToggleHUD, A_Screenshot, A_QuickKeysMenu, A_QuickKey1, A_QuickKey2, A_QuickKey3, A_QuickKey4, A_QuickKey5,
-            A_QuickKey6, A_QuickKey7, A_QuickKey8, A_QuickKey9, A_QuickKey10, A_CycleSpellLeft, A_CycleSpellRight,
-            A_CycleWeaponLeft, A_CycleWeaponRight };
+        static const std::initializer_list<int> actions{ A_MoveForward, A_MoveBackward, A_MoveLeft, A_MoveRight,
+            A_TogglePOV, A_ZoomIn, A_ZoomOut, A_Sneak, A_Activate, A_Use, A_ToggleWeapon, A_ToggleSpell, A_AutoMove,
+            A_Jump, A_Inventory, A_Journal, A_Rest, A_QuickSave, A_QuickLoad, A_ToggleHUD, A_Screenshot,
+            A_QuickKeysMenu, A_QuickKey1, A_QuickKey2, A_QuickKey3, A_QuickKey4, A_QuickKey5, A_QuickKey6, A_QuickKey7,
+            A_QuickKey8, A_QuickKey9, A_QuickKey10, A_CycleSpellLeft, A_CycleSpellRight, A_CycleWeaponLeft,
+            A_CycleWeaponRight };
 
         return actions;
     }

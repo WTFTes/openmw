@@ -41,6 +41,7 @@
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadprob.hpp>
 #include <components/esm3/loadrepa.hpp>
+#include <components/esm3/loadscpt.hpp>
 #include <components/esm3/loadstat.hpp>
 #include <components/esm3/loadweap.hpp>
 
@@ -184,6 +185,14 @@ namespace MWScript
                 MWWorld::Ptr target = R()(runtime, false);
                 ESM::RefId name = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
+
+                if (!MWBase::Environment::get().getESMStore()->get<ESM::Script>().search(name))
+                {
+                    runtime.getContext().report(
+                        "Failed to start global script '" + name.getRefIdString() + "': script record not found");
+                    return;
+                }
+
                 MWBase::Environment::get().getScriptManager()->getGlobalScripts().addScript(name, target);
             }
         };
@@ -206,6 +215,14 @@ namespace MWScript
             {
                 const ESM::RefId& name = ESM::RefId::stringRefId(runtime.getStringLiteral(runtime[0].mInteger));
                 runtime.pop();
+
+                if (!MWBase::Environment::get().getESMStore()->get<ESM::Script>().search(name))
+                {
+                    runtime.getContext().report(
+                        "Failed to stop global script '" + name.getRefIdString() + "': script record not found");
+                    return;
+                }
+
                 MWBase::Environment::get().getScriptManager()->getGlobalScripts().removeScript(name);
             }
         };
@@ -698,7 +715,7 @@ namespace MWScript
                         MWWorld::ConstContainerStoreIterator it = store.getSlot(slot);
                         if (it != store.end() && it->getCellRef().getRefId() == item)
                         {
-                            numNotEquipped -= it->getRefData().getCount();
+                            numNotEquipped -= it->getCellRef().getCount();
                         }
                     }
 
@@ -707,7 +724,7 @@ namespace MWScript
                         MWWorld::ContainerStoreIterator it = store.getSlot(slot);
                         if (it != store.end() && it->getCellRef().getRefId() == item)
                         {
-                            int numToRemove = std::min(amount - numNotEquipped, it->getRefData().getCount());
+                            int numToRemove = std::min(amount - numNotEquipped, it->getCellRef().getCount());
                             store.unequipItemQuantity(*it, numToRemove);
                             numNotEquipped += numToRemove;
                         }
@@ -1329,8 +1346,10 @@ namespace MWScript
             {
                 MWWorld::Ptr player = MWMechanics::getPlayer();
                 player.getClass().getNpcStats(player).setBounty(0);
-                MWBase::Environment::get().getWorld()->confiscateStolenItems(player);
-                MWBase::Environment::get().getWorld()->getPlayer().recordCrimeId();
+                MWBase::World* world = MWBase::Environment::get().getWorld();
+                world->confiscateStolenItems(player);
+                world->getPlayer().recordCrimeId();
+                world->getPlayer().setDrawState(MWMechanics::DrawState::Nothing);
             }
         };
 
@@ -1399,7 +1418,7 @@ namespace MWScript
 
                 if (ptr.getRefData().isDeletedByContentFile())
                     msg << "[Deleted by content file]" << std::endl;
-                if (!ptr.getRefData().getCount())
+                if (!ptr.getCellRef().getCount())
                     msg << "[Deleted]" << std::endl;
 
                 msg << "RefID: " << ptr.getCellRef().getRefId() << std::endl;
@@ -1416,7 +1435,7 @@ namespace MWScript
                     msg << "Coordinates: " << pos.x() << " " << pos.y() << " " << pos.z() << std::endl;
                     auto vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
                     std::string model
-                        = ::Misc::ResourceHelpers::correctActorModelPath(ptr.getClass().getModel(ptr), vfs);
+                        = ::Misc::ResourceHelpers::correctActorModelPath(ptr.getClass().getCorrectedModel(ptr), vfs);
                     msg << "Model: " << model << std::endl;
                     if (!model.empty())
                     {
@@ -1454,7 +1473,7 @@ namespace MWScript
 
                                 if (lastTextureSrc.empty() || textureSrc != lastTextureSrc)
                                 {
-                                    lastTextureSrc = textureSrc;
+                                    lastTextureSrc = std::move(textureSrc);
                                     if (lastTextureSrc.empty())
                                         lastTextureSrc = "[No Source]";
 
@@ -1692,7 +1711,7 @@ namespace MWScript
                 for (const T& record : store.get<T>())
                 {
                     MWWorld::ManualRef ref(store, record.mId);
-                    std::string model = ref.getPtr().getClass().getModel(ref.getPtr());
+                    std::string model = ref.getPtr().getClass().getCorrectedModel(ref.getPtr());
                     if (!model.empty())
                     {
                         sceneManager->getTemplate(model);

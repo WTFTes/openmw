@@ -13,6 +13,7 @@
 #include <osgUtil/CullVisitor>
 
 #include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/util.hpp>
 #include <components/shader/shadermanager.hpp>
 
@@ -23,8 +24,6 @@
 
 namespace
 {
-    constexpr int maxLightsLowerLimit = 2;
-    constexpr int maxLightsUpperLimit = 64;
     constexpr int ffpMaxLights = 8;
 
     bool sortLights(const SceneUtil::LightManager::LightSourceViewBound* left,
@@ -538,6 +537,7 @@ namespace SceneUtil
                 configurePosition(lightMat, light->getPosition() * mViewMatrix);
                 configureAmbient(lightMat, light->getAmbient());
                 configureDiffuse(lightMat, light->getDiffuse());
+                configureSpecular(lightMat, light->getSpecular());
                 configureAttenuation(lightMat, light->getConstantAttenuation(), light->getLinearAttenuation(),
                     light->getQuadraticAttenuation(), lightList[i]->mLightSource->getRadius());
 
@@ -817,7 +817,7 @@ namespace SceneUtil
         return "";
     }
 
-    LightManager::LightManager(bool ffp)
+    LightManager::LightManager(const LightSettings& settings)
         : mStartLight(0)
         , mLightingMask(~0u)
         , mSun(nullptr)
@@ -825,7 +825,7 @@ namespace SceneUtil
         , mPointLightFadeEnd(0.f)
         , mPointLightFadeStart(0.f)
     {
-        osg::GLExtensions* exts = osg::GLExtensions::Get(0, false);
+        osg::GLExtensions* exts = SceneUtil::glExtensionsReady() ? &SceneUtil::getGLExtensions() : nullptr;
         bool supportsUBO = exts && exts->isUniformBufferObjectSupported;
         bool supportsGPU4 = exts && exts->isGpuShader4Supported;
 
@@ -835,18 +835,15 @@ namespace SceneUtil
 
         setUpdateCallback(new LightManagerUpdateCallback);
 
-        if (ffp)
+        if (settings.mLightingMethod == LightingMethod::FFP)
         {
             initFFP(ffpMaxLights);
             return;
         }
 
-        const std::string& lightingMethodString = Settings::Manager::getString("lighting method", "Shaders");
-        auto lightingMethod = LightManager::getLightingMethodFromString(lightingMethodString);
-
         static bool hasLoggedWarnings = false;
 
-        if (lightingMethod == LightingMethod::SingleUBO && !hasLoggedWarnings)
+        if (settings.mLightingMethod == LightingMethod::SingleUBO && !hasLoggedWarnings)
         {
             if (!supportsUBO)
                 Log(Debug::Warning)
@@ -857,15 +854,12 @@ namespace SceneUtil
             hasLoggedWarnings = true;
         }
 
-        const int targetLights
-            = std::clamp(Settings::Manager::getInt("max lights", "Shaders"), maxLightsLowerLimit, maxLightsUpperLimit);
-
-        if (!supportsUBO || !supportsGPU4 || lightingMethod == LightingMethod::PerObjectUniform)
-            initPerObjectUniform(targetLights);
+        if (!supportsUBO || !supportsGPU4 || settings.mLightingMethod == LightingMethod::PerObjectUniform)
+            initPerObjectUniform(settings.mMaxLights);
         else
-            initSingleUBO(targetLights);
+            initSingleUBO(settings.mMaxLights);
 
-        updateSettings();
+        updateSettings(settings.mLightBoundsMultiplier, settings.mMaximumLightDistance, settings.mLightFadeStart);
 
         getOrCreateStateSet()->addUniform(new osg::Uniform("PointLightCount", 0));
 
@@ -931,18 +925,18 @@ namespace SceneUtil
         return defines;
     }
 
-    void LightManager::processChangedSettings(const Settings::CategorySettingVector& changed)
+    void LightManager::processChangedSettings(
+        float lightBoundsMultiplier, float maximumLightDistance, float lightFadeStart)
     {
-        updateSettings();
+        updateSettings(lightBoundsMultiplier, maximumLightDistance, lightFadeStart);
     }
 
-    void LightManager::updateMaxLights()
+    void LightManager::updateMaxLights(int maxLights)
     {
         if (usingFFP())
             return;
 
-        setMaxLights(
-            std::clamp(Settings::Manager::getInt("max lights", "Shaders"), maxLightsLowerLimit, maxLightsUpperLimit));
+        setMaxLights(maxLights);
 
         if (getLightingMethod() == LightingMethod::PerObjectUniform)
         {
@@ -954,20 +948,15 @@ namespace SceneUtil
             cache.clear();
     }
 
-    void LightManager::updateSettings()
+    void LightManager::updateSettings(float lightBoundsMultiplier, float maximumLightDistance, float lightFadeStart)
     {
         if (getLightingMethod() == LightingMethod::FFP)
             return;
 
-        mPointLightRadiusMultiplier
-            = std::clamp(Settings::Manager::getFloat("light bounds multiplier", "Shaders"), 0.f, 5.f);
-
-        mPointLightFadeEnd = std::max(0.f, Settings::Manager::getFloat("maximum light distance", "Shaders"));
+        mPointLightRadiusMultiplier = lightBoundsMultiplier;
+        mPointLightFadeEnd = maximumLightDistance;
         if (mPointLightFadeEnd > 0)
-        {
-            mPointLightFadeStart = std::clamp(Settings::Manager::getFloat("light fade start", "Shaders"), 0.f, 1.f);
-            mPointLightFadeStart = mPointLightFadeEnd * mPointLightFadeStart;
-        }
+            mPointLightFadeStart = mPointLightFadeEnd * lightFadeStart;
     }
 
     void LightManager::initFFP(int targetLights)
@@ -1227,6 +1216,7 @@ namespace SceneUtil
         auto& buf = getUBOManager()->getLightBuffer(frameNum);
         buf->setDiffuse(index, light->getDiffuse());
         buf->setAmbient(index, light->getAmbient());
+        buf->setSpecular(index, light->getSpecular());
         buf->setAttenuationRadius(index,
             osg::Vec4(light->getConstantAttenuation(), light->getLinearAttenuation(), light->getQuadraticAttenuation(),
                 lightSource->getRadius()));

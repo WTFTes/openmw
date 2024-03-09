@@ -3,14 +3,43 @@
 #include <components/detournavigator/navigator.hpp>
 #include <components/detournavigator/navigatorutils.hpp>
 #include <components/lua/luastate.hpp>
+#include <components/misc/constants.hpp>
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/world.hpp"
 #include "../mwphysics/raycasting.hpp"
+#include "../mwworld/cell.hpp"
+#include "../mwworld/cellstore.hpp"
+#include "../mwworld/scene.hpp"
 
 #include "luamanagerimp.hpp"
-#include "worldview.hpp"
+#include "objectlists.hpp"
+
+namespace
+{
+    template <class T = MWWorld::Ptr>
+    std::vector<T> parseIgnoreList(const sol::table& options)
+    {
+        std::vector<T> ignore;
+
+        if (const auto& ignoreObj = options.get<sol::optional<MWLua::LObject>>("ignore"))
+        {
+            ignore.push_back(ignoreObj->ptr());
+        }
+        else if (const auto& ignoreTable = options.get<sol::optional<sol::table>>("ignore"))
+        {
+            ignoreTable->for_each([&](const auto& _, const sol::object& value) {
+                if (value.is<MWLua::LObject>())
+                {
+                    ignore.push_back(value.as<MWLua::LObject>().ptr());
+                }
+            });
+        }
+
+        return ignore;
+    }
+}
 
 namespace sol
 {
@@ -25,7 +54,7 @@ namespace MWLua
     sol::table initNearbyPackage(const Context& context)
     {
         sol::table api(context.mLua->sol(), sol::create);
-        WorldView* worldView = context.mWorldView;
+        ObjectLists* objectLists = context.mObjectLists;
 
         sol::usertype<MWPhysics::RayCastingResult> rayResult
             = context.mLua->sol().new_usertype<MWPhysics::RayCastingResult>("RayCastingResult");
@@ -67,24 +96,27 @@ namespace MWLua
             }));
 
         api["castRay"] = [](const osg::Vec3f& from, const osg::Vec3f& to, sol::optional<sol::table> options) {
-            MWWorld::Ptr ignore;
+            std::vector<MWWorld::ConstPtr> ignore;
             int collisionType = MWPhysics::CollisionType_Default;
             float radius = 0;
             if (options)
             {
-                sol::optional<LObject> ignoreObj = options->get<sol::optional<LObject>>("ignore");
-                if (ignoreObj)
-                    ignore = ignoreObj->ptr();
+                ignore = parseIgnoreList<MWWorld::ConstPtr>(*options);
                 collisionType = options->get<sol::optional<int>>("collisionType").value_or(collisionType);
                 radius = options->get<sol::optional<float>>("radius").value_or(0);
             }
             const MWPhysics::RayCastingInterface* rayCasting = MWBase::Environment::get().getWorld()->getRayCasting();
             if (radius <= 0)
-                return rayCasting->castRay(from, to, ignore, std::vector<MWWorld::Ptr>(), collisionType);
+            {
+                return rayCasting->castRay(from, to, ignore, {}, collisionType);
+            }
             else
             {
-                if (!ignore.isEmpty())
-                    throw std::logic_error("Currently castRay doesn't support `ignore` when radius > 0");
+                for (const auto& ptr : ignore)
+                {
+                    if (!ptr.isEmpty())
+                        throw std::logic_error("Currently castRay doesn't support `ignore` when radius > 0");
+                }
                 return rayCasting->castSphere(from, to, radius, collisionType);
             }
         };
@@ -104,39 +136,54 @@ namespace MWLua
             //       and use this callback from the main thread at the beginning of the next frame processing.
             rayCasting->asyncCastRay(callback, from, to, ignore, std::vector<MWWorld::Ptr>(), collisionType);
         };*/
-        api["castRenderingRay"] = [manager = context.mLuaManager](const osg::Vec3f& from, const osg::Vec3f& to) {
+        api["castRenderingRay"] = [manager = context.mLuaManager](const osg::Vec3f& from, const osg::Vec3f& to,
+                                      const sol::optional<sol::table>& options) {
             if (!manager->isProcessingInputEvents())
             {
                 throw std::logic_error(
                     "castRenderingRay can be used only in player scripts during processing of input events; "
                     "use asyncCastRenderingRay instead.");
             }
+
+            std::vector<MWWorld::Ptr> ignore;
+            if (options.has_value())
+            {
+                ignore = parseIgnoreList(*options);
+            }
+
             MWPhysics::RayCastingResult res;
-            MWBase::Environment::get().getWorld()->castRenderingRay(res, from, to, false, false);
+            MWBase::Environment::get().getWorld()->castRenderingRay(res, from, to, false, false, ignore);
             return res;
         };
-        api["asyncCastRenderingRay"] = [context](
-                                           const sol::table& callback, const osg::Vec3f& from, const osg::Vec3f& to) {
-            context.mLuaManager->addAction([context, callback = LuaUtil::Callback::fromLua(callback), from, to] {
+        api["asyncCastRenderingRay"] = [context](const sol::table& callback, const osg::Vec3f& from,
+                                           const osg::Vec3f& to, const sol::optional<sol::table>& options) {
+            std::vector<MWWorld::Ptr> ignore;
+            if (options.has_value())
+            {
+                ignore = parseIgnoreList(*options);
+            }
+
+            context.mLuaManager->addAction([context, ignore = std::move(ignore),
+                                               callback = LuaUtil::Callback::fromLua(callback), from, to] {
                 MWPhysics::RayCastingResult res;
-                MWBase::Environment::get().getWorld()->castRenderingRay(res, from, to, false, false);
+                MWBase::Environment::get().getWorld()->castRenderingRay(res, from, to, false, false, ignore);
                 context.mLuaManager->queueCallback(callback, sol::main_object(context.mLua->sol(), sol::in_place, res));
             });
         };
 
         api["getObjectByFormId"] = [](std::string_view formIdStr) -> LObject {
             ESM::RefId refId = ESM::RefId::deserializeText(formIdStr);
-            if (!refId.is<ESM::FormIdRefId>())
+            if (!refId.is<ESM::FormId>())
                 throw std::runtime_error("FormId expected, got " + std::string(formIdStr) + "; use core.getFormId");
-            return LObject(refId.getIf<ESM::FormIdRefId>()->getValue());
+            return LObject(*refId.getIf<ESM::FormId>());
         };
 
-        api["activators"] = LObjectList{ worldView->getActivatorsInScene() };
-        api["actors"] = LObjectList{ worldView->getActorsInScene() };
-        api["containers"] = LObjectList{ worldView->getContainersInScene() };
-        api["doors"] = LObjectList{ worldView->getDoorsInScene() };
-        api["items"] = LObjectList{ worldView->getItemsInScene() };
-        api["players"] = LObjectList{ worldView->getPlayers() };
+        api["activators"] = LObjectList{ objectLists->getActivatorsInScene() };
+        api["actors"] = LObjectList{ objectLists->getActorsInScene() };
+        api["containers"] = LObjectList{ objectLists->getContainersInScene() };
+        api["doors"] = LObjectList{ objectLists->getDoorsInScene() };
+        api["items"] = LObjectList{ objectLists->getItemsInScene() };
+        api["players"] = LObjectList{ objectLists->getPlayers() };
 
         api["NAVIGATOR_FLAGS"]
             = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, DetourNavigator::Flag>({
@@ -163,21 +210,19 @@ namespace MWLua
                 { "MoveAlongSurfaceFailed", DetourNavigator::Status::MoveAlongSurfaceFailed },
                 { "FindPathOverPolygonsFailed", DetourNavigator::Status::FindPathOverPolygonsFailed },
                 { "InitNavMeshQueryFailed", DetourNavigator::Status::InitNavMeshQueryFailed },
+                { "FindStraightPathFailed", DetourNavigator::Status::FindStraightPathFailed },
             }));
 
         static const DetourNavigator::AgentBounds defaultAgentBounds{
             Settings::game().mActorCollisionShapeType,
             Settings::game().mDefaultActorPathfindHalfExtents,
         };
-        static const float defaultStepSize
-            = 2 * std::max(defaultAgentBounds.mHalfExtents.x(), defaultAgentBounds.mHalfExtents.y());
         static constexpr DetourNavigator::Flags defaultIncludeFlags = DetourNavigator::Flag_walk
             | DetourNavigator::Flag_swim | DetourNavigator::Flag_openDoor | DetourNavigator::Flag_usePathgrid;
 
         api["findPath"]
             = [](const osg::Vec3f& source, const osg::Vec3f& destination, const sol::optional<sol::table>& options) {
                   DetourNavigator::AgentBounds agentBounds = defaultAgentBounds;
-                  float stepSize = defaultStepSize;
                   DetourNavigator::Flags includeFlags = defaultIncludeFlags;
                   DetourNavigator::AreaCosts areaCosts{};
                   float destinationTolerance = 1;
@@ -189,13 +234,8 @@ namespace MWLua
                           if (const auto& v = t->get<sol::optional<DetourNavigator::CollisionShapeType>>("shapeType"))
                               agentBounds.mShapeType = *v;
                           if (const auto& v = t->get<sol::optional<osg::Vec3f>>("halfExtents"))
-                          {
                               agentBounds.mHalfExtents = *v;
-                              stepSize = 2 * std::max(v->x(), v->y());
-                          }
                       }
-                      if (const auto& v = options->get<sol::optional<float>>("stepSize"))
-                          stepSize = *v;
                       if (const auto& v = options->get<sol::optional<DetourNavigator::Flags>>("includeFlags"))
                           includeFlags = *v;
                       if (const auto& t = options->get<sol::optional<sol::table>>("areaCosts"))
@@ -216,8 +256,8 @@ namespace MWLua
                   std::vector<osg::Vec3f> result;
 
                   const DetourNavigator::Status status = DetourNavigator::findPath(
-                      *MWBase::Environment::get().getWorld()->getNavigator(), agentBounds, stepSize, source,
-                      destination, includeFlags, areaCosts, destinationTolerance, std::back_inserter(result));
+                      *MWBase::Environment::get().getWorld()->getNavigator(), agentBounds, source, destination,
+                      includeFlags, areaCosts, destinationTolerance, std::back_inserter(result));
 
                   return std::make_tuple(status, std::move(result));
               };
@@ -268,6 +308,39 @@ namespace MWLua
                   return DetourNavigator::raycast(
                       *MWBase::Environment::get().getWorld()->getNavigator(), agentBounds, from, to, includeFlags);
               };
+
+        api["findNearestNavMeshPosition"] = [](const osg::Vec3f& position, const sol::optional<sol::table>& options) {
+            DetourNavigator::AgentBounds agentBounds = defaultAgentBounds;
+            std::optional<osg::Vec3f> searchAreaHalfExtents;
+            DetourNavigator::Flags includeFlags = defaultIncludeFlags;
+
+            if (options.has_value())
+            {
+                if (const auto& t = options->get<sol::optional<sol::table>>("agentBounds"))
+                {
+                    if (const auto& v = t->get<sol::optional<DetourNavigator::CollisionShapeType>>("shapeType"))
+                        agentBounds.mShapeType = *v;
+                    if (const auto& v = t->get<sol::optional<osg::Vec3f>>("halfExtents"))
+                        agentBounds.mHalfExtents = *v;
+                }
+                if (const auto& v = options->get<sol::optional<osg::Vec3f>>("searchAreaHalfExtents"))
+                    searchAreaHalfExtents = *v;
+                if (const auto& v = options->get<sol::optional<DetourNavigator::Flags>>("includeFlags"))
+                    includeFlags = *v;
+            }
+
+            if (!searchAreaHalfExtents.has_value())
+            {
+                const bool isEsm4 = MWBase::Environment::get().getWorldScene()->getCurrentCell()->getCell()->isEsm4();
+                const float halfExtents = isEsm4
+                    ? (1 + 2 * Constants::ESM4CellGridRadius) * Constants::ESM4CellSizeInUnits
+                    : (1 + 2 * Constants::CellGridRadius) * Constants::CellSizeInUnits;
+                searchAreaHalfExtents = osg::Vec3f(halfExtents, halfExtents, halfExtents);
+            }
+
+            return DetourNavigator::findNearestNavMeshPosition(*MWBase::Environment::get().getWorld()->getNavigator(),
+                agentBounds, position, *searchAreaHalfExtents, includeFlags);
+        };
 
         return LuaUtil::makeReadOnly(api);
     }

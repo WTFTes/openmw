@@ -36,28 +36,37 @@
 
 #include <components/bsa/memorystream.hpp>
 #include <components/debug/debuglog.hpp>
+#include <components/esm/refid.hpp>
 #include <components/files/constrainedfilestream.hpp>
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/lower.hpp>
 #include <components/to_utf8/to_utf8.hpp>
+#include <components/vfs/manager.hpp>
 
-#include "formid.hpp"
 #include "grouptype.hpp"
 
 namespace ESM4
 {
     namespace
     {
+        using FormId = ESM::FormId;
+        using FormId32 = ESM::FormId32;
+
+        std::string getError(const std::string& header, const int errorCode, const char* msg)
+        {
+            return header + ": code " + std::to_string(errorCode) + ", " + std::string(msg != nullptr ? msg : "(null)");
+        }
+
         std::u8string_view getStringsSuffix(LocalizedStringType type)
         {
             switch (type)
             {
                 case LocalizedStringType::Strings:
-                    return u8"_English.STRINGS";
+                    return u8".STRINGS";
                 case LocalizedStringType::ILStrings:
-                    return u8"_English.ILSTRINGS";
+                    return u8".ILSTRINGS";
                 case LocalizedStringType::DLStrings:
-                    return u8"_English.DLSTRINGS";
+                    return u8".DLSTRINGS";
             }
 
             throw std::logic_error("Unsupported LocalizedStringType: " + std::to_string(static_cast<int>(type)));
@@ -78,12 +87,12 @@ namespace ESM4
             stream.avail_out = decompressed.size();
 
             if (const int ec = inflateInit(&stream); ec != Z_OK)
-                return "inflateInit error: " + std::to_string(ec) + " " + std::string(stream.msg);
+                return getError("inflateInit error", ec, stream.msg);
 
             const std::unique_ptr<z_stream, InflateEnd> streamPtr(&stream);
 
             if (const int ec = inflate(&stream, Z_NO_FLUSH); ec != Z_STREAM_END)
-                return "inflate error: " + std::to_string(ec) + " " + std::string(stream.msg);
+                return getError("inflate error", ec, stream.msg);
 
             return std::nullopt;
         }
@@ -94,7 +103,7 @@ namespace ESM4
             z_stream stream{};
 
             if (const int ec = inflateInit(&stream); ec != Z_OK)
-                return "inflateInit error: " + std::to_string(ec) + " " + std::string(stream.msg);
+                return getError("inflateInit error", ec, stream.msg);
 
             const std::unique_ptr<z_stream, InflateEnd> streamPtr(&stream);
 
@@ -110,8 +119,8 @@ namespace ESM4
                 if (ec == Z_STREAM_END)
                     break;
                 if (ec != Z_OK)
-                    return "inflate error after reading " + std::to_string(stream.total_in)
-                        + " bytes: " + std::to_string(ec) + " " + std::string(stream.msg);
+                    return getError(
+                        "inflate error after reading " + std::to_string(stream.total_in) + " bytes", ec, stream.msg);
                 compressed = compressed.subspan(stream.total_in - prevTotalIn);
                 decompressed = decompressed.subspan(stream.total_out - prevTotalOut);
             }
@@ -161,8 +170,8 @@ namespace ESM4
         , currCellGrid(FormId{ 0, 0 })
         , cellGridValid(false)
     {
-        subRecordHeader.typeId = 0;
-        subRecordHeader.dataSize = 0;
+        recordHeader = {};
+        subRecordHeader = {};
     }
 
     Reader::Reader(Files::IStreamPtr&& esmStream, const std::filesystem::path& filename, VFS::Manager const* vfs,
@@ -193,15 +202,6 @@ namespace ESM4
 
         // restart from the beginning (i.e. "TES4" record header)
         mStream->seekg(0, mStream->beg);
-#if 0
-    unsigned int esmVer = mHeader.mData.version.ui;
-    bool isTes4 = esmVer == ESM::VER_080 || esmVer == ESM::VER_100;
-    //bool isTes5 = esmVer == ESM::VER_094 || esmVer == ESM::VER_170;
-    //bool isFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
-
-    // TES4 header size is 4 bytes smaller than TES5 header
-    mCtx.recHeaderSize = isTes4 ? sizeof(ESM4::RecordHeader) - 4 : sizeof(ESM4::RecordHeader);
-#endif
         getRecordHeader();
         if (mCtx.recordHeader.record.typeId == REC_TES4)
         {
@@ -314,34 +314,49 @@ namespace ESM4
     void Reader::buildLStringIndex(LocalizedStringType stringType, const std::u8string& prefix)
     {
         static const std::filesystem::path strings("Strings");
+        const std::u8string language(u8"_En");
+        const std::u8string altLanguage(u8"_English");
         const std::u8string suffix(getStringsSuffix(stringType));
-        std::filesystem::path path = strings / (prefix + suffix);
-
+        std::filesystem::path path = strings / (prefix + language + suffix);
         if (mVFS != nullptr)
         {
-            const std::string vfsPath = Files::pathToUnicodeString(path);
+            std::string vfsPath = Files::pathToUnicodeString(path);
+            if (!mVFS->exists(vfsPath))
+            {
+                path = strings / (prefix + altLanguage + suffix);
+                vfsPath = Files::pathToUnicodeString(path);
+            }
 
-            if (mIgnoreMissingLocalizedStrings && !mVFS->exists(vfsPath))
+            if (mVFS->exists(vfsPath))
+            {
+                const Files::IStreamPtr stream = mVFS->get(vfsPath);
+                buildLStringIndex(stringType, *stream);
+                return;
+            }
+
+            if (mIgnoreMissingLocalizedStrings)
             {
                 Log(Debug::Warning) << "Ignore missing VFS strings file: " << vfsPath;
                 return;
             }
+        }
 
-            const Files::IStreamPtr stream = mVFS->get(vfsPath);
+        std::filesystem::path fsPath = mCtx.filename.parent_path() / path;
+        if (!std::filesystem::exists(fsPath))
+        {
+            path = strings / (prefix + altLanguage + suffix);
+            fsPath = mCtx.filename.parent_path() / path;
+        }
+
+        if (std::filesystem::exists(fsPath))
+        {
+            const Files::IStreamPtr stream = Files::openConstrainedFileStream(fsPath);
             buildLStringIndex(stringType, *stream);
             return;
         }
 
-        const std::filesystem::path fsPath = mCtx.filename.parent_path() / path;
-
-        if (mIgnoreMissingLocalizedStrings && !std::filesystem::exists(fsPath))
-        {
+        if (mIgnoreMissingLocalizedStrings)
             Log(Debug::Warning) << "Ignore missing strings file: " << fsPath;
-            return;
-        }
-
-        const Files::IStreamPtr stream = Files::openConstrainedFileStream(fsPath);
-        buildLStringIndex(stringType, *stream);
     }
 
     void Reader::buildLStringIndex(LocalizedStringType stringType, std::istream& stream)
@@ -456,8 +471,8 @@ namespace ESM4
         {
             if (mIgnoreMissingLocalizedStrings)
                 return;
-            throw std::runtime_error(
-                "ESM4::Reader::getLocalizedString localized string not found for " + formIdToString(stringId));
+            throw std::runtime_error("ESM4::Reader::getLocalizedString localized string not found for "
+                + ESM::RefId(stringId).toDebugString());
         }
 
         str = it->second;
@@ -550,9 +565,6 @@ namespace ESM4
     {
         bool result = false;
         // NOTE: some SubRecords have 0 dataSize (e.g. SUB_RDSD in one of REC_REGN records in Oblivion.esm).
-        // Also SUB_XXXX has zero dataSize and the following 4 bytes represent the actual dataSize
-        // - hence it require manual updtes to mCtx.recordRead via updateRecordRead()
-        // See ESM4::NavMesh and ESM4::World.
         if (mCtx.recordHeader.record.dataSize - mCtx.recordRead >= sizeof(mCtx.subRecordHeader))
         {
             result = getExact(mCtx.subRecordHeader);
@@ -572,6 +584,20 @@ namespace ESM4
             mStream->seekg(pos - overshoot);
 
             return false;
+        }
+
+        // Extended storage subrecord redefines the following subrecord's size.
+        // Would need to redesign the loader to support that, so skip over both subrecords.
+        if (result && mCtx.subRecordHeader.typeId == ESM4::SUB_XXXX)
+        {
+            std::uint32_t extDataSize;
+            get(extDataSize);
+            if (!getSubRecordHeader())
+                return false;
+
+            skipSubRecordData(extDataSize);
+            mCtx.recordRead += extDataSize - mCtx.subRecordHeader.dataSize;
+            return getSubRecordHeader();
         }
 
         return result;
@@ -769,11 +795,11 @@ namespace ESM4
         return true;
     }
 
-    ESM::FormIdRefId Reader::getRefIdFromHeader() const
+    ESM::FormId Reader::getFormIdFromHeader() const
     {
         FormId formId = hdr().record.getFormId();
         adjustFormId(formId);
-        return ESM::FormIdRefId(formId);
+        return formId;
     }
 
     void Reader::adjustGRUPFormId()
@@ -926,7 +952,7 @@ namespace ESM4
             case ESM4::Grp_CellTemporaryChild:
             case ESM4::Grp_CellVisibleDistChild:
             {
-                ss << ": FormId 0x" << formIdToString(FormId::fromUint32(label.value));
+                ss << ": " << ESM::RefId(FormId::fromUint32(label.value));
                 break;
             }
             default:

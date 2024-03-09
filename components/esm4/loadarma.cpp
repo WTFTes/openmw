@@ -33,8 +33,7 @@
 
 void ESM4::ArmorAddon::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     std::uint32_t esmVer = reader.esmVersion();
@@ -71,11 +70,7 @@ void ESM4::ArmorAddon::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_MODL:
                 if ((esmVer == ESM::VER_094 || esmVer == ESM::VER_170) && subHdr.dataSize == 4) // TES5
-                {
-                    FormId formId;
-                    reader.getFormId(formId);
-                    mRaces.push_back(formId);
-                }
+                    reader.getFormId(mRaces.emplace_back());
                 else
                     reader.skipSubRecordData(); // FIXME: this should be mModelMale for FO3/FONV
 
@@ -88,24 +83,51 @@ void ESM4::ArmorAddon::load(ESM4::Reader& reader)
                 reader.get(mBodyTemplate.unknown3); // probably padding
                 reader.get(mBodyTemplate.type);
                 break;
-            case ESM4::SUB_BOD2: // TES5
+            case ESM4::SUB_BOD2: // TES5+
                 reader.get(mBodyTemplate.bodyPart);
                 mBodyTemplate.flags = 0;
                 mBodyTemplate.unknown1 = 0; // probably padding
                 mBodyTemplate.unknown2 = 0; // probably padding
                 mBodyTemplate.unknown3 = 0; // probably padding
-                reader.get(mBodyTemplate.type);
+                mBodyTemplate.type = 0;
+                if (subHdr.dataSize == 8)
+                    reader.get(mBodyTemplate.type);
 
                 break;
             case ESM4::SUB_DNAM:
+                if (subHdr.dataSize == 12)
+                {
+                    std::uint16_t unknownInt16;
+                    std::uint8_t unknownInt8;
+                    reader.get(mMalePriority);
+                    reader.get(mFemalePriority);
+                    reader.get(mWeightSliderMale);
+                    reader.get(mWeightSliderFemale);
+                    reader.get(unknownInt16);
+                    reader.get(mDetectionSoundValue);
+                    reader.get(unknownInt8);
+                    reader.get(mWeaponAdjust);
+                }
+                else
+                    reader.skipSubRecordData();
+                break;
             case ESM4::SUB_MO2T: // FIXME: should group with MOD2
             case ESM4::SUB_MO2S: // FIXME: should group with MOD2
+            case ESM4::SUB_MO2C: // FIXME: should group with MOD2
+            case ESM4::SUB_MO2F: // FIXME: should group with MOD2
             case ESM4::SUB_MO3T: // FIXME: should group with MOD3
             case ESM4::SUB_MO3S: // FIXME: should group with MOD3
+            case ESM4::SUB_MO3C: // FIXME: should group with MOD3
+            case ESM4::SUB_MO3F: // FIXME: should group with MOD3
             case ESM4::SUB_MOSD: // FO3 // FIXME: should group with MOD3
             case ESM4::SUB_MO4T: // FIXME: should group with MOD4
             case ESM4::SUB_MO4S: // FIXME: should group with MOD4
+            case ESM4::SUB_MO4C: // FIXME: should group with MOD4
+            case ESM4::SUB_MO4F: // FIXME: should group with MOD4
             case ESM4::SUB_MO5T:
+            case ESM4::SUB_MO5S:
+            case ESM4::SUB_MO5C:
+            case ESM4::SUB_MO5F:
             case ESM4::SUB_NAM2: // txst formid male
             case ESM4::SUB_NAM3: // txst formid female
             case ESM4::SUB_SNDD: // footset sound formid
@@ -119,6 +141,10 @@ void ESM4::ArmorAddon::load(ESM4::Reader& reader)
             case ESM4::SUB_MODS: // FO3 // FIXME: should group with MODL
             case ESM4::SUB_MODD: // FO3 // FIXME: should group with MODL
             case ESM4::SUB_OBND: // FO3
+            case ESM4::SUB_BSMB: // FO4
+            case ESM4::SUB_BSMP: // FO4
+            case ESM4::SUB_BSMS: // FO4
+            case ESM4::SUB_ONAM: // FO4
                 reader.skipSubRecordData();
                 break;
             default:

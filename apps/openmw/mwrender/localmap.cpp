@@ -22,7 +22,7 @@
 #include <components/sceneutil/rtt.hpp>
 #include <components/sceneutil/shadow.hpp>
 #include <components/sceneutil/visitor.hpp>
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 #include <components/stereo/multiview.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -30,6 +30,7 @@
 
 #include "../mwworld/cellstore.hpp"
 
+#include "util.hpp"
 #include "vismask.hpp"
 
 namespace
@@ -75,16 +76,13 @@ namespace MWRender
 
     LocalMap::LocalMap(osg::Group* root)
         : mRoot(root)
-        , mMapResolution(Settings::Manager::getInt("local map resolution", "Map"))
+        , mMapResolution(
+              Settings::map().mLocalMapResolution * MWBase::Environment::get().getWindowManager()->getScalingFactor())
         , mMapWorldSize(Constants::CellSizeInUnits)
         , mCellDistance(Constants::CellGridRadius)
         , mAngle(0.f)
         , mInterior(false)
     {
-        // Increase map resolution, if use UI scaling
-        float uiScale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
-        mMapResolution *= uiScale;
-
         SceneUtil::FindByNameVisitor find("Scene Root");
         mRoot->accept(find);
         mSceneRoot = find.mFoundNode;
@@ -682,7 +680,7 @@ namespace MWRender
 
     LocalMapRenderToTexture::LocalMapRenderToTexture(osg::Node* sceneRoot, int res, int mapWorldSize, float x, float y,
         const osg::Vec3d& upVector, float zmin, float zmax)
-        : RTTNode(res, res, 0, false, 0, StereoAwareness::Unaware_MultiViewShaders)
+        : RTTNode(res, res, 0, false, 0, StereoAwareness::Unaware_MultiViewShaders, shouldAddMSAAIntermediateTarget())
         , mSceneRoot(sceneRoot)
         , mActive(true)
     {
@@ -765,7 +763,7 @@ namespace MWRender
 
         lightSource->setStateSetModes(*stateset, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
 
-        SceneUtil::ShadowManager::disableShadowsForStateSet(stateset);
+        SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*stateset);
 
         // override sun for local map
         SceneUtil::configureStateSetSunOverride(static_cast<SceneUtil::LightManager*>(mSceneRoot), light, stateset);

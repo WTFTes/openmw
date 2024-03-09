@@ -22,12 +22,12 @@ namespace CSMWorld
 
             std::string operator()(ESM::StringRefId value) const { return value.getValue(); }
 
+            std::string operator()(ESM::FormId value) const { return value.toString("FormId:"); }
+
             std::string operator()(ESM::IndexRefId value) const
             {
                 switch (value.getRecordType())
                 {
-                    case ESM::REC_SKIL:
-                        return ESM::Skill::sSkillNames[value.getValue()];
                     case ESM::REC_MGEF:
                         return std::string(ESM::MagicEffect::sIndexNames[value.getValue()]);
                     default:
@@ -333,12 +333,43 @@ namespace CSMWorld
         return true;
     }
 
+    SelectionGroupColumn::SelectionGroupColumn()
+        : Column<ESM::SelectionGroup>(Columns::ColumnId_SelectionGroupObjects, ColumnBase::Display_None)
+    {
+    }
+
+    QVariant SelectionGroupColumn::get(const Record<ESM::SelectionGroup>& record) const
+    {
+        QVariant data;
+        QStringList selectionInfo;
+        const std::vector<std::string>& instances = record.get().selectedInstances;
+
+        for (const std::string& instance : instances)
+            selectionInfo << QString::fromStdString(instance);
+        data.setValue(selectionInfo);
+
+        return data;
+    }
+
+    void SelectionGroupColumn::set(Record<ESM::SelectionGroup>& record, const QVariant& data)
+    {
+        ESM::SelectionGroup record2 = record.get();
+        for (const auto& item : data.toStringList())
+            record2.selectedInstances.push_back(item.toStdString());
+        record.setModified(record2);
+    }
+
+    bool SelectionGroupColumn::isEditable() const
+    {
+        return false;
+    }
+
     std::optional<std::uint32_t> getSkillIndex(std::string_view value)
     {
-        const auto it = std::find(std::begin(ESM::Skill::sSkillNames), std::end(ESM::Skill::sSkillNames), value);
-        if (it == std::end(ESM::Skill::sSkillNames))
+        int index = ESM::Skill::refIdToIndex(ESM::RefId::stringRefId(value));
+        if (index < 0)
             return std::nullopt;
-        return static_cast<std::uint32_t>(it - std::begin(ESM::Skill::sSkillNames));
+        return static_cast<std::uint32_t>(index);
     }
 
     std::string getStringId(ESM::RefId value)

@@ -155,7 +155,7 @@ bool MWDialogue::Filter::testActor(const ESM::DialInfo& info) const
     if (!isCreature)
     {
         MWWorld::LiveCellRef<ESM::NPC>* npc = mActor.get<ESM::NPC>();
-        if (info.mData.mGender == (npc->mBase->mFlags & npc->mBase->Female ? 0 : 1))
+        if (info.mData.mGender == ((npc->mBase->mFlags & ESM::NPC::Female) ? 0 : 1))
             return false;
     }
 
@@ -375,15 +375,21 @@ int MWDialogue::Filter::getSelectStructInteger(const SelectWrapper& select) cons
             return mChoice;
 
         case SelectWrapper::Function_AiSetting:
+        {
+            int argument = select.getArgument();
+            if (argument < 0 || argument > 3)
+            {
+                throw std::runtime_error("AiSetting index is out of range");
+            }
 
             return mActor.getClass()
                 .getCreatureStats(mActor)
-                .getAiSetting((MWMechanics::AiSetting)select.getArgument())
+                .getAiSetting(static_cast<MWMechanics::AiSetting>(argument))
                 .getModified(false);
-
+        }
         case SelectWrapper::Function_PcAttribute:
         {
-            auto attribute = static_cast<ESM::Attribute::AttributeID>(select.getArgument());
+            ESM::RefId attribute = ESM::Attribute::indexToRefId(select.getArgument());
             return player.getClass().getCreatureStats(player).getAttribute(attribute).getModified();
         }
         case SelectWrapper::Function_PcSkill:
@@ -654,9 +660,9 @@ bool MWDialogue::Filter::hasFactionRankSkillRequirements(
 
     MWMechanics::CreatureStats& stats = actor.getClass().getCreatureStats(actor);
 
-    return stats.getAttribute(ESM::Attribute::AttributeID(faction.mData.mAttribute[0])).getBase()
+    return stats.getAttribute(ESM::Attribute::indexToRefId(faction.mData.mAttribute[0])).getBase()
         >= faction.mData.mRankData[rank].mAttribute1
-        && stats.getAttribute(ESM::Attribute::AttributeID(faction.mData.mAttribute[1])).getBase()
+        && stats.getAttribute(ESM::Attribute::indexToRefId(faction.mData.mAttribute[1])).getBase()
         >= faction.mData.mRankData[rank].mAttribute2;
 }
 

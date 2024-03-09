@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include <components/esm/attr.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
@@ -18,6 +19,7 @@
 #include <components/esm3/loadland.hpp>
 #include <components/esm3/loadpgrd.hpp>
 #include <components/esm3/loadskil.hpp>
+#include <components/esm4/loadachr.hpp>
 #include <components/esm4/loadcell.hpp>
 #include <components/esm4/loadland.hpp>
 #include <components/esm4/loadrefr.hpp>
@@ -28,17 +30,11 @@
 
 namespace ESM
 {
-    struct Attribute;
     struct LandTexture;
     struct MagicEffect;
     struct WeaponType;
     class ESMReader;
     class ESMWriter;
-}
-
-namespace ESM4
-{
-    struct Land;
 }
 
 namespace Loading
@@ -496,25 +492,14 @@ namespace MWWorld
     };
 
     template <>
-    class Store<ESM::Attribute> : public IndexedStore<ESM::Attribute>
+    class Store<ESM::Attribute> : public TypedDynamicStore<ESM::Attribute>
     {
-        std::vector<ESM::Attribute> mStatic;
+        using TypedDynamicStore<ESM::Attribute>::setUp;
 
     public:
-        typedef std::vector<ESM::Attribute>::const_iterator iterator;
-
-        Store();
-
-        const ESM::Attribute* search(size_t index) const;
-
-        // calls `search` and throws an exception if not found
-        const ESM::Attribute* find(size_t index) const;
+        Store() = default;
 
         void setUp(const MWWorld::Store<ESM::GameSetting>& settings);
-
-        size_t getSize() const;
-        iterator begin() const;
-        iterator end() const;
     };
 
     template <>
@@ -581,16 +566,51 @@ namespace MWWorld
         const MWDialogue::KeywordSearch<int>& getDialogIdKeywordSearch() const;
     };
 
-    template <>
-    class Store<ESM4::Reference> : public TypedDynamicStore<ESM4::Reference, ESM::FormId>
+    template <typename T>
+    class ESM4RefsStore : public TypedDynamicStore<T, ESM::FormId>
     {
     public:
-        void preprocessReferences(const Store<ESM4::Cell>& cells);
+        void preprocessReferences(const Store<ESM4::Cell>& cells)
+        {
+            for (auto& [_, ref] : this->mStatic)
+            {
+                const ESM4::Cell* cell = cells.find(ref.mParent);
+                if (cell->isExterior() && (cell->mFlags & ESM4::Rec_Persistent))
+                {
+                    const ESM4::Cell* actualCell = cells.searchExterior(
+                        positionToExteriorCellLocation(ref.mPos.pos[0], ref.mPos.pos[1], cell->mParent));
+                    if (actualCell)
+                        ref.mParent = actualCell->mId;
+                }
+                mPerCellReferences[ref.mParent].push_back(&ref);
+            }
+        }
 
-        std::span<const ESM4::Reference* const> getByCell(ESM::RefId cellId) const;
+        std::span<const T* const> getByCell(ESM::RefId cellId) const
+        {
+            auto it = mPerCellReferences.find(cellId);
+            if (it == mPerCellReferences.end())
+                return {};
+            return it->second;
+        }
 
     private:
-        std::unordered_map<ESM::RefId, std::vector<ESM4::Reference*>> mPerCellReferences;
+        std::unordered_map<ESM::RefId, std::vector<T*>> mPerCellReferences;
+    };
+
+    template <>
+    class Store<ESM4::Reference> : public ESM4RefsStore<ESM4::Reference>
+    {
+    };
+
+    template <>
+    class Store<ESM4::ActorCharacter> : public ESM4RefsStore<ESM4::ActorCharacter>
+    {
+    };
+
+    template <>
+    class Store<ESM4::ActorCreature> : public ESM4RefsStore<ESM4::ActorCreature>
+    {
     };
 
 } // end namespace

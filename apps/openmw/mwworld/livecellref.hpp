@@ -36,8 +36,9 @@ namespace MWWorld
 
         LiveCellRefBase(unsigned int type, const ESM::CellRef& cref = ESM::CellRef());
         LiveCellRefBase(unsigned int type, const ESM4::Reference& cref);
+        LiveCellRefBase(unsigned int type, const ESM4::ActorCharacter& cref);
         /* Need this for the class to be recognized as polymorphic */
-        virtual ~LiveCellRefBase() {}
+        virtual ~LiveCellRefBase();
 
         virtual void load(const ESM::ObjectState& state) = 0;
         ///< Load state into a LiveCellRef, that has already been initialised with base and class.
@@ -57,6 +58,9 @@ namespace MWWorld
 
         template <class T>
         static LiveCellRef<T>* dynamicCast(LiveCellRefBase* value);
+
+        /// Returns true if the object was either deleted by the content file or by gameplay.
+        bool isDeleted() const;
 
     protected:
         void loadImp(const ESM::ObjectState& state);
@@ -117,6 +121,12 @@ namespace MWWorld
         }
 
         LiveCellRef(const ESM4::Reference& cref, const X* b = nullptr)
+            : LiveCellRefBase(X::sRecordId, cref)
+            , mBase(b)
+        {
+        }
+
+        LiveCellRef(const ESM4::ActorCharacter& cref, const X* b = nullptr)
             : LiveCellRefBase(X::sRecordId, cref)
             , mBase(b)
         {

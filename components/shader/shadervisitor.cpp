@@ -22,6 +22,7 @@
 #include <components/misc/osguservalues.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/resource/imagemanager.hpp>
+#include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/morphgeometry.hpp>
 #include <components/sceneutil/riggeometry.hpp>
 #include <components/sceneutil/riggeometryosgaextension.hpp>
@@ -181,6 +182,7 @@ namespace Shader
         , mAlphaBlend(false)
         , mBlendFuncOverridden(false)
         , mAdditiveBlending(false)
+        , mDiffuseHeight(false)
         , mNormalHeight(false)
         , mTexStageRequiringTangents(-1)
         , mSoftParticles(false)
@@ -350,7 +352,17 @@ namespace Shader
                                 normalMap = texture;
                             }
                             else if (texName == "diffuseMap")
+                            {
+                                int applyMode;
+                                // Oblivion parallax
+                                if (node.getUserValue("applyMode", applyMode) && applyMode == 4)
+                                {
+                                    mRequirements.back().mShaderRequired = true;
+                                    mRequirements.back().mDiffuseHeight = true;
+                                    mRequirements.back().mTexStageRequiringTangents = unit;
+                                }
                                 diffuseMap = texture;
+                            }
                             else if (texName == "specularMap")
                                 specularMap = texture;
                             else if (texName == "bumpMap")
@@ -615,6 +627,7 @@ namespace Shader
             addedState->addUniform("useDiffuseMapForShadowAlpha");
         }
 
+        defineMap["diffuseParallax"] = reqs.mDiffuseHeight ? "1" : "0";
         defineMap["parallax"] = reqs.mNormalHeight ? "1" : "0";
 
         writableStateSet->addUniform(new osg::Uniform("colorMode", reqs.mColorMode));
@@ -664,8 +677,7 @@ namespace Shader
                 defineMap["adjustCoverage"] = "1";
 
             // Preventing alpha tested stuff shrinking as lower mip levels are used requires knowing the texture size
-            osg::ref_ptr<osg::GLExtensions> exts = osg::GLExtensions::Get(0, false);
-            if (exts && exts->isGpuShader4Supported)
+            if (SceneUtil::getGLExtensions().isGpuShader4Supported)
                 defineMap["useGPUShader4"] = "1";
             // We could fall back to a texture size uniform if EXT_gpu_shader4 is missing
         }
@@ -680,14 +692,23 @@ namespace Shader
 
         bool particleOcclusion = false;
         node.getUserValue("particleOcclusion", particleOcclusion);
-        defineMap["particleOcclusion"]
-            = particleOcclusion && Settings::Manager::getBool("weather particle occlusion", "Shaders") ? "1" : "0";
+        defineMap["particleOcclusion"] = particleOcclusion && mWeatherParticleOcclusion ? "1" : "0";
 
         if (reqs.mAlphaBlend && mSupportsNormalsRT)
         {
             if (reqs.mSoftParticles)
                 defineMap["disableNormals"] = "1";
-            writableStateSet->setAttribute(new osg::ColorMaski(1, false, false, false, false));
+            auto colorMask = new osg::ColorMaski(1, false, false, false, false);
+            writableStateSet->setAttribute(colorMask);
+            addedState->setAttribute(colorMask);
+        }
+
+        if (reqs.mSoftParticles)
+        {
+            const int unitSoftEffect
+                = mShaderManager.reserveGlobalTextureUnits(Shader::ShaderManager::Slot::OpaqueDepthTexture);
+            writableStateSet->addUniform(new osg::Uniform("opaqueDepthTex", unitSoftEffect));
+            addedState->addUniform("opaqueDepthTex");
         }
 
         if (writableStateSet->getMode(GL_ALPHA_TEST) != osg::StateAttribute::INHERIT
@@ -719,7 +740,7 @@ namespace Shader
 
         auto program = mShaderManager.getProgram(shaderPrefix, defineMap, mProgramTemplate);
         writableStateSet->setAttributeAndModes(program, osg::StateAttribute::ON);
-        addedState->setAttributeAndModes(program);
+        addedState->setAttributeAndModes(std::move(program));
 
         for (const auto& [unit, name] : reqs.mTextures)
         {
@@ -913,13 +934,13 @@ namespace Shader
         {
             osg::ref_ptr<osg::Geometry> sourceGeometry = rig->getSourceGeometry();
             if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
-                rig->setSourceGeometry(sourceGeometry);
+                rig->setSourceGeometry(std::move(sourceGeometry));
         }
         else if (auto morph = dynamic_cast<SceneUtil::MorphGeometry*>(&drawable))
         {
             osg::ref_ptr<osg::Geometry> sourceGeometry = morph->getSourceGeometry();
             if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
-                morph->setSourceGeometry(sourceGeometry);
+                morph->setSourceGeometry(std::move(sourceGeometry));
         }
         else if (auto osgaRig = dynamic_cast<SceneUtil::RigGeometryHolder*>(&drawable))
         {
@@ -927,8 +948,8 @@ namespace Shader
             osg::ref_ptr<osg::Geometry> sourceGeometry = sourceOsgaRigGeometry->getSourceGeometry();
             if (sourceGeometry && adjustGeometry(*sourceGeometry, reqs))
             {
-                sourceOsgaRigGeometry->setSourceGeometry(sourceGeometry);
-                osgaRig->setSourceRigGeometry(sourceOsgaRigGeometry);
+                sourceOsgaRigGeometry->setSourceGeometry(std::move(sourceGeometry));
+                osgaRig->setSourceRigGeometry(std::move(sourceOsgaRigGeometry));
             }
         }
 

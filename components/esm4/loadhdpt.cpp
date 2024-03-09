@@ -35,8 +35,7 @@
 
 void ESM4::HeadPart::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     std::optional<std::uint32_t> type;
@@ -49,6 +48,9 @@ void ESM4::HeadPart::load(ESM4::Reader& reader)
             case ESM4::SUB_EDID:
                 reader.getZString(mEditorId);
                 break;
+            case ESM::fourCC("XALG"): // FO76
+                reader.get(mExtraFlags2);
+                break;
             case ESM4::SUB_FULL:
                 reader.getLocalizedString(mFullName);
                 break;
@@ -59,7 +61,7 @@ void ESM4::HeadPart::load(ESM4::Reader& reader)
                 reader.getZString(mModel);
                 break;
             case ESM4::SUB_HNAM:
-                reader.getFormId(mAdditionalPart);
+                reader.getFormId(mExtraParts.emplace_back());
                 break;
             case ESM4::SUB_NAM0: // TES5
             {
@@ -88,11 +90,26 @@ void ESM4::HeadPart::load(ESM4::Reader& reader)
             case ESM4::SUB_TNAM:
                 reader.getFormId(mBaseTexture);
                 break;
-            case ESM4::SUB_PNAM:
-            case ESM4::SUB_MODS:
-            case ESM4::SUB_MODT:
-            case ESM4::SUB_RNAM:
             case ESM4::SUB_CNAM:
+                reader.getFormId(mColor);
+                break;
+            case ESM4::SUB_RNAM:
+                reader.getFormId(mValidRaces.emplace_back());
+                break;
+            case ESM4::SUB_PNAM:
+                reader.get(mType);
+                break;
+            case ESM4::SUB_MODT: // Model data
+            case ESM4::SUB_MODC:
+            case ESM4::SUB_MODS:
+            case ESM4::SUB_MODF:
+            case ESM::fourCC("ENLM"):
+            case ESM::fourCC("XFLG"):
+            case ESM::fourCC("ENLT"):
+            case ESM::fourCC("ENLS"):
+            case ESM::fourCC("AUUV"):
+            case ESM::fourCC("MODD"): // Model data end
+            case ESM4::SUB_CTDA:
                 reader.skipSubRecordData();
                 break;
             default:

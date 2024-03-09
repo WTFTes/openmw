@@ -17,8 +17,8 @@ namespace ESM
     void BaseProjectileState::load(ESMReader& esm)
     {
         mId = esm.getHNRefId("ID__");
-        esm.getHNT(mPosition, "VEC3");
-        esm.getHNT(mOrientation, "QUAT");
+        esm.getHNT("VEC3", mPosition.mValues);
+        esm.getHNT("QUAT", mOrientation.mValues);
         esm.getHNT(mActorId, "ACTO");
     }
 
@@ -28,7 +28,8 @@ namespace ESM
 
         esm.writeHNRefId("SPEL", mSpellId);
         esm.writeHNT("SPED", mSpeed);
-        esm.writeHNT("SLOT", mSlot);
+        if (mItem.isSet())
+            esm.writeFormId(mItem, true, "ITEM");
     }
 
     void MagicBoltState::load(ESMReader& esm)
@@ -36,17 +37,10 @@ namespace ESM
         BaseProjectileState::load(esm);
 
         mSpellId = esm.getHNRefId("SPEL");
-        if (esm.isNextSub("SRCN")) // for backwards compatibility
-            esm.skipHSub();
-        EffectList().load(esm); // for backwards compatibility
         esm.getHNT(mSpeed, "SPED");
-        if (esm.getFormatVersion() <= MaxClearModifiersFormatVersion)
-            mSlot = 0;
-        else
-            esm.getHNT(mSlot, "SLOT");
-        if (esm.isNextSub("STCK")) // for backwards compatibility
-            esm.skipHSub();
-        if (esm.isNextSub("SOUN")) // for backwards compatibility
+        if (esm.peekNextSub("ITEM"))
+            mItem = esm.getFormId(true, "ITEM");
+        if (esm.isNextSub("SLOT")) // for backwards compatibility
             esm.skipHSub();
     }
 
@@ -64,7 +58,7 @@ namespace ESM
         BaseProjectileState::load(esm);
 
         mBowId = esm.getHNRefId("BOW_");
-        esm.getHNT(mVelocity, "VEL_");
+        esm.getHNT("VEL_", mVelocity.mValues);
 
         mAttackStrength = 1.f;
         esm.getHNOT(mAttackStrength, "STR_");

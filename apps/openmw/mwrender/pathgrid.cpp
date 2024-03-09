@@ -6,6 +6,7 @@
 #include <osg/Group>
 #include <osg/PositionAttitudeTransform>
 
+#include <components/debug/debuglog.hpp>
 #include <components/esm3/loadpgrd.hpp>
 #include <components/misc/coordinateconverter.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -26,7 +27,7 @@ namespace MWRender
 
     Pathgrid::Pathgrid(osg::ref_ptr<osg::Group> root)
         : mPathgridEnabled(false)
-        , mRootNode(root)
+        , mRootNode(std::move(root))
         , mPathGridRoot(nullptr)
         , mInteriorPathgridNode(nullptr)
     {
@@ -36,7 +37,14 @@ namespace MWRender
     {
         if (mPathgridEnabled)
         {
-            togglePathgrid();
+            try
+            {
+                togglePathgrid();
+            }
+            catch (std::exception& e)
+            {
+                Log(Debug::Error) << "Failed to destroy pathgrid: " << e.what();
+            }
         }
     }
 
@@ -108,7 +116,7 @@ namespace MWRender
             return;
 
         osg::Vec3f cellPathGridPos(0, 0, 0);
-        Misc::CoordinateConverter(*store->getCell()).toWorld(cellPathGridPos);
+        Misc::makeCoordinateConverter(*store->getCell()).toWorld(cellPathGridPos);
 
         osg::ref_ptr<osg::PositionAttitudeTransform> cellPathGrid = new osg::PositionAttitudeTransform;
         cellPathGrid->setPosition(cellPathGridPos);

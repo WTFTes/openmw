@@ -35,7 +35,7 @@ namespace MWSound
         {
         }
 
-        const std::string& getResourceName() const noexcept { return mResourceName; }
+        const VFS::Path::Normalized& getResourceName() const noexcept { return mResourceName; }
 
         Sound_Handle getHandle() const noexcept { return mHandle; }
 
@@ -46,7 +46,7 @@ namespace MWSound
         float getMaxDist() const noexcept { return mMaxDist; }
 
     private:
-        std::string mResourceName;
+        VFS::Path::Normalized mResourceName;
         float mVolume;
         float mMinDist;
         float mMaxDist;
@@ -69,9 +69,16 @@ namespace MWSound
         /// minRange, and maxRange)
         Sound_Buffer* lookup(const ESM::RefId& soundId) const;
 
+        /// Lookup a sound by file name for its sound data (resource name, local volume,
+        /// minRange, and maxRange)
+        Sound_Buffer* lookup(std::string_view fileName) const;
+
         /// Lookup a soundId for its sound data (resource name, local volume,
         /// minRange, and maxRange), and ensure it's ready for use.
         Sound_Buffer* load(const ESM::RefId& soundId);
+
+        // Lookup for a sound by file name, and ensure it's ready for use.
+        Sound_Buffer* load(std::string_view fileName);
 
         void use(Sound_Buffer& sfx)
         {
@@ -92,9 +99,12 @@ namespace MWSound
         void clear();
 
     private:
+        Sound_Buffer* loadSfx(Sound_Buffer* sfx);
+
         Sound_Output* mOutput;
         std::deque<Sound_Buffer> mSoundBuffers;
         std::unordered_map<ESM::RefId, Sound_Buffer*> mBufferNameMap;
+        std::unordered_map<std::string, Sound_Buffer*> mBufferFileNameMap;
         std::size_t mBufferCacheMax;
         std::size_t mBufferCacheMin;
         std::size_t mBufferCacheSize = 0;
@@ -102,6 +112,7 @@ namespace MWSound
         std::deque<Sound_Buffer*> mUnusedBuffers;
 
         inline Sound_Buffer* insertSound(const ESM::RefId& soundId, const ESM::Sound& sound);
+        inline Sound_Buffer* insertSound(std::string_view fileName);
 
         inline void unloadUnused();
     };

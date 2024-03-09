@@ -30,18 +30,16 @@
 #include <stdexcept>
 #include <string> // getline
 
-#include "formid.hpp"
 #include "reader.hpp"
 //#include "writer.hpp"
 
 void ESM4::Npc::load(ESM4::Reader& reader)
 {
-    mFormId = reader.hdr().record.getFormId();
-    reader.adjustFormId(mFormId);
+    mId = reader.getFormIdFromHeader();
     mFlags = reader.hdr().record.flags;
 
     std::uint32_t esmVer = reader.esmVersion();
-    mIsTES4 = esmVer == ESM::VER_080 || esmVer == ESM::VER_100;
+    mIsTES4 = (esmVer == ESM::VER_080 || esmVer == ESM::VER_100) && !reader.hasFormVersion();
     mIsFONV = esmVer == ESM::VER_132 || esmVer == ESM::VER_133 || esmVer == ESM::VER_134;
     // mIsTES5 = esmVer == ESM::VER_094 || esmVer == ESM::VER_170; // WARN: FO3 is also VER_094
 
@@ -68,22 +66,18 @@ void ESM4::Npc::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_SPLO:
-            {
-                FormId id;
-                reader.getFormId(id);
-                mSpell.push_back(id);
+                reader.getFormId(mSpell.emplace_back());
                 break;
-            }
             case ESM4::SUB_PKID:
-            {
-                FormId id;
-                reader.getFormId(id);
-                mAIPackages.push_back(id);
+                reader.getFormId(mAIPackages.emplace_back());
                 break;
-            }
             case ESM4::SUB_SNAM:
             {
-                reader.get(mFaction);
+                // FO4, FO76
+                if (subHdr.dataSize == 5)
+                    reader.get(&mFaction, 5);
+                else
+                    reader.get(mFaction);
                 reader.adjustFormId(mFaction.faction);
                 break;
             }
@@ -109,7 +103,7 @@ void ESM4::Npc::load(ESM4::Reader& reader)
             //
             case ESM4::SUB_AIDT:
             {
-                if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || mIsFONV)
+                if (subHdr.dataSize != 12)
                 {
                     reader.skipSubRecordData(); // FIXME: process the subrecord rather than skip
                     break;
@@ -120,24 +114,30 @@ void ESM4::Npc::load(ESM4::Reader& reader)
             }
             case ESM4::SUB_ACBS:
             {
-                // if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || mIsFONV)
-                if (subHdr.dataSize == 24)
-                    reader.get(mBaseConfig);
-                else
-                    reader.get(&mBaseConfig, 16); // TES4
-
+                switch (subHdr.dataSize)
+                {
+                    case 20: // FO4
+                        mIsFO4 = true;
+                        [[fallthrough]];
+                    case 16: // TES4
+                    case 24: // FO3/FNV, TES5
+                        reader.get(&mBaseConfig, subHdr.dataSize);
+                        break;
+                    default:
+                        reader.skipSubRecordData();
+                        break;
+                }
                 break;
             }
             case ESM4::SUB_DATA:
             {
-                if (esmVer == ESM::VER_094 || esmVer == ESM::VER_170 || mIsFONV)
-                {
-                    if (subHdr.dataSize != 0) // FIXME FO3
-                        reader.skipSubRecordData();
-                    break; // zero length
-                }
+                if (subHdr.dataSize == 0)
+                    break;
 
-                reader.get(&mData, 33); // FIXME: check packing
+                if (subHdr.dataSize == 33)
+                    reader.get(&mData, 33); // FIXME: check packing
+                else // FIXME FO3
+                    reader.skipSubRecordData();
                 break;
             }
             case ESM4::SUB_ZNAM:
@@ -154,6 +154,7 @@ void ESM4::Npc::load(ESM4::Reader& reader)
                 break;
             case ESM4::SUB_WNAM:
             {
+                // FIXME: should be read into mWornArmor for FO4
                 if (reader.esmVersion() == ESM::VER_094 || reader.esmVersion() == ESM::VER_170)
                     reader.getFormId(mWornArmor);
                 else
@@ -220,17 +221,17 @@ void ESM4::Npc::load(ESM4::Reader& reader)
                 break;
             }
             case ESM4::SUB_PNAM: // FO3/FONV/TES5
-            {
-                FormId headPart;
-                reader.getFormId(headPart);
-                mHeadParts.push_back(headPart);
-
+                reader.getFormId(mHeadParts.emplace_back());
                 break;
-            }
             case ESM4::SUB_HCLF: // TES5 hair colour
             {
                 reader.getFormId(mHairColourId);
 
+                break;
+            }
+            case ESM4::SUB_BCLF:
+            {
+                reader.getFormId(mBeardColourId);
                 break;
             }
             case ESM4::SUB_COCT: // TES5
@@ -249,33 +250,15 @@ void ESM4::Npc::load(ESM4::Reader& reader)
             case ESM4::SUB_DPLT:
                 reader.getFormId(mDefaultPkg);
                 break; // AI package list
+            case ESM4::SUB_DAMC: // Destructible
             case ESM4::SUB_DEST:
+            case ESM4::SUB_DMDC:
+            case ESM4::SUB_DMDL:
+            case ESM4::SUB_DMDT:
+            case ESM4::SUB_DMDS:
+            case ESM4::SUB_DSTA:
             case ESM4::SUB_DSTD:
-            case ESM4::SUB_DSTF:
-            {
-#if 0
-                std::vector<unsigned char> dataBuf(subHdr.dataSize);
-                reader.get(dataBuf.data(), subHdr.dataSize);
-
-                std::ostringstream ss;
-                ss << mEditorId << " " << ESM::printName(subHdr.typeId) << ":size " << subHdr.dataSize << "\n";
-                for (std::size_t i = 0; i < subHdr.dataSize; ++i)
-                {
-                    if (dataBuf[i] > 64 && dataBuf[i] < 91) // looks like printable ascii char
-                        ss << (char)(dataBuf[i]) << " ";
-                    else
-                        ss << std::setfill('0') << std::setw(2) << std::hex << (int)(dataBuf[i]);
-                    if ((i & 0x000f) == 0xf) // wrap around
-                        ss << "\n";
-                    else if (i < (size_t)(subHdr.dataSize - 1)) // quiesce gcc
-                        ss << " ";
-                }
-                std::cout << ss.str() << std::endl;
-#else
-                reader.skipSubRecordData();
-#endif
-                break;
-            }
+            case ESM4::SUB_DSTF: // Destructible end
             case ESM4::SUB_NAM6: // height mult
             case ESM4::SUB_NAM7: // weight mult
             case ESM4::SUB_ATKR:
@@ -310,6 +293,42 @@ void ESM4::Npc::load(ESM4::Reader& reader)
             case ESM4::SUB_EAMT: // FO3
             case ESM4::SUB_NAM4: // FO3
             case ESM4::SUB_COED: // FO3
+            case ESM4::SUB_APPR: // FO4
+            case ESM4::SUB_ATKS: // FO4
+            case ESM4::SUB_ATKT: // FO4
+            case ESM4::SUB_ATKW: // FO4
+            case ESM4::SUB_ATTX: // FO4
+            case ESM4::SUB_FTYP: // FO4
+            case ESM4::SUB_LTPT: // FO4
+            case ESM4::SUB_LTPC: // FO4
+            case ESM4::SUB_MWGT: // FO4
+            case ESM4::SUB_NTRM: // FO4
+            case ESM4::SUB_PFRN: // FO4
+            case ESM4::SUB_PRPS: // FO4
+            case ESM4::SUB_PTRN: // FO4
+            case ESM4::SUB_STCP: // FO4
+            case ESM4::SUB_TETI: // FO4
+            case ESM4::SUB_TEND: // FO4
+            case ESM4::SUB_TPTA: // FO4
+            case ESM4::SUB_OBTE: // FO4 object template start
+            case ESM4::SUB_OBTF: //
+            case ESM4::SUB_OBTS: //
+            case ESM4::SUB_STOP: // FO4 object template end
+            case ESM4::SUB_OCOR: // FO4 new package lists start
+            case ESM4::SUB_GWOR: //
+            case ESM4::SUB_FCPL: //
+            case ESM4::SUB_RCLR: // FO4 new package lists end
+            case ESM4::SUB_CS2D: // FO4 actor sound subrecords
+            case ESM4::SUB_CS2E: //
+            case ESM4::SUB_CS2F: //
+            case ESM4::SUB_CS2H: //
+            case ESM4::SUB_CS2K: // FO4 actor sound subrecords end
+            case ESM4::SUB_MSDK: // FO4 morph subrecords start
+            case ESM4::SUB_MSDV: //
+            case ESM4::SUB_MRSV: //
+            case ESM4::SUB_FMRI: //
+            case ESM4::SUB_FMRS: //
+            case ESM4::SUB_FMIN: // FO4 morph subrecords end
                 reader.skipSubRecordData();
                 break;
             default:

@@ -6,37 +6,35 @@
 
 namespace Nif::Testing
 {
-    inline void init(Transformation& value)
+    inline void init(NiTransform& value)
     {
-        value = Transformation::getIdentity();
+        value = NiTransform::getIdentity();
     }
 
     inline void init(Extra& value)
     {
-        value.next = ExtraPtr(nullptr);
+        value.mNext = ExtraPtr(nullptr);
     }
 
-    inline void init(Named& value)
+    inline void init(NiObjectNET& value)
     {
-        value.extra = ExtraPtr(nullptr);
-        value.extralist = ExtraList();
-        value.controller = ControllerPtr(nullptr);
+        value.mExtra = ExtraPtr(nullptr);
+        value.mExtraList = ExtraList();
+        value.mController = NiTimeControllerPtr(nullptr);
     }
 
-    inline void init(Node& value)
+    inline void init(NiAVObject& value)
     {
-        init(static_cast<Named&>(value));
-        value.flags = 0;
-        init(value.trafo);
-        value.hasBounds = false;
-        value.isBone = false;
+        init(static_cast<NiObjectNET&>(value));
+        value.mFlags = 0;
+        init(value.mTransform);
     }
 
     inline void init(NiGeometry& value)
     {
-        init(static_cast<Node&>(value));
-        value.data = NiGeometryDataPtr(nullptr);
-        value.skin = NiSkinInstancePtr(nullptr);
+        init(static_cast<NiAVObject&>(value));
+        value.mData = NiGeometryDataPtr(nullptr);
+        value.mSkin = NiSkinInstancePtr(nullptr);
     }
 
     inline void init(NiTriShape& value)
@@ -53,19 +51,20 @@ namespace Nif::Testing
 
     inline void init(NiSkinInstance& value)
     {
-        value.data = NiSkinDataPtr(nullptr);
-        value.root = NodePtr(nullptr);
+        value.mData = NiSkinDataPtr(nullptr);
+        value.mRoot = NiAVObjectPtr(nullptr);
+        value.mPartitions = NiSkinPartitionPtr(nullptr);
     }
 
-    inline void init(Controller& value)
+    inline void init(NiTimeController& value)
     {
-        value.next = ControllerPtr(nullptr);
-        value.flags = 0;
-        value.frequency = 0;
-        value.phase = 0;
-        value.timeStart = 0;
-        value.timeStop = 0;
-        value.target = NamedPtr(nullptr);
+        value.mNext = NiTimeControllerPtr(nullptr);
+        value.mFlags = 0;
+        value.mFrequency = 0;
+        value.mPhase = 0;
+        value.mTimeStart = 0;
+        value.mTimeStop = 0;
+        value.mTarget = NiObjectNETPtr(nullptr);
     }
 }
 

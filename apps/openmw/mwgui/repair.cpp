@@ -4,16 +4,15 @@
 
 #include <MyGUI_ScrollView.h>
 
+#include <components/esm3/loadrepa.hpp>
 #include <components/widgets/box.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
-#include "../mwbase/world.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 
 #include "../mwworld/class.hpp"
-#include "../mwworld/containerstore.hpp"
 
 #include "inventoryitemmodel.hpp"
 #include "itemchargeview.hpp"
@@ -50,13 +49,16 @@ namespace MWGui
             = new SortFilterItemModel(std::make_unique<InventoryItemModel>(MWMechanics::getPlayer()));
         model->setFilter(SortFilterItemModel::Filter_OnlyRepairable);
         mRepairBox->setModel(model);
-
+        mRepairBox->update();
         // Reset scrollbars
         mRepairBox->resetScrollbars();
     }
 
     void Repair::setPtr(const MWWorld::Ptr& item)
     {
+        if (item.isEmpty() || !item.getClass().isItem(item))
+            throw std::runtime_error("Invalid argument in Repair::setPtr");
+
         MWBase::Environment::get().getWindowManager()->playSound(ESM::RefId::stringRefId("Item Repair Up"));
 
         mRepair.setTool(item);
@@ -84,7 +86,7 @@ namespace MWGui
         mUsesLabel->setCaptionWithReplacing("#{sUses} " + MyGUI::utility::toString(uses));
         mQualityLabel->setCaptionWithReplacing("#{sQuality} " + qualityStr.str());
 
-        bool toolBoxVisible = (mRepair.getTool().getRefData().getCount() != 0);
+        bool toolBoxVisible = (mRepair.getTool().getCellRef().getCount() != 0);
         mToolBox->setVisible(toolBoxVisible);
         mToolBox->setUserString("Hidden", toolBoxVisible ? "false" : "true");
 
@@ -140,7 +142,7 @@ namespace MWGui
 
     void Repair::onRepairItem(MyGUI::Widget* /*sender*/, const MWWorld::Ptr& ptr)
     {
-        if (!mRepair.getTool().getRefData().getCount())
+        if (!mRepair.getTool().getCellRef().getCount())
             return;
 
         mRepair.repair(ptr);

@@ -56,6 +56,9 @@ namespace MWGui
 
     void Recharge::setPtr(const MWWorld::Ptr& item)
     {
+        if (item.isEmpty() || !item.getClass().isItem(item))
+            throw std::runtime_error("Invalid argument in Recharge::setPtr");
+
         mGemIcon->setItem(item);
         mGemIcon->setUserString("ToolTipType", "ItemPtr");
         mGemIcon->setUserData(MWWorld::Ptr(item));
@@ -72,7 +75,7 @@ namespace MWGui
 
         mChargeLabel->setCaptionWithReplacing("#{sCharges} " + MyGUI::utility::toString(creature->mData.mSoul));
 
-        bool toolBoxVisible = (gem.getRefData().getCount() != 0);
+        bool toolBoxVisible = gem.getCellRef().getCount() != 0;
         mGemBox->setVisible(toolBoxVisible);
         mGemBox->setUserString("Hidden", toolBoxVisible ? "false" : "true");
 

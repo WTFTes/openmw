@@ -1,5 +1,6 @@
 #include "labels.hpp"
 
+#include <components/esm3/loadalch.hpp>
 #include <components/esm3/loadbody.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/esm3/loadcont.hpp>
@@ -759,7 +760,7 @@ std::string enchantmentFlags(int flags)
     return properties;
 }
 
-std::string landFlags(int flags)
+std::string landFlags(std::uint32_t flags)
 {
     std::string properties;
     // The ESM component says that this first four bits are used, but
@@ -983,6 +984,19 @@ std::string recordFlags(uint32_t flags)
         properties += "Blocked ";
     int unused = ~(ESM::FLAG_Deleted | ESM::FLAG_Persistent | ESM::FLAG_Ignored | ESM::FLAG_Blocked);
     if (flags & unused)
+        properties += "Invalid ";
+    properties += Misc::StringUtils::format("(0x%08X)", flags);
+    return properties;
+}
+
+std::string potionFlags(int flags)
+{
+    std::string properties;
+    if (flags == 0)
+        properties += "[None] ";
+    if (flags & ESM::Potion::Autocalc)
+        properties += "Autocalc ";
+    if (flags & (0xFFFFFFFF ^ ESM::Enchantment::Autocalc))
         properties += "Invalid ";
     properties += Misc::StringUtils::format("(0x%08X)", flags);
     return properties;

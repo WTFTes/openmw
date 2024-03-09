@@ -7,7 +7,6 @@
 #include <components/lua/luastate.hpp>
 
 #include "apps/openmw/mwbase/environment.hpp"
-#include "apps/openmw/mwbase/world.hpp"
 #include "apps/openmw/mwworld/esmstore.hpp"
 #include "apps/openmw/mwworld/store.hpp"
 
@@ -47,7 +46,7 @@ namespace MWLua
     void addBookBindings(sol::table book, const Context& context);
     void addContainerBindings(sol::table container, const Context& context);
     void addDoorBindings(sol::table door, const Context& context);
-    void addItemBindings(sol::table item);
+    void addItemBindings(sol::table item, const Context& context);
     void addActorBindings(sol::table actor, const Context& context);
     void addWeaponBindings(sol::table weapon, const Context& context);
     void addNpcBindings(sol::table npc, const Context& context);
@@ -68,15 +67,16 @@ namespace MWLua
     void addLevelledCreatureBindings(sol::table list, const Context& context);
 
     void addESM4DoorBindings(sol::table door, const Context& context);
+    void addESM4TerminalBindings(sol::table term, const Context& context);
 
     template <class T>
     void addRecordFunctionBinding(
-        sol::table table, const Context& context, const std::string& recordName = std::string(T::getRecordType()))
+        sol::table& table, const Context& context, const std::string& recordName = std::string(T::getRecordType()))
     {
         const MWWorld::Store<T>& store = MWBase::Environment::get().getESMStore()->get<T>();
 
         table["record"] = sol::overload([](const Object& obj) -> const T* { return obj.ptr().get<T>()->mBase; },
-            [&store](std::string_view id) -> const T* { return store.find(ESM::RefId::deserializeText(id)); });
+            [&store](std::string_view id) -> const T* { return store.search(ESM::RefId::deserializeText(id)); });
 
         // Define a custom user type for the store.
         // Provide the interface of a read-only array.
@@ -88,6 +88,8 @@ namespace MWLua
         };
         storeT[sol::meta_function::length] = [](const StoreT& store) { return store.getSize(); };
         storeT[sol::meta_function::index] = [](const StoreT& store, size_t index) -> const T* {
+            if (index == 0 || index > store.getSize())
+                return nullptr;
             return store.at(index - 1); // Translate from Lua's 1-based indexing.
         };
         storeT[sol::meta_function::pairs] = lua["ipairsForArray"].template get<sol::function>();

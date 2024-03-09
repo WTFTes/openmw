@@ -1,20 +1,46 @@
 #ifndef OPENMW_ESM_READER_H
 #define OPENMW_ESM_READER_H
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <istream>
+#include <map>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include <components/to_utf8/to_utf8.hpp>
 
+#include "components/esm/decompose.hpp"
 #include "components/esm/esmcommon.hpp"
 #include "components/esm/refid.hpp"
+
 #include "loadtes3.hpp"
 
 namespace ESM
 {
+    template <class T>
+    struct GetArray
+    {
+        using type = void;
+    };
+    template <class T, size_t N>
+    struct GetArray<std::array<T, N>>
+    {
+        using type = T;
+    };
+    template <class T, size_t N>
+    struct GetArray<T[N]>
+    {
+        using type = T;
+    };
+
+    template <class T>
+    inline constexpr bool IsReadable
+        = std::is_arithmetic_v<T> || std::is_enum_v<T> || IsReadable<typename GetArray<T>::type>;
+    template <>
+    inline constexpr bool IsReadable<void> = false;
 
     class ReadersCache;
 
@@ -29,9 +55,9 @@ namespace ESM
          *
          *************************************************************************/
 
-        int getVer() const { return mHeader.mData.version; }
+        int getVer() const { return mHeader.mData.version.ui; }
         int getRecordCount() const { return mHeader.mData.records; }
-        float getFVer() const { return (mHeader.mData.version == VER_12) ? 1.2f : 1.3f; }
+        float esmVersionF() const { return (mHeader.mData.version.f); }
         const std::string& getAuthor() const { return mHeader.mData.author; }
         const std::string& getDesc() const { return mHeader.mData.desc; }
         const std::vector<Header::MasterData>& getGameFiles() const { return mHeader.mMaster; }
@@ -90,6 +116,13 @@ namespace ESM
         void resolveParentFileIndices(ReadersCache& readers);
         const std::vector<int>& getParentFileIndices() const { return mCtx.parentFileIndices; }
 
+        // Used only when loading saves to adjust FormIds if load order was changes.
+        void setContentFileMapping(const std::map<int, int>* mapping) { mContentFileMapping = mapping; }
+        const std::map<int, int>* getContentFileMapping();
+
+        // Returns false if content file not found.
+        bool applyContentFileMapping(FormId& id);
+
         /*************************************************************************
          *
          *  Medium-level reading shortcuts
@@ -103,67 +136,72 @@ namespace ESM
         template <typename X>
         void getHNT(X& x, NAME name)
         {
+            getHNT(name, x);
+        }
+
+        template <class... Args>
+        void getHNT(NAME name, Args&... args)
+        {
+            constexpr size_t size = (0 + ... + sizeof(Args));
             getSubNameIs(name);
-            getHT(x);
+            getSubHeader();
+            if (mCtx.leftSub != size)
+                reportSubSizeMismatch(size, mCtx.leftSub);
+            (getT(args), ...);
         }
 
         // Optional version of getHNT
         template <typename X>
         void getHNOT(X& x, NAME name)
         {
+            getHNOT(name, x);
+        }
+
+        template <class... Args>
+        bool getHNOT(NAME name, Args&... args)
+        {
             if (isNextSub(name))
-                getHT(x);
-        }
-
-        // Version with extra size checking, to make sure the compiler
-        // doesn't mess up our struct padding.
-        template <std::size_t size, typename X>
-        void getHNTSized(X& x, NAME name)
-        {
-            static_assert(sizeof(X) == size);
-            getHNT(x, name);
-        }
-
-        template <std::size_t size, typename X>
-        void getHNOTSized(X& x, NAME name)
-        {
-            static_assert(sizeof(X) == size);
-            getHNOT(x, name);
+            {
+                getHT(args...);
+                return true;
+            }
+            return false;
         }
 
         // Get data of a given type/size, including subrecord header
-        template <typename X>
-        void getHT(X& x)
+        template <class... Args>
+        void getHT(Args&... args)
         {
+            constexpr size_t size = (0 + ... + sizeof(Args));
             getSubHeader();
-            if (mCtx.leftSub != sizeof(X))
-                reportSubSizeMismatch(sizeof(X), mCtx.leftSub);
-            getT(x);
+            if (mCtx.leftSub != size)
+                reportSubSizeMismatch(size, mCtx.leftSub);
+            (getT(args), ...);
         }
 
-        template <typename T>
+        void getNamedComposite(NAME name, auto& value)
+        {
+            decompose(value, [&](auto&... args) { getHNT(name, args...); });
+        }
+
+        void getComposite(auto& value)
+        {
+            decompose(value, [&](auto&... args) { (getT(args), ...); });
+        }
+
+        void getSubComposite(auto& value)
+        {
+            decompose(value, [&](auto&... args) { getHT(args...); });
+        }
+
+        template <typename T, typename = std::enable_if_t<IsReadable<T>>>
         void skipHT()
         {
+            constexpr size_t size = sizeof(T);
             getSubHeader();
-            if (mCtx.leftSub != sizeof(T))
-                reportSubSizeMismatch(sizeof(T), mCtx.leftSub);
-            skipT<T>();
-        }
-
-        // Version with extra size checking, to make sure the compiler
-        // doesn't mess up our struct padding.
-        template <std::size_t size, typename X>
-        void getHTSized(X& x)
-        {
-            static_assert(sizeof(X) == size);
-            getHT(x);
-        }
-
-        template <std::size_t size, typename T>
-        void skipHTSized()
-        {
-            static_assert(sizeof(T) == size);
-            skipHT<T>();
+            if (mCtx.leftSub != size)
+                reportSubSizeMismatch(size, mCtx.leftSub);
+            skip(size);
         }
 
         // Read a string by the given name if it is the next record.
@@ -266,13 +304,13 @@ namespace ESM
          *
          *************************************************************************/
 
-        template <typename X>
+        template <typename X, typename = std::enable_if_t<IsReadable<X>>>
         void getT(X& x)
         {
             getExact(&x, sizeof(X));
         }
 
-        template <typename T>
+        template <typename T, typename = std::enable_if_t<IsReadable<T>>>
         void skipT()
         {
             skip(sizeof(T));
@@ -283,7 +321,7 @@ namespace ESM
             mEsm->read(static_cast<char*>(x), static_cast<std::streamsize>(size));
         }
 
-        void getName(NAME& name) { getT(name); }
+        void getName(NAME& name) { getT(name.mData); }
         void getUint(uint32_t& u) { getT(u); }
 
         std::string getMaybeFixedStringSize(std::size_t size);
@@ -312,7 +350,7 @@ namespace ESM
         void setEncoder(ToUTF8::Utf8Encoder* encoder) { mEncoder = encoder; }
 
         /// Get record flags of last record
-        unsigned int getRecordFlags() { return mRecordFlags; }
+        uint32_t getRecordFlags() { return mRecordFlags; }
 
         size_t getFileSize() const { return mFileSize; }
 
@@ -330,7 +368,7 @@ namespace ESM
 
         ESM_Context mCtx;
 
-        unsigned int mRecordFlags;
+        uint32_t mRecordFlags;
 
         // Special file signifier (see SpecialFile enum above)
 
@@ -342,6 +380,8 @@ namespace ESM
         ToUTF8::Utf8Encoder* mEncoder;
 
         size_t mFileSize;
+
+        const std::map<int, int>* mContentFileMapping = nullptr;
     };
 }
 #endif

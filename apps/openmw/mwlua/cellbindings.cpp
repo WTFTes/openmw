@@ -1,9 +1,52 @@
 #include "cellbindings.hpp"
 
 #include <components/esm/esmbridge.hpp>
-#include <components/esm/records.hpp>
 
+#include <components/esm3/loadacti.hpp>
+#include <components/esm3/loadalch.hpp>
+#include <components/esm3/loadappa.hpp>
+#include <components/esm3/loadarmo.hpp>
+#include <components/esm3/loadbook.hpp>
+#include <components/esm3/loadclot.hpp>
+#include <components/esm3/loadcont.hpp>
+#include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loaddoor.hpp>
+#include <components/esm3/loadingr.hpp>
+#include <components/esm3/loadlevlist.hpp>
+#include <components/esm3/loadligh.hpp>
+#include <components/esm3/loadlock.hpp>
+#include <components/esm3/loadmisc.hpp>
+#include <components/esm3/loadnpc.hpp>
+#include <components/esm3/loadprob.hpp>
+#include <components/esm3/loadrepa.hpp>
+#include <components/esm3/loadstat.hpp>
+#include <components/esm3/loadweap.hpp>
+
+#include <components/esm4/loadacti.hpp>
+#include <components/esm4/loadalch.hpp>
+#include <components/esm4/loadammo.hpp>
+#include <components/esm4/loadarmo.hpp>
+#include <components/esm4/loadbook.hpp>
+#include <components/esm4/loadcell.hpp>
+#include <components/esm4/loadclot.hpp>
+#include <components/esm4/loadcont.hpp>
+#include <components/esm4/loaddoor.hpp>
+#include <components/esm4/loadflor.hpp>
+#include <components/esm4/loadfurn.hpp>
+#include <components/esm4/loadimod.hpp>
+#include <components/esm4/loadingr.hpp>
+#include <components/esm4/loadligh.hpp>
+#include <components/esm4/loadmisc.hpp>
+#include <components/esm4/loadmstt.hpp>
+#include <components/esm4/loadrefr.hpp>
+#include <components/esm4/loadstat.hpp>
+#include <components/esm4/loadtree.hpp>
+#include <components/esm4/loadweap.hpp>
+
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
 #include "../mwworld/cellstore.hpp"
+#include "../mwworld/worldmodel.hpp"
 
 #include "types/types.hpp"
 
@@ -72,6 +115,13 @@ namespace MWLua
             return cell == c.mStore || (cell->getCell()->getWorldSpace() == c.mStore->getCell()->getWorldSpace());
         };
 
+        cellT["waterLevel"] = sol::readonly_property([](const CellT& c) -> sol::optional<float> {
+            if (c.mStore->getCell()->hasWater())
+                return c.mStore->getWaterLevel();
+            else
+                return sol::nullopt;
+        });
+
         if constexpr (std::is_same_v<CellT, GCell>)
         { // only for global scripts
             cellT["getAll"] = [ids = getPackageToTypeTable(context.mLua->sol())](
@@ -80,7 +130,7 @@ namespace MWLua
                     cell.mStore->load();
                 ObjectIdList res = std::make_shared<std::vector<ObjectId>>();
                 auto visitor = [&](const MWWorld::Ptr& ptr) {
-                    if (ptr.getRefData().isDeleted())
+                    if (ptr.mRef->isDeleted())
                         return true;
                     MWBase::Environment::get().getWorldModel()->registerPtr(ptr);
                     if (getLiveCellRefType(ptr.mRef) == ptr.getType())
@@ -161,6 +211,9 @@ namespace MWLua
                         case ESM::REC_STAT:
                             cell.mStore->template forEachType<ESM::Static>(visitor);
                             break;
+                        case ESM::REC_LEVC:
+                            cell.mStore->template forEachType<ESM::CreatureLevList>(visitor);
+                            break;
 
                         case ESM::REC_ACTI4:
                             cell.mStore->template forEachType<ESM4::Activator>(visitor);
@@ -183,8 +236,14 @@ namespace MWLua
                         case ESM::REC_DOOR4:
                             cell.mStore->template forEachType<ESM4::Door>(visitor);
                             break;
+                        case ESM::REC_FLOR4:
+                            cell.mStore->template forEachType<ESM4::Flora>(visitor);
+                            break;
                         case ESM::REC_FURN4:
                             cell.mStore->template forEachType<ESM4::Furniture>(visitor);
+                            break;
+                        case ESM::REC_IMOD4:
+                            cell.mStore->template forEachType<ESM4::ItemMod>(visitor);
                             break;
                         case ESM::REC_INGR4:
                             cell.mStore->template forEachType<ESM4::Ingredient>(visitor);
@@ -194,6 +253,9 @@ namespace MWLua
                             break;
                         case ESM::REC_MISC4:
                             cell.mStore->template forEachType<ESM4::MiscItem>(visitor);
+                            break;
+                        case ESM::REC_MSTT4:
+                            cell.mStore->template forEachType<ESM4::MovableStatic>(visitor);
                             break;
                         case ESM::REC_ALCH4:
                             cell.mStore->template forEachType<ESM4::Potion>(visitor);
@@ -215,7 +277,7 @@ namespace MWLua
                 if (!ok)
                     throw std::runtime_error(
                         std::string("Incorrect type argument in cell:getAll: " + LuaUtil::toString(*type)));
-                return GObjectList{ res };
+                return GObjectList{ std::move(res) };
             };
         }
     }

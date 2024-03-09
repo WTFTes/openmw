@@ -63,7 +63,7 @@ namespace MWWorld
 
     public:
         ResolutionHandle(std::shared_ptr<ResolutionListener> listener)
-            : mListener(listener)
+            : mListener(std::move(listener))
         {
         }
         ResolutionHandle() = default;
@@ -99,23 +99,31 @@ namespace MWWorld
 
         static const ESM::RefId sGoldId;
 
+        static constexpr bool isStorableType(unsigned int t)
+        {
+            return t == ESM::Potion::sRecordId || t == ESM::Apparatus::sRecordId || t == ESM::Armor::sRecordId
+                || t == ESM::Book::sRecordId || t == ESM::Clothing::sRecordId || t == ESM::Ingredient::sRecordId
+                || t == ESM::Light::sRecordId || t == ESM::Lockpick::sRecordId || t == ESM::Miscellaneous::sRecordId
+                || t == ESM::Probe::sRecordId || t == ESM::Repair::sRecordId || t == ESM::Weapon::sRecordId;
+        }
+        template <typename T>
+        static constexpr bool isStorableType()
+        {
+            return isStorableType(T::sRecordId);
+        }
+
     protected:
         ContainerStoreListener* mListener;
 
         // Used in clone() to unset refnums of copies.
         // (RefNum should be unique, copy can not have the same RefNum).
-        void clearRefNums();
+        void updateRefNums();
 
         // (item, max charge)
         typedef std::vector<std::pair<ContainerStoreIterator, float>> TRechargingItems;
         TRechargingItems mRechargingItems;
 
         bool mRechargingItemsUpToDate;
-
-        // Non-empty only if is InventoryStore.
-        // The actor whose inventory it is.
-        // TODO: Consider merging mActor and mPtr.
-        MWWorld::Ptr mActor;
 
     private:
         MWWorld::CellRefList<ESM::Potion> potions;
@@ -137,7 +145,7 @@ namespace MWWorld
         bool mModified;
         bool mResolved;
         unsigned int mSeed;
-        MWWorld::Ptr mPtr; // Container that contains this store. Set in MWClass::Container::getContainerStore
+        MWWorld::SafePtr mPtr; // Container or actor that holds this store.
         std::weak_ptr<ResolutionListener> mResolutionListener;
 
         ContainerStoreIterator addImp(const Ptr& ptr, int count, bool markModified = true);
@@ -153,28 +161,32 @@ namespace MWWorld
         void storeState(const LiveCellRef<T>& ref, ESM::ObjectState& state) const;
 
         template <typename T>
-        void storeStates(
-            const CellRefList<T>& collection, ESM::InventoryState& inventory, int& index, bool equipable = false) const;
+        void storeStates(const CellRefList<T>& collection, ESM::InventoryState& inventory, size_t& index,
+            bool equipable = false) const;
 
         void updateRechargingItems();
 
         virtual void storeEquipmentState(
-            const MWWorld::LiveCellRefBase& ref, int index, ESM::InventoryState& inventory) const;
+            const MWWorld::LiveCellRefBase& ref, size_t index, ESM::InventoryState& inventory) const;
 
         virtual void readEquipmentState(
-            const MWWorld::ContainerStoreIterator& iter, int index, const ESM::InventoryState& inventory);
+            const MWWorld::ContainerStoreIterator& iter, size_t index, const ESM::InventoryState& inventory);
 
     public:
         ContainerStore();
 
-        virtual ~ContainerStore();
+        virtual ~ContainerStore() = default;
 
         virtual std::unique_ptr<ContainerStore> clone()
         {
             auto res = std::make_unique<ContainerStore>(*this);
-            res->clearRefNums();
+            res->updateRefNums();
             return res;
         }
+
+        // Container or actor that holds this store.
+        const Ptr& getPtr() const { return mPtr.ptrOrEmpty(); }
+        void setPtr(const Ptr& ptr) { mPtr = SafePtr(ptr); }
 
         ConstContainerStoreIterator cbegin(int mask = Type_All) const;
         ConstContainerStoreIterator cend() const;

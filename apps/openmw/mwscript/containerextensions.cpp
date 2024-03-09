@@ -31,6 +31,7 @@
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/levelledlist.hpp"
 
+#include "interpretercontext.hpp"
 #include "ref.hpp"
 
 namespace
@@ -94,6 +95,12 @@ namespace MWScript
                 Interpreter::Type_Integer count = runtime[0].mInteger;
                 runtime.pop();
 
+                if (!MWBase::Environment::get().getESMStore()->find(item))
+                {
+                    runtime.getContext().report("Failed to add item '" + item.getRefIdString() + "': unknown ID");
+                    return;
+                }
+
                 if (count < 0)
                     count = static_cast<uint16_t>(count);
 
@@ -102,7 +109,7 @@ namespace MWScript
                     return;
 
                 if (item == "gold_005" || item == "gold_010" || item == "gold_025" || item == "gold_100")
-                    item = ESM::RefId::stringRefId("gold_001");
+                    item = MWWorld::ContainerStore::sGoldId;
 
                 // Check if "item" can be placed in a container
                 MWWorld::ManualRef manualRef(*MWBase::Environment::get().getESMStore(), item, 1);
@@ -188,7 +195,7 @@ namespace MWScript
                 runtime.pop();
 
                 if (item == "gold_005" || item == "gold_010" || item == "gold_025" || item == "gold_100")
-                    item = ESM::RefId::stringRefId("gold_001");
+                    item = MWWorld::ContainerStore::sGoldId;
 
                 MWWorld::ContainerStore& store = ptr.getClass().getContainerStore(ptr);
 
@@ -210,6 +217,12 @@ namespace MWScript
                 Interpreter::Type_Integer count = runtime[0].mInteger;
                 runtime.pop();
 
+                if (!MWBase::Environment::get().getESMStore()->find(item))
+                {
+                    runtime.getContext().report("Failed to remove item '" + item.getRefIdString() + "': unknown ID");
+                    return;
+                }
+
                 if (count < 0)
                     count = static_cast<uint16_t>(count);
 
@@ -218,7 +231,7 @@ namespace MWScript
                     return;
 
                 if (item == "gold_005" || item == "gold_010" || item == "gold_025" || item == "gold_100")
-                    item = ESM::RefId::stringRefId("gold_001");
+                    item = MWWorld::ContainerStore::sGoldId;
 
                 // Explicit calls to non-unique actors affect the base record
                 if (!R::implicit && ptr.getClass().isActor()
@@ -447,7 +460,7 @@ namespace MWScript
                      it != invStore.cend(); ++it)
                 {
                     if (it->getCellRef().getSoul() == name)
-                        count += it->getRefData().getCount();
+                        count += it->getCellRef().getCount();
                 }
                 runtime.push(count);
             }

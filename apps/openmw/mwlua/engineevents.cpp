@@ -22,8 +22,6 @@ namespace MWLua
         {
         }
 
-        void operator()(const OnNewGame&) const { mGlobalScripts.newGameStarted(); }
-
         void operator()(const OnActive& event) const
         {
             MWWorld::Ptr ptr = getPtr(event.mObject);
@@ -50,6 +48,12 @@ namespace MWLua
                 scripts->setActive(false);
         }
 
+        void operator()(const OnTeleported& event) const
+        {
+            if (auto* scripts = getLocalScripts(event.mObject))
+                scripts->onTeleported();
+        }
+
         void operator()(const OnActivate& event) const
         {
             MWWorld::Ptr obj = getPtr(event.mObject);
@@ -59,6 +63,15 @@ namespace MWLua
             mGlobalScripts.onActivate(GObject(obj), GObject(actor));
             if (auto* scripts = getLocalScripts(obj))
                 scripts->onActivated(LObject(actor));
+        }
+
+        void operator()(const OnUseItem& event) const
+        {
+            MWWorld::Ptr obj = getPtr(event.mObject);
+            MWWorld::Ptr actor = getPtr(event.mActor);
+            if (actor.isEmpty() || obj.isEmpty())
+                return;
+            mGlobalScripts.onUseItem(GObject(obj), GObject(actor), event.mForce);
         }
 
         void operator()(const OnConsume& event) const
@@ -73,8 +86,35 @@ namespace MWLua
 
         void operator()(const OnNewExterior& event) const { mGlobalScripts.onNewExterior(GCell{ &event.mCell }); }
 
+        void operator()(const OnAnimationTextKey& event) const
+        {
+            MWWorld::Ptr actor = getPtr(event.mActor);
+            if (actor.isEmpty())
+                return;
+            if (auto* scripts = getLocalScripts(actor))
+                scripts->onAnimationTextKey(event.mGroupname, event.mKey);
+        }
+
+        void operator()(const OnSkillUse& event) const
+        {
+            MWWorld::Ptr actor = getPtr(event.mActor);
+            if (actor.isEmpty())
+                return;
+            if (auto* scripts = getLocalScripts(actor))
+                scripts->onSkillUse(event.mSkill, event.useType, event.scale);
+        }
+
+        void operator()(const OnSkillLevelUp& event) const
+        {
+            MWWorld::Ptr actor = getPtr(event.mActor);
+            if (actor.isEmpty())
+                return;
+            if (auto* scripts = getLocalScripts(actor))
+                scripts->onSkillLevelUp(event.mSkill, event.mSource);
+        }
+
     private:
-        MWWorld::Ptr getPtr(const ESM::RefNum& id) const
+        MWWorld::Ptr getPtr(ESM::RefNum id) const
         {
             MWWorld::Ptr res = mWorldModel->getPtr(id);
             if (res.isEmpty() && Settings::lua().mLuaDebug)
@@ -90,7 +130,7 @@ namespace MWLua
                 return ptr.getRefData().getLuaScripts();
         }
 
-        LocalScripts* getLocalScripts(const ESM::RefNum& id) const { return getLocalScripts(getPtr(id)); }
+        LocalScripts* getLocalScripts(ESM::RefNum id) const { return getLocalScripts(getPtr(id)); }
 
         GlobalScripts& mGlobalScripts;
         MWWorld::WorldModel* mWorldModel = MWBase::Environment::get().getWorldModel();

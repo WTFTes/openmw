@@ -17,7 +17,7 @@ namespace ESM
                 SpellParams state;
                 while (esm.isNextSub("INDX"))
                 {
-                    int index;
+                    int32_t index;
                     esm.getHT(index);
 
                     float magnitude;
@@ -28,12 +28,12 @@ namespace ESM
 
                 while (esm.isNextSub("PURG"))
                 {
-                    int index;
+                    int32_t index;
                     esm.getHT(index);
                     state.mPurgedEffects.insert(index);
                 }
 
-                mSpellParams[id] = state;
+                mSpellParams[id] = std::move(state);
                 mSpells.emplace_back(id);
             }
         }
@@ -69,7 +69,7 @@ namespace ESM
                 esm.getHNT(info.mMagnitude, "MAGN");
                 permEffectList.push_back(info);
             }
-            mPermanentSpellEffects[spellId] = permEffectList;
+            mPermanentSpellEffects[spellId] = std::move(permEffectList);
         }
 
         // Obsolete
@@ -79,7 +79,7 @@ namespace ESM
 
             CorprusStats stats;
             esm.getHNT(stats.mWorsenings, "WORS");
-            esm.getHNT(stats.mNextWorsening, "TIME");
+            stats.mNextWorsening.load(esm);
 
             mCorprusSpells[id] = stats;
         }
@@ -87,10 +87,7 @@ namespace ESM
         while (esm.isNextSub("USED"))
         {
             ESM::RefId id = esm.getRefId();
-            TimeStamp time;
-            esm.getHNT(time, "TIME");
-
-            mUsedPowers[id] = time;
+            mUsedPowers[id].load(esm);
         }
 
         mSelectedSpell = esm.getHNORefId("SLCT");

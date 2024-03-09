@@ -41,7 +41,7 @@ namespace CSMWorld
         point.mUnknown = 0;
 
         points.insert(points.begin() + position, point);
-        pathgrid.mData.mS2 = pathgrid.mPoints.size();
+        pathgrid.mData.mPoints = pathgrid.mPoints.size();
 
         record.setModified(pathgrid);
     }
@@ -58,7 +58,7 @@ namespace CSMWorld
         // Do not remove dangling edges, does not work with current undo mechanism
         // Do not automatically adjust indices, what would be done with dangling edges?
         points.erase(points.begin() + rowToRemove);
-        pathgrid.mData.mS2 = pathgrid.mPoints.size();
+        pathgrid.mData.mPoints = pathgrid.mPoints.size();
 
         record.setModified(pathgrid);
     }
@@ -67,7 +67,7 @@ namespace CSMWorld
     {
         Pathgrid pathgrid = record.get();
         pathgrid.mPoints = static_cast<const NestedTableWrapper<ESM::Pathgrid::PointList>&>(nestedTable).mNestedTable;
-        pathgrid.mData.mS2 = pathgrid.mPoints.size();
+        pathgrid.mData.mPoints = pathgrid.mPoints.size();
 
         record.setModified(pathgrid);
     }
@@ -741,8 +741,8 @@ namespace CSMWorld
     QVariant RaceAttributeAdapter::getData(const Record<ESM::Race>& record, int subRowIndex, int subColIndex) const
     {
         ESM::Race race = record.get();
-
-        if (subRowIndex < 0 || subRowIndex >= ESM::Attribute::Length)
+        ESM::RefId attribute = ESM::Attribute::indexToRefId(subRowIndex);
+        if (attribute.empty())
             throw std::runtime_error("index out of range");
 
         switch (subColIndex)
@@ -750,9 +750,9 @@ namespace CSMWorld
             case 0:
                 return subRowIndex;
             case 1:
-                return race.mData.mAttributeValues[subRowIndex].mMale;
+                return race.mData.getAttribute(attribute, true);
             case 2:
-                return race.mData.mAttributeValues[subRowIndex].mFemale;
+                return race.mData.getAttribute(attribute, false);
             default:
                 throw std::runtime_error("Race Attribute subcolumn index out of range");
         }
@@ -762,8 +762,8 @@ namespace CSMWorld
         Record<ESM::Race>& record, const QVariant& value, int subRowIndex, int subColIndex) const
     {
         ESM::Race race = record.get();
-
-        if (subRowIndex < 0 || subRowIndex >= ESM::Attribute::Length)
+        ESM::RefId attribute = ESM::Attribute::indexToRefId(subRowIndex);
+        if (attribute.empty())
             throw std::runtime_error("index out of range");
 
         switch (subColIndex)
@@ -771,10 +771,10 @@ namespace CSMWorld
             case 0:
                 return; // throw an exception here?
             case 1:
-                race.mData.mAttributeValues[subRowIndex].mMale = value.toInt();
+                race.mData.setAttribute(attribute, true, value.toInt());
                 break;
             case 2:
-                race.mData.mAttributeValues[subRowIndex].mFemale = value.toInt();
+                race.mData.setAttribute(attribute, false, value.toInt());
                 break;
             default:
                 throw std::runtime_error("Race Attribute subcolumn index out of range");
@@ -996,7 +996,10 @@ namespace CSMWorld
             case 5:
             {
                 if (isInterior && interiorWater)
+                {
                     cell.mWater = value.toFloat();
+                    cell.setHasWaterHeightSub(true);
+                }
                 else
                     return; // return without saving
                 break;
@@ -1076,31 +1079,8 @@ namespace CSMWorld
         }
         else if (subColIndex == 1)
         {
-            switch (subRowIndex)
-            {
-                case 0:
-                    return region.mData.mClear;
-                case 1:
-                    return region.mData.mCloudy;
-                case 2:
-                    return region.mData.mFoggy;
-                case 3:
-                    return region.mData.mOvercast;
-                case 4:
-                    return region.mData.mRain;
-                case 5:
-                    return region.mData.mThunder;
-                case 6:
-                    return region.mData.mAsh;
-                case 7:
-                    return region.mData.mBlight;
-                case 8:
-                    return region.mData.mSnow;
-                case 9:
-                    return region.mData.mBlizzard;
-                default:
-                    break;
-            }
+            if (subRowIndex >= 0 && static_cast<size_t>(subRowIndex) < region.mData.mProbabilities.size())
+                return region.mData.mProbabilities[subRowIndex];
         }
 
         throw std::runtime_error("index out of range");
@@ -1110,45 +1090,11 @@ namespace CSMWorld
         Record<ESM::Region>& record, const QVariant& value, int subRowIndex, int subColIndex) const
     {
         ESM::Region region = record.get();
-        unsigned char chance = static_cast<unsigned char>(value.toInt());
+        uint8_t chance = static_cast<uint8_t>(value.toInt());
 
         if (subColIndex == 1)
         {
-            switch (subRowIndex)
-            {
-                case 0:
-                    region.mData.mClear = chance;
-                    break;
-                case 1:
-                    region.mData.mCloudy = chance;
-                    break;
-                case 2:
-                    region.mData.mFoggy = chance;
-                    break;
-                case 3:
-                    region.mData.mOvercast = chance;
-                    break;
-                case 4:
-                    region.mData.mRain = chance;
-                    break;
-                case 5:
-                    region.mData.mThunder = chance;
-                    break;
-                case 6:
-                    region.mData.mAsh = chance;
-                    break;
-                case 7:
-                    region.mData.mBlight = chance;
-                    break;
-                case 8:
-                    region.mData.mSnow = chance;
-                    break;
-                case 9:
-                    region.mData.mBlizzard = chance;
-                    break;
-                default:
-                    throw std::runtime_error("index out of range");
-            }
+            region.mData.mProbabilities.at(subRowIndex) = chance;
 
             record.setModified(region);
         }

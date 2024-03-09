@@ -107,11 +107,16 @@ namespace Bsa
             if (header[0] == 0x00415342) /*"BSA\x00"*/
                 fail("Unrecognized compressed BSA format");
             mVersion = header[1];
-            if (mVersion != 0x01 /*FO4*/)
+            if (mVersion != 0x01 /*FO4*/ && mVersion != 0x02 /*Starfield*/)
                 fail("Unrecognized compressed BSA version");
 
             type = header[2];
             fileCount = header[3];
+            if (mVersion == 0x02)
+            {
+                uint64_t dummy;
+                input.read(reinterpret_cast<char*>(&dummy), 8);
+            }
         }
 
         if (type == ESM::fourCC("GNRL"))
@@ -167,7 +172,7 @@ namespace Bsa
             return FileRecord(); // folder not found, return default which has offset of sInvalidOffset
 
         uint32_t fileHash = generateHash(fileName);
-        uint32_t extHash = *reinterpret_cast<const uint32_t*>(ext.data() + 1);
+        uint32_t extHash = generateExtensionHash(ext);
         auto iter = it->second.find({ fileHash, extHash });
         if (iter == it->second.end())
             return FileRecord(); // file not found, return default which has offset of sInvalidOffset
@@ -202,23 +207,21 @@ namespace Bsa
 
     Files::IStreamPtr BA2GNRLFile::getFile(const FileRecord& fileRecord)
     {
-        Files::IStreamPtr streamPtr
-            = Files::openConstrainedFileStream(mFilepath, fileRecord.offset, fileRecord.packedSize);
-        std::istream* fileStream = streamPtr.get();
-        uint32_t uncompressedSize = fileRecord.size;
-        auto memoryStreamPtr = std::make_unique<MemoryInputStream>(uncompressedSize);
-        if (fileRecord.packedSize != 0)
+        const uint32_t inputSize = fileRecord.packedSize ? fileRecord.packedSize : fileRecord.size;
+        Files::IStreamPtr streamPtr = Files::openConstrainedFileStream(mFilepath, fileRecord.offset, inputSize);
+        auto memoryStreamPtr = std::make_unique<MemoryInputStream>(fileRecord.size);
+        if (fileRecord.packedSize)
         {
             boost::iostreams::filtering_streambuf<boost::iostreams::input> inputStreamBuf;
             inputStreamBuf.push(boost::iostreams::zlib_decompressor());
-            inputStreamBuf.push(*fileStream);
+            inputStreamBuf.push(*streamPtr);
 
-            boost::iostreams::basic_array_sink<char> sr(memoryStreamPtr->getRawData(), uncompressedSize);
+            boost::iostreams::basic_array_sink<char> sr(memoryStreamPtr->getRawData(), fileRecord.size);
             boost::iostreams::copy(inputStreamBuf, sr);
         }
         else
         {
-            fileStream->read(memoryStreamPtr->getRawData(), fileRecord.size);
+            streamPtr->read(memoryStreamPtr->getRawData(), fileRecord.size);
         }
         return std::make_unique<Files::StreamWithBuffer<MemoryInputStream>>(std::move(memoryStreamPtr));
     }

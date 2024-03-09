@@ -4,7 +4,7 @@
 
 #include <SDL_keyboard.h>
 
-#include <components/settings/settings.hpp>
+#include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/inputmanager.hpp"
@@ -31,8 +31,8 @@ namespace MWInput
         osgViewer::ScreenCaptureHandler::CaptureOperation* screenCaptureOperation,
         osg::ref_ptr<osgViewer::Viewer> viewer, osg::ref_ptr<osgViewer::ScreenCaptureHandler> screenCaptureHandler)
         : mBindingsManager(bindingsManager)
-        , mViewer(viewer)
-        , mScreenCaptureHandler(screenCaptureHandler)
+        , mViewer(std::move(viewer))
+        , mScreenCaptureHandler(std::move(screenCaptureHandler))
         , mScreenCaptureOperation(screenCaptureOperation)
         , mTimeIdle(0.f)
     {
@@ -71,9 +71,6 @@ namespace MWInput
             case A_Screenshot:
                 screenshot();
                 break;
-            case A_Inventory:
-                toggleInventory();
-                break;
             case A_Console:
                 toggleConsole();
                 break;
@@ -86,9 +83,6 @@ namespace MWInput
             case A_MoveForward:
             case A_MoveBackward:
                 handleGuiArrowKey(action);
-                break;
-            case A_Journal:
-                toggleJournal();
                 break;
             case A_Rest:
                 rest();
@@ -123,11 +117,8 @@ namespace MWInput
             case A_QuickKey10:
                 quickKey(10);
                 break;
-            case A_QuickKeysMenu:
-                showQuickKeysMenu();
-                break;
             case A_ToggleHUD:
-                windowManager->toggleHud();
+                windowManager->setHudVisibility(!windowManager->isHudVisible());
                 break;
             case A_ToggleDebug:
                 windowManager->toggleDebugWindow();
@@ -157,6 +148,11 @@ namespace MWInput
                 if (checkAllowedToUseItems() && windowManager->isAllowed(MWGui::GW_Inventory))
                     MWBase::Environment::get().getWindowManager()->cycleWeapon(true);
                 break;
+            case A_Inventory:
+            case A_Journal:
+            case A_QuickKeysMenu:
+                // Handled in Lua
+                break;
         }
     }
 
@@ -174,10 +170,9 @@ namespace MWInput
 
     void ActionManager::screenshot()
     {
-        const std::string& settingStr = Settings::Manager::getString("screenshot type", "Video");
-        bool regularScreenshot = settingStr.empty() || settingStr == "regular";
+        const Settings::ScreenshotSettings& settings = Settings::video().mScreenshotType;
 
-        if (regularScreenshot)
+        if (settings.mType == Settings::ScreenshotType::Regular)
         {
             mScreenCaptureHandler->setFramesToCapture(1);
             mScreenCaptureHandler->captureNextFrame(*mViewer);
@@ -248,55 +243,12 @@ namespace MWInput
         MWBase::Environment::get().getWindowManager()->pushGuiMode(MWGui::GM_Rest); // Open rest GUI
     }
 
-    void ActionManager::toggleInventory()
-    {
-        if (!MWBase::Environment::get().getInputManager()->getControlSwitch("playercontrols"))
-            return;
-
-        if (MyGUI::InputManager::getInstance().isModalAny())
-            return;
-
-        if (MWBase::Environment::get().getWindowManager()->isConsoleMode())
-            return;
-
-        // Toggle between game mode and inventory mode
-        if (!MWBase::Environment::get().getWindowManager()->isGuiMode())
-            MWBase::Environment::get().getWindowManager()->pushGuiMode(MWGui::GM_Inventory);
-        else
-        {
-            MWGui::GuiMode mode = MWBase::Environment::get().getWindowManager()->getMode();
-            if (mode == MWGui::GM_Inventory || mode == MWGui::GM_Container)
-                MWBase::Environment::get().getWindowManager()->popGuiMode();
-        }
-
-        // .. but don't touch any other mode, except container.
-    }
-
     void ActionManager::toggleConsole()
     {
         if (MyGUI::InputManager::getInstance().isModalAny())
             return;
 
         MWBase::Environment::get().getWindowManager()->toggleConsole();
-    }
-
-    void ActionManager::toggleJournal()
-    {
-        if (!MWBase::Environment::get().getInputManager()->getControlSwitch("playercontrols"))
-            return;
-        if (MyGUI::InputManager::getInstance().isModalAny())
-            return;
-
-        MWBase::WindowManager* windowManager = MWBase::Environment::get().getWindowManager();
-        if (windowManager->getMode() != MWGui::GM_Journal && windowManager->getMode() != MWGui::GM_MainMenu
-            && windowManager->getMode() != MWGui::GM_Settings && windowManager->getJournalAllowed())
-        {
-            windowManager->pushGuiMode(MWGui::GM_Journal);
-        }
-        else if (windowManager->containsMode(MWGui::GM_Journal))
-        {
-            windowManager->removeGuiMode(MWGui::GM_Journal);
-        }
     }
 
     void ActionManager::quickKey(int index)
@@ -313,23 +265,6 @@ namespace MWInput
 
         if (!MWBase::Environment::get().getWindowManager()->isGuiMode())
             MWBase::Environment::get().getWindowManager()->activateQuickKey(index);
-    }
-
-    void ActionManager::showQuickKeysMenu()
-    {
-        if (MWBase::Environment::get().getWindowManager()->getMode() == MWGui::GM_QuickKeysMenu)
-        {
-            MWBase::Environment::get().getWindowManager()->exitCurrentGuiMode();
-            return;
-        }
-
-        if (MWBase::Environment::get().getWorld()->getGlobalFloat(MWWorld::Globals::sCharGenState) != -1)
-            return;
-
-        if (!checkAllowedToUseItems())
-            return;
-
-        MWBase::Environment::get().getWindowManager()->pushGuiMode(MWGui::GM_QuickKeysMenu);
     }
 
     void ActionManager::activate()

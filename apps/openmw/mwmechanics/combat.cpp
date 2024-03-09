@@ -10,6 +10,7 @@
 #include <components/esm3/loadmgef.hpp>
 #include <components/esm3/loadsoun.hpp>
 
+#include "../mwbase/dialoguemanager.hpp"
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/soundmanager.hpp"
@@ -54,7 +55,7 @@ namespace MWMechanics
             {
                 MWMechanics::CastSpell cast(attacker, victim, fromProjectile);
                 cast.mHitPosition = hitPosition;
-                cast.cast(object, 0, false);
+                cast.cast(object, false);
                 // Apply magic effects directly instead of waiting a frame to allow soul trap to work on one-hit kills
                 if (!victim.isEmpty() && victim.getClass().isActor())
                     MWBase::Environment::get().getMechanicsManager()->updateMagicEffects(victim);
@@ -134,6 +135,15 @@ namespace MWMechanics
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
         if (Misc::Rng::roll0to99(prng) < x)
         {
+            MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
+            const ESM::RefId skill = shield->getClass().getEquipmentSkill(*shield);
+            if (skill == ESM::Skill::LightArmor)
+                sndMgr->playSound3D(blocker, ESM::RefId::stringRefId("Light Armor Hit"), 1.0f, 1.0f);
+            else if (skill == ESM::Skill::MediumArmor)
+                sndMgr->playSound3D(blocker, ESM::RefId::stringRefId("Medium Armor Hit"), 1.0f, 1.0f);
+            else if (skill == ESM::Skill::HeavyArmor)
+                sndMgr->playSound3D(blocker, ESM::RefId::stringRefId("Heavy Armor Hit"), 1.0f, 1.0f);
+
             // Reduce shield durability by incoming damage
             int shieldhealth = shield->getClass().getItemHealth(*shield);
 
@@ -157,7 +167,7 @@ namespace MWMechanics
             blockerStats.setBlock(true);
 
             if (blocker == getPlayer())
-                blocker.getClass().skillUsageSucceeded(blocker, ESM::Skill::Block, 0);
+                blocker.getClass().skillUsageSucceeded(blocker, ESM::Skill::Block, ESM::Skill::Block_Success);
 
             return true;
         }
@@ -180,7 +190,7 @@ namespace MWMechanics
     void resistNormalWeapon(
         const MWWorld::Ptr& actor, const MWWorld::Ptr& attacker, const MWWorld::Ptr& weapon, float& damage)
     {
-        if (damage == 0 || weapon.isEmpty() || !isNormalWeapon(weapon))
+        if (weapon.isEmpty() || !isNormalWeapon(weapon))
             return;
 
         const MWMechanics::MagicEffects& effects = actor.getClass().getCreatureStats(actor).getMagicEffects();
@@ -189,7 +199,7 @@ namespace MWMechanics
 
         damage *= 1.f - std::min(1.f, resistance - weakness);
 
-        if (damage == 0 && attacker == getPlayer())
+        if (resistance - weakness >= 1.f && attacker == getPlayer())
             MWBase::Environment::get().getWindowManager()->messageBox("#{sMagicTargetResistsWeapons}");
     }
 
@@ -230,19 +240,22 @@ namespace MWMechanics
 
             if (Misc::Rng::roll0to99(world->getPrng()) >= getHitChance(attacker, victim, skillValue))
             {
-                victim.getClass().onHit(victim, damage, false, projectile, attacker, osg::Vec3f(), false);
+                victim.getClass().onHit(victim, damage, false, projectile, attacker, osg::Vec3f(), false,
+                    MWMechanics::DamageSourceType::Ranged);
                 MWMechanics::reduceWeaponCondition(damage, false, weapon, attacker);
                 return;
             }
 
-            const unsigned char* attack = weapon.get<ESM::Weapon>()->mBase->mData.mChop;
-            damage = attack[0] + ((attack[1] - attack[0]) * attackStrength); // Bow/crossbow damage
-
-            // Arrow/bolt damage
-            // NB in case of thrown weapons, we are applying the damage twice since projectile == weapon
-            attack = projectile.get<ESM::Weapon>()->mBase->mData.mChop;
-            damage += attack[0] + ((attack[1] - attack[0]) * attackStrength);
-
+            {
+                const auto& attack = weapon.get<ESM::Weapon>()->mBase->mData.mChop;
+                damage = attack[0] + ((attack[1] - attack[0]) * attackStrength); // Bow/crossbow damage
+            }
+            {
+                // Arrow/bolt damage
+                // NB in case of thrown weapons, we are applying the damage twice since projectile == weapon
+                const auto& attack = projectile.get<ESM::Weapon>()->mBase->mData.mChop;
+                damage += attack[0] + ((attack[1] - attack[0]) * attackStrength);
+            }
             adjustWeaponDamage(damage, weapon, attacker);
         }
 
@@ -256,7 +269,7 @@ namespace MWMechanics
             applyWerewolfDamageMult(victim, projectile, damage);
 
             if (attacker == getPlayer())
-                attacker.getClass().skillUsageSucceeded(attacker, weaponSkill, 0);
+                attacker.getClass().skillUsageSucceeded(attacker, weaponSkill, ESM::Skill::Weapon_SuccessfulHit);
 
             const MWMechanics::AiSequence& sequence = victim.getClass().getCreatureStats(victim).getAiSequence();
             bool unaware = attacker == getPlayer() && !sequence.isInCombat()
@@ -286,7 +299,8 @@ namespace MWMechanics
                     victim.getClass().getContainerStore(victim).add(projectile, 1);
             }
 
-            victim.getClass().onHit(victim, damage, true, projectile, attacker, hitPosition, true);
+            victim.getClass().onHit(
+                victim, damage, true, projectile, attacker, hitPosition, true, MWMechanics::DamageSourceType::Ranged);
         }
     }
 
@@ -551,4 +565,126 @@ namespace MWMechanics
             return distanceIgnoreZ(lhs, rhs);
         return distance(lhs, rhs);
     }
+
+    float getDistanceToBounds(const MWWorld::Ptr& actor, const MWWorld::Ptr& target)
+    {
+        osg::Vec3f actorPos(actor.getRefData().getPosition().asVec3());
+        osg::Vec3f targetPos(target.getRefData().getPosition().asVec3());
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+
+        float dist = (targetPos - actorPos).length();
+        dist -= world->getHalfExtents(actor).y();
+        dist -= world->getHalfExtents(target).y();
+        return dist;
+    }
+
+    std::pair<MWWorld::Ptr, osg::Vec3f> getHitContact(const MWWorld::Ptr& actor, float reach)
+    {
+        // Lasciate ogne speranza, voi ch'entrate
+        MWWorld::Ptr result;
+        osg::Vec3f hitPos;
+        float minDist = std::numeric_limits<float>::max();
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Store<ESM::GameSetting>& store = world->getStore().get<ESM::GameSetting>();
+
+        const ESM::Position& posdata = actor.getRefData().getPosition();
+        const osg::Vec3f actorPos(posdata.asVec3());
+
+        // Morrowind uses body orientation or camera orientation if available
+        // The difference between that and this is subtle
+        osg::Quat actorRot
+            = osg::Quat(posdata.rot[0], osg::Vec3f(-1, 0, 0)) * osg::Quat(posdata.rot[2], osg::Vec3f(0, 0, -1));
+
+        const float fCombatAngleXY = store.find("fCombatAngleXY")->mValue.getFloat();
+        const float fCombatAngleZ = store.find("fCombatAngleZ")->mValue.getFloat();
+        const float combatAngleXYcos = std::cos(osg::DegreesToRadians(fCombatAngleXY));
+        const float combatAngleZcos = std::cos(osg::DegreesToRadians(fCombatAngleZ));
+
+        // The player can target any active actor, non-playable actors only target their targets
+        std::vector<MWWorld::Ptr> targets;
+        if (actor != getPlayer())
+            actor.getClass().getCreatureStats(actor).getAiSequence().getCombatTargets(targets);
+        else
+            MWBase::Environment::get().getMechanicsManager()->getActorsInRange(
+                actorPos, Settings::game().mActorsProcessingRange, targets);
+
+        for (MWWorld::Ptr& target : targets)
+        {
+            if (actor == target || target.getClass().getCreatureStats(target).isDead())
+                continue;
+            float dist = getDistanceToBounds(actor, target);
+            osg::Vec3f targetPos(target.getRefData().getPosition().asVec3());
+            osg::Vec3f dirToTarget = targetPos - actorPos;
+            if (dist >= reach || dist >= minDist || std::abs(dirToTarget.z()) >= reach)
+                continue;
+
+            dirToTarget.normalize();
+
+            // The idea is to use fCombatAngleXY and fCombatAngleZ as tolerance angles
+            // in XY and YZ planes of the coordinate system where the actor's orientation
+            // corresponds to (0, 1, 0) vector. This is not exactly what Morrowind does
+            // but Morrowind does something (even more) stupid here
+            osg::Vec3f hitDir = actorRot.inverse() * dirToTarget;
+            if (combatAngleXYcos * std::abs(hitDir.x()) > hitDir.y())
+                continue;
+
+            // Nice cliff racer hack Todd
+            if (combatAngleZcos * std::abs(hitDir.z()) > hitDir.y() && !MWMechanics::canActorMoveByZAxis(target))
+                continue;
+
+            // Gotta use physics somehow!
+            if (!world->getLOS(actor, target))
+                continue;
+
+            minDist = dist;
+            result = target;
+        }
+
+        // This hit position is currently used for spawning the blood effect.
+        // Morrowind does this elsewhere, but roughly at the same time
+        // and it would be hard to track the original hit results outside of this function
+        // without code duplication
+        // The idea is to use a random point on a plane in front of the target
+        // that is defined by its width and height
+        if (!result.isEmpty())
+        {
+            osg::Vec3f resultPos(result.getRefData().getPosition().asVec3());
+            osg::Vec3f dirToActor = actorPos - resultPos;
+            dirToActor.normalize();
+
+            hitPos = resultPos + dirToActor * world->getHalfExtents(result).y();
+            // -25% to 25% of width
+            float xOffset = Misc::Rng::deviate(0.f, 0.25f, world->getPrng());
+            // 20% to 100% of height
+            float zOffset = Misc::Rng::deviate(0.6f, 0.4f, world->getPrng());
+            hitPos.x() += world->getHalfExtents(result).x() * 2.f * xOffset;
+            hitPos.z() += world->getHalfExtents(result).z() * 2.f * zOffset;
+        }
+
+        return std::make_pair(result, hitPos);
+    }
+
+    bool friendlyHit(const MWWorld::Ptr& attacker, const MWWorld::Ptr& target, bool complain)
+    {
+        const MWWorld::Ptr& player = getPlayer();
+        if (attacker != player)
+            return false;
+
+        std::set<MWWorld::Ptr> followersAttacker;
+        MWBase::Environment::get().getMechanicsManager()->getActorsSidingWith(attacker, followersAttacker);
+        if (followersAttacker.find(target) == followersAttacker.end())
+            return false;
+
+        MWMechanics::CreatureStats& statsTarget = target.getClass().getCreatureStats(target);
+        if (statsTarget.getAiSequence().isInCombat())
+            return true;
+        statsTarget.friendlyHit();
+        if (statsTarget.getFriendlyHits() >= 4)
+            return false;
+
+        if (complain)
+            MWBase::Environment::get().getDialogueManager()->say(target, ESM::RefId::stringRefId("hit"));
+        return true;
+    }
+
 }

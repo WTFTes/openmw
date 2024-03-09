@@ -629,7 +629,7 @@ void CSVDoc::View::addSubView(const CSMWorld::UniversalId& id, const std::string
     if (isReferenceable)
     {
         view = mSubViewFactory.makeSubView(
-            CSMWorld::UniversalId(CSMWorld::UniversalId::Type_Referenceable, id.getId()), *mDocument);
+            CSMWorld::UniversalId(CSMWorld::UniversalId::Type_Referenceable, id), *mDocument);
     }
     else
     {
@@ -774,7 +774,7 @@ void CSVDoc::View::tutorial()
 void CSVDoc::View::infoAbout()
 {
     // Get current OpenMW version
-    QString versionInfo = (Version::getOpenmwVersionDescription(mDocument->getResourceDir()) +
+    QString versionInfo = (Version::getOpenmwVersionDescription() +
 #if defined(__x86_64__) || defined(_M_X64)
         " (64-bit)")
                               .c_str();

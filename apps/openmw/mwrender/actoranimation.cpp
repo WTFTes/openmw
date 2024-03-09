@@ -42,7 +42,7 @@ namespace MWRender
 
     ActorAnimation::ActorAnimation(
         const MWWorld::Ptr& ptr, osg::ref_ptr<osg::Group> parentNode, Resource::ResourceSystem* resourceSystem)
-        : Animation(ptr, parentNode, resourceSystem)
+        : Animation(ptr, std::move(parentNode), resourceSystem)
     {
         MWWorld::ContainerStore& store = mPtr.getClass().getContainerStore(mPtr);
 
@@ -101,7 +101,7 @@ namespace MWRender
                 templateNode, mObjectRoot, bonefilter, found->second, mResourceSystem->getSceneManager(), &rotation);
         }
         return SceneUtil::attach(
-            templateNode, mObjectRoot, bonefilter, found->second, mResourceSystem->getSceneManager());
+            std::move(templateNode), mObjectRoot, bonefilter, found->second, mResourceSystem->getSceneManager());
     }
 
     std::string ActorAnimation::getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const
@@ -130,12 +130,11 @@ namespace MWRender
                     if (bodypart == nullptr || bodypart->mData.mType != ESM::BodyPart::MT_Armor)
                         return std::string();
                     if (!bodypart->mModel.empty())
-                        return Misc::ResourceHelpers::correctMeshPath(
-                            bodypart->mModel, MWBase::Environment::get().getResourceSystem()->getVFS());
+                        return Misc::ResourceHelpers::correctMeshPath(bodypart->mModel);
                 }
             }
         }
-        return shield.getClass().getModel(shield);
+        return shield.getClass().getCorrectedModel(shield);
     }
 
     std::string ActorAnimation::getSheathedShieldMesh(const MWWorld::ConstPtr& shield) const
@@ -315,6 +314,7 @@ namespace MWRender
         if (node == nullptr)
             return;
 
+        // This is used to avoid playing animations intended for equipped weapons on holstered weapons.
         SceneUtil::ForceControllerSourcesVisitor removeVisitor(std::make_shared<NullAnimationTime>());
         node->accept(removeVisitor);
     }
@@ -339,16 +339,14 @@ namespace MWRender
         if (MWMechanics::getWeaponType(type)->mWeaponClass == ESM::WeaponType::Thrown)
             showHolsteredWeapons = false;
 
-        std::string mesh = weapon->getClass().getModel(*weapon);
+        std::string mesh = weapon->getClass().getCorrectedModel(*weapon);
         std::string scabbardName = mesh;
 
         std::string_view boneName = getHolsteredWeaponBoneName(*weapon);
         if (mesh.empty() || boneName.empty())
             return;
 
-        // If the scabbard is not found, use a weapon mesh as fallback.
-        // Note: it is unclear how to handle time for controllers attached to bodyparts, so disable them for now.
-        // We use the similar approach for other bodyparts.
+        // If the scabbard is not found, use the weapon mesh as fallback.
         scabbardName = scabbardName.replace(scabbardName.size() - 4, 4, "_sh.nif");
         bool isEnchanted = !weapon->getClass().getEnchantment(*weapon).empty();
         if (!mResourceSystem->getVFS()->exists(scabbardName))
@@ -411,7 +409,7 @@ namespace MWRender
         if (weapon == inv.end() || weapon->getType() != ESM::Weapon::sRecordId)
             return;
 
-        std::string mesh = weapon->getClass().getModel(*weapon);
+        std::string_view mesh = weapon->getClass().getModel(*weapon);
         std::string_view boneName = getHolsteredWeaponBoneName(*weapon);
         if (mesh.empty() || boneName.empty())
             return;
@@ -428,7 +426,7 @@ namespace MWRender
         const auto& weaponType = MWMechanics::getWeaponType(type);
         if (weaponType->mWeaponClass == ESM::WeaponType::Thrown)
         {
-            ammoCount = ammo->getRefData().getCount();
+            ammoCount = ammo->getCellRef().getCount();
             osg::Group* throwingWeaponNode = getBoneByName(weaponType->mAttachBone);
             if (throwingWeaponNode && throwingWeaponNode->getNumChildren())
                 ammoCount--;
@@ -441,7 +439,7 @@ namespace MWRender
             if (ammo == inv.end())
                 return;
 
-            ammoCount = ammo->getRefData().getCount();
+            ammoCount = ammo->getCellRef().getCount();
             bool arrowAttached = isArrowAttached();
             if (arrowAttached)
                 ammoCount--;
@@ -468,13 +466,13 @@ namespace MWRender
 
         // Add new ones
         osg::Vec4f glowColor = ammo->getClass().getEnchantmentColor(*ammo);
-        std::string model = ammo->getClass().getModel(*ammo);
+        std::string model = ammo->getClass().getCorrectedModel(*ammo);
         for (unsigned int i = 0; i < ammoCount; ++i)
         {
             osg::ref_ptr<osg::Group> arrowNode = ammoNode->getChild(i)->asGroup();
             osg::ref_ptr<osg::Node> arrow = mResourceSystem->getSceneManager()->getInstance(model, arrowNode);
             if (!ammo->getClass().getEnchantment(*ammo).empty())
-                mGlowUpdater = SceneUtil::addEnchantedGlow(arrow, mResourceSystem, glowColor);
+                mGlowUpdater = SceneUtil::addEnchantedGlow(std::move(arrow), mResourceSystem, glowColor);
         }
     }
 
@@ -516,7 +514,7 @@ namespace MWRender
             ItemLightMap::iterator iter = mItemLights.find(item);
             if (iter != mItemLights.end())
             {
-                if (!item.getRefData().getCount())
+                if (!item.getCellRef().getCount())
                 {
                     removeHiddenItemLight(item);
                 }

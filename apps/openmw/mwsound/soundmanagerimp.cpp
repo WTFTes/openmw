@@ -10,10 +10,15 @@
 #include <components/debug/debuglog.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/rng.hpp>
+#include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
+#include <components/vfs/pathutil.hpp>
+#include <components/vfs/recursivedirectoryiterator.hpp>
 
 #include "../mwbase/environment.hpp"
+#include "../mwbase/mechanicsmanager.hpp"
 #include "../mwbase/statemanager.hpp"
+#include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
 #include "../mwworld/cellstore.hpp"
@@ -36,6 +41,7 @@ namespace MWSound
         constexpr float sMinUpdateInterval = 1.0f / 30.0f;
         constexpr float sSfxFadeInDuration = 1.0f;
         constexpr float sSfxFadeOutDuration = 1.0f;
+        constexpr float sSoundCullDistance = 2000.f;
 
         WaterSoundUpdaterSettings makeWaterSoundUpdaterSettings()
         {
@@ -69,6 +75,33 @@ namespace MWSound
 
             return 1.0;
         }
+
+        // Gets the combined volume settings for the given sound type
+        float volumeFromType(Type type)
+        {
+            float volume = Settings::sound().mMasterVolume;
+
+            switch (type)
+            {
+                case Type::Sfx:
+                    volume *= Settings::sound().mSfxVolume;
+                    break;
+                case Type::Voice:
+                    volume *= Settings::sound().mVoiceVolume;
+                    break;
+                case Type::Foot:
+                    volume *= Settings::sound().mFootstepsVolume;
+                    break;
+                case Type::Music:
+                    volume *= Settings::sound().mMusicVolume;
+                    break;
+                case Type::Movie:
+                case Type::Mask:
+                    break;
+            }
+
+            return volume;
+        }
     }
 
     // For combining PlayMode and Type flags
@@ -99,12 +132,7 @@ namespace MWSound
             return;
         }
 
-        const std::string& hrtfname = Settings::Manager::getString("hrtf", "Sound");
-        int hrtfstate = Settings::Manager::getInt("hrtf enable", "Sound");
-        HrtfMode hrtfmode = hrtfstate < 0 ? HrtfMode::Auto : hrtfstate > 0 ? HrtfMode::Enable : HrtfMode::Disable;
-
-        const std::string& devname = Settings::Manager::getString("device", "Sound");
-        if (!mOutput->init(devname, hrtfname, hrtfmode))
+        if (!mOutput->init(Settings::sound().mDevice, Settings::sound().mHrtf, Settings::sound().mHrtfEnable))
         {
             Log(Debug::Error) << "Failed to initialize audio output, sound disabled";
             return;
@@ -129,15 +157,6 @@ namespace MWSound
 
             Log(Debug::Info) << stream.str();
         }
-
-        // TODO: dehardcode this
-        std::vector<std::string> titleMusic;
-        std::string_view titlefile = "music/special/morrowind title.mp3";
-        if (mVFS->exists(titlefile))
-            titleMusic.emplace_back(titlefile);
-        else
-            Log(Debug::Warning) << "Title music not found";
-        mMusicFiles["Title"] = titleMusic;
     }
 
     SoundManager::~SoundManager()
@@ -153,12 +172,12 @@ namespace MWSound
         return std::make_shared<FFmpeg_Decoder>(mVFS);
     }
 
-    DecoderPtr SoundManager::loadVoice(const std::string& voicefile)
+    DecoderPtr SoundManager::loadVoice(VFS::Path::NormalizedView voicefile)
     {
         try
         {
             DecoderPtr decoder = getDecoder();
-            decoder->open(Misc::ResourceHelpers::correctSoundPath(voicefile, decoder->mResourceMgr));
+            decoder->open(Misc::ResourceHelpers::correctSoundPath(voicefile, *decoder->mResourceMgr));
             return decoder;
         }
         catch (std::exception& e)
@@ -204,7 +223,7 @@ namespace MWSound
                 params.mFlags = PlayMode::NoEnv | Type::Voice | Play_2D;
                 return params;
             }());
-            played = mOutput->streamSound(decoder, sound.get(), true);
+            played = mOutput->streamSound(std::move(decoder), sound.get(), true);
         }
         else
         {
@@ -217,17 +236,11 @@ namespace MWSound
                 params.mFlags = PlayMode::Normal | Type::Voice | Play_3D;
                 return params;
             }());
-            played = mOutput->streamSound3D(decoder, sound.get(), true);
+            played = mOutput->streamSound3D(std::move(decoder), sound.get(), true);
         }
         if (!played)
             return nullptr;
         return sound;
-    }
-
-    // Gets the combined volume settings for the given sound type
-    float SoundManager::volumeFromType(Type type) const
-    {
-        return mVolumeSettings.getVolumeFromType(type);
     }
 
     void SoundManager::stopMusic()
@@ -248,7 +261,7 @@ namespace MWSound
         if (filename.empty())
             return;
 
-        Log(Debug::Info) << "Playing " << filename;
+        Log(Debug::Info) << "Playing \"" << filename << "\"";
         mLastPlayedMusic = filename;
 
         DecoderPtr decoder = getDecoder();
@@ -258,7 +271,7 @@ namespace MWSound
         }
         catch (std::exception& e)
         {
-            Log(Debug::Error) << "Failed to load audio from " << filename << ": " << e.what();
+            Log(Debug::Error) << "Failed to load audio from \"" << filename << "\": " << e.what();
             return;
         }
 
@@ -269,10 +282,10 @@ namespace MWSound
             params.mFlags = PlayMode::NoEnvNoScaling | Type::Music | Play_2D;
             return params;
         }());
-        mOutput->streamSound(decoder, mMusic.get());
+        mOutput->streamSound(std::move(decoder), mMusic.get());
     }
 
-    void SoundManager::advanceMusic(const std::string& filename)
+    void SoundManager::advanceMusic(const std::string& filename, float fadeOut)
     {
         if (!isMusicPlaying())
         {
@@ -282,7 +295,7 @@ namespace MWSound
 
         mNextMusic = filename;
 
-        mMusic->setFadeout(1.f);
+        mMusic->setFadeout(fadeOut);
     }
 
     void SoundManager::startRandomTitle()
@@ -317,14 +330,28 @@ namespace MWSound
         tracklist.pop_back();
     }
 
-    void SoundManager::streamMusic(const std::string& filename)
-    {
-        advanceMusic("Music/" + filename);
-    }
-
     bool SoundManager::isMusicPlaying()
     {
         return mMusic && mOutput->isStreamPlaying(mMusic.get());
+    }
+
+    void SoundManager::streamMusic(const std::string& filename, MusicType type, float fade)
+    {
+        const auto mechanicsManager = MWBase::Environment::get().getMechanicsManager();
+
+        // Can not interrupt scripted music by built-in playlists
+        if (mechanicsManager->getMusicType() == MusicType::Scripted && type != MusicType::Scripted
+            && type != MusicType::Special)
+            return;
+
+        std::string normalizedName = VFS::Path::normalizeFilename(filename);
+
+        mechanicsManager->setMusicType(type);
+        advanceMusic(normalizedName, fade);
+        if (type == MWSound::MusicType::Battle)
+            mCurrentPlaylist = "Battle";
+        else if (type == MWSound::MusicType::Explore)
+            mCurrentPlaylist = "Explore";
     }
 
     void SoundManager::playPlaylist(const std::string& playlist)
@@ -335,10 +362,11 @@ namespace MWSound
         if (mMusicFiles.find(playlist) == mMusicFiles.end())
         {
             std::vector<std::string> filelist;
-            for (const auto& name : mVFS->getRecursiveDirectoryIterator("Music/" + playlist + '/'))
+            auto playlistPath = Misc::ResourceHelpers::correctMusicPath(playlist) + '/';
+            for (const auto& name : mVFS->getRecursiveDirectoryIterator(playlistPath))
                 filelist.push_back(name);
 
-            mMusicFiles[playlist] = filelist;
+            mMusicFiles[playlist] = std::move(filelist);
         }
 
         // No Battle music? Use Explore playlist
@@ -352,12 +380,12 @@ namespace MWSound
         startRandomTitle();
     }
 
-    void SoundManager::say(const MWWorld::ConstPtr& ptr, const std::string& filename)
+    void SoundManager::say(const MWWorld::ConstPtr& ptr, VFS::Path::NormalizedView filename)
     {
         if (!mOutput->isInitialized())
             return;
 
-        DecoderPtr decoder = loadVoice("Sound/" + filename);
+        DecoderPtr decoder = loadVoice(filename);
         if (!decoder)
             return;
 
@@ -365,7 +393,7 @@ namespace MWSound
         const osg::Vec3f pos = world->getActorHeadTransform(ptr).getTrans();
 
         stopSay(ptr);
-        StreamPtr sound = playVoice(decoder, pos, (ptr == MWMechanics::getPlayer()));
+        StreamPtr sound = playVoice(std::move(decoder), pos, (ptr == MWMechanics::getPlayer()));
         if (!sound)
             return;
 
@@ -384,17 +412,17 @@ namespace MWSound
         return 0.0f;
     }
 
-    void SoundManager::say(const std::string& filename)
+    void SoundManager::say(VFS::Path::NormalizedView filename)
     {
         if (!mOutput->isInitialized())
             return;
 
-        DecoderPtr decoder = loadVoice("Sound/" + filename);
+        DecoderPtr decoder = loadVoice(filename);
         if (!decoder)
             return;
 
         stopSay(MWWorld::ConstPtr());
-        StreamPtr sound = playVoice(decoder, osg::Vec3f(), true);
+        StreamPtr sound = playVoice(std::move(decoder), osg::Vec3f(), true);
         if (!sound)
             return;
 
@@ -486,14 +514,22 @@ namespace MWSound
         return mOutput->getStreamDelay(stream);
     }
 
-    Sound* SoundManager::playSound(
-        const ESM::RefId& soundId, float volume, float pitch, Type type, PlayMode mode, float offset)
+    bool SoundManager::remove3DSoundAtDistance(PlayMode mode, const MWWorld::ConstPtr& ptr) const
     {
         if (!mOutput->isInitialized())
-            return nullptr;
+            return true;
 
-        Sound_Buffer* sfx = mSoundBuffers.load(soundId);
-        if (!sfx)
+        const osg::Vec3f objpos(ptr.getRefData().getPosition().asVec3());
+        const float squaredDist = (mListenerPos - objpos).length2();
+        if ((mode & PlayMode::RemoveAtDistance) && squaredDist > sSoundCullDistance * sSoundCullDistance)
+            return true;
+
+        return false;
+    }
+
+    Sound* SoundManager::playSound(Sound_Buffer* sfx, float volume, float pitch, Type type, PlayMode mode, float offset)
+    {
+        if (!mOutput->isInitialized())
             return nullptr;
 
         // Only one copy of given sound can be played at time, so stop previous copy
@@ -517,24 +553,47 @@ namespace MWSound
         return result;
     }
 
-    Sound* SoundManager::playSound3D(const MWWorld::ConstPtr& ptr, const ESM::RefId& soundId, float volume, float pitch,
+    Sound* SoundManager::playSound(
+        std::string_view fileName, float volume, float pitch, Type type, PlayMode mode, float offset)
+    {
+        if (!mOutput->isInitialized())
+            return nullptr;
+
+        std::string normalizedName = VFS::Path::normalizeFilename(fileName);
+        if (!mVFS->exists(normalizedName))
+            return nullptr;
+
+        Sound_Buffer* sfx = mSoundBuffers.load(normalizedName);
+        if (!sfx)
+            return nullptr;
+
+        return playSound(sfx, volume, pitch, type, mode, offset);
+    }
+
+    Sound* SoundManager::playSound(
+        const ESM::RefId& soundId, float volume, float pitch, Type type, PlayMode mode, float offset)
+    {
+        if (!mOutput->isInitialized())
+            return nullptr;
+
+        Sound_Buffer* sfx = mSoundBuffers.load(soundId);
+        if (!sfx)
+            return nullptr;
+
+        return playSound(sfx, volume, pitch, type, mode, offset);
+    }
+
+    Sound* SoundManager::playSound3D(const MWWorld::ConstPtr& ptr, Sound_Buffer* sfx, float volume, float pitch,
         Type type, PlayMode mode, float offset)
     {
         if (!mOutput->isInitialized())
             return nullptr;
 
-        const osg::Vec3f objpos(ptr.getRefData().getPosition().asVec3());
-        const float squaredDist = (mListenerPos - objpos).length2();
-        if ((mode & PlayMode::RemoveAtDistance) && squaredDist > 2000 * 2000)
-            return nullptr;
-
-        // Look up the sound in the ESM data
-        Sound_Buffer* sfx = mSoundBuffers.load(soundId);
-        if (!sfx)
-            return nullptr;
-
         // Only one copy of given sound can be played at time on ptr, so stop previous copy
         stopSound(sfx, ptr);
+
+        const osg::Vec3f objpos(ptr.getRefData().getPosition().asVec3());
+        const float squaredDist = (mListenerPos - objpos).length2();
 
         bool played;
         SoundPtr sound = getSoundRef();
@@ -576,6 +635,38 @@ namespace MWSound
         it->second.mList.emplace_back(std::move(sound), sfx);
         mSoundBuffers.use(*sfx);
         return result;
+    }
+
+    Sound* SoundManager::playSound3D(const MWWorld::ConstPtr& ptr, const ESM::RefId& soundId, float volume, float pitch,
+        Type type, PlayMode mode, float offset)
+    {
+        if (remove3DSoundAtDistance(mode, ptr))
+            return nullptr;
+
+        // Look up the sound in the ESM data
+        Sound_Buffer* sfx = mSoundBuffers.load(soundId);
+        if (!sfx)
+            return nullptr;
+
+        return playSound3D(ptr, sfx, volume, pitch, type, mode, offset);
+    }
+
+    Sound* SoundManager::playSound3D(const MWWorld::ConstPtr& ptr, std::string_view fileName, float volume, float pitch,
+        Type type, PlayMode mode, float offset)
+    {
+        if (remove3DSoundAtDistance(mode, ptr))
+            return nullptr;
+
+        // Look up the sound
+        std::string normalizedName = VFS::Path::normalizeFilename(fileName);
+        if (!mVFS->exists(normalizedName))
+            return nullptr;
+
+        Sound_Buffer* sfx = mSoundBuffers.load(normalizedName);
+        if (!sfx)
+            return nullptr;
+
+        return playSound3D(ptr, sfx, volume, pitch, type, mode, offset);
     }
 
     Sound* SoundManager::playSound3D(const osg::Vec3f& initialPos, const ESM::RefId& soundId, float volume, float pitch,
@@ -644,6 +735,19 @@ namespace MWSound
         stopSound(sfx, ptr);
     }
 
+    void SoundManager::stopSound3D(const MWWorld::ConstPtr& ptr, std::string_view fileName)
+    {
+        if (!mOutput->isInitialized())
+            return;
+
+        std::string normalizedName = VFS::Path::normalizeFilename(fileName);
+        Sound_Buffer* sfx = mSoundBuffers.lookup(normalizedName);
+        if (!sfx)
+            return;
+
+        stopSound(sfx, ptr);
+    }
+
     void SoundManager::stopSound3D(const MWWorld::ConstPtr& ptr)
     {
         SoundMap::iterator snditer = mActiveSounds.find(ptr.mRef);
@@ -700,12 +804,35 @@ namespace MWSound
         }
     }
 
+    bool SoundManager::getSoundPlaying(const MWWorld::ConstPtr& ptr, std::string_view fileName) const
+    {
+        std::string normalizedName = VFS::Path::normalizeFilename(fileName);
+
+        SoundMap::const_iterator snditer = mActiveSounds.find(ptr.mRef);
+        if (snditer != mActiveSounds.end())
+        {
+            Sound_Buffer* sfx = mSoundBuffers.lookup(normalizedName);
+            if (!sfx)
+                return false;
+
+            return std::find_if(snditer->second.mList.cbegin(), snditer->second.mList.cend(),
+                       [this, sfx](const SoundBufferRefPair& snd) -> bool {
+                           return snd.second == sfx && mOutput->isSoundPlaying(snd.first.get());
+                       })
+                != snditer->second.mList.cend();
+        }
+        return false;
+    }
+
     bool SoundManager::getSoundPlaying(const MWWorld::ConstPtr& ptr, const ESM::RefId& soundId) const
     {
         SoundMap::const_iterator snditer = mActiveSounds.find(ptr.mRef);
         if (snditer != mActiveSounds.end())
         {
             Sound_Buffer* sfx = mSoundBuffers.lookup(soundId);
+            if (!sfx)
+                return false;
+
             return std::find_if(snditer->second.mList.cbegin(), snditer->second.mList.cend(),
                        [this, sfx](const SoundBufferRefPair& snd) -> bool {
                            return snd.second == sfx && mOutput->isSoundPlaying(snd.first.get());
@@ -849,8 +976,8 @@ namespace MWSound
 
     void SoundManager::cull3DSound(SoundBase* sound)
     {
-        // Hard-coded distance of 2000.0f is from vanilla Morrowind
-        const float maxDist = sound->getDistanceCull() ? 2000.0f : sound->getMaxDistance();
+        // Hard-coded distance is from an original engine
+        const float maxDist = sound->getDistanceCull() ? sSoundCullDistance : sound->getMaxDistance();
         const float squaredMaxDist = maxDist * maxDist;
 
         const osg::Vec3f pos = sound->getPosition();
@@ -1026,8 +1153,19 @@ namespace MWSound
         if (!mOutput->isInitialized() || mPlaybackPaused)
             return;
 
+        MWBase::StateManager::State state = MWBase::Environment::get().getStateManager()->getState();
+        bool isMainMenu = MWBase::Environment::get().getWindowManager()->containsMode(MWGui::GM_MainMenu)
+            && state == MWBase::StateManager::State_NoGame;
+
+        if (isMainMenu && !isMusicPlaying())
+        {
+            std::string titlefile = "music/special/morrowind title.mp3";
+            if (mVFS->exists(titlefile))
+                streamMusic(titlefile, MWSound::MusicType::Special);
+        }
+
         updateSounds(duration);
-        if (MWBase::Environment::get().getStateManager()->getState() != MWBase::StateManager::State_NoGame)
+        if (state != MWBase::StateManager::State_NoGame)
         {
             updateRegionSound(duration);
             updateWaterSound();
@@ -1036,8 +1174,6 @@ namespace MWSound
 
     void SoundManager::processChangedSettings(const Settings::CategorySettingVector& settings)
     {
-        mVolumeSettings.update();
-
         if (!mOutput->isInitialized())
             return;
         mOutput->startUpdate();

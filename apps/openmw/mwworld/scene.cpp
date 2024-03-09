@@ -69,13 +69,13 @@ namespace
 
     osg::Quat makeInverseNodeRotation(const MWWorld::Ptr& ptr)
     {
-        const auto pos = ptr.getRefData().getPosition();
+        const auto& pos = ptr.getRefData().getPosition();
         return ptr.getClass().isActor() ? makeActorOsgQuat(pos) : makeInversedOrderObjectOsgQuat(pos);
     }
 
     osg::Quat makeDirectNodeRotation(const MWWorld::Ptr& ptr)
     {
-        const auto pos = ptr.getRefData().getPosition();
+        const auto& pos = ptr.getRefData().getPosition();
         return ptr.getClass().isActor() ? makeActorOsgQuat(pos) : Misc::Convert::makeOsgQuat(pos);
     }
 
@@ -96,8 +96,12 @@ namespace
     {
         if (Misc::ResourceHelpers::isHiddenMarker(ptr.getCellRef().getRefId()))
             return {};
-        return ptr.getClass().getModel(ptr);
+        return ptr.getClass().getCorrectedModel(ptr);
     }
+
+    // Null node meant to distinguish objects that aren't in the scene from paged objects
+    // TODO: find a more clever way to make paging exclusion more reliable?
+    static osg::ref_ptr<SceneUtil::PositionAttitudeTransform> pagedNode = new SceneUtil::PositionAttitudeTransform;
 
     void addObject(const MWWorld::Ptr& ptr, const MWWorld::World& world, const std::vector<ESM::RefNum>& pagedRefs,
         MWPhysics::PhysicsSystem& physics, MWRender::RenderingManager& rendering)
@@ -111,13 +115,11 @@ namespace
         std::string model = getModel(ptr);
         const auto rotation = makeDirectNodeRotation(ptr);
 
-        const ESM::RefNum& refnum = ptr.getCellRef().getRefNum();
+        ESM::RefNum refnum = ptr.getCellRef().getRefNum();
         if (!refnum.hasContentFile() || !std::binary_search(pagedRefs.begin(), pagedRefs.end(), refnum))
             ptr.getClass().insertObjectRendering(ptr, model, rendering);
         else
-            ptr.getRefData().setBaseNode(
-                new SceneUtil::PositionAttitudeTransform); // FIXME remove this when physics code is fixed not to depend
-                                                           // on basenode
+            ptr.getRefData().setBaseNode(pagedNode);
         setNodeRotation(ptr, rendering, rotation);
 
         if (ptr.getClass().useAnim())
@@ -161,13 +163,13 @@ namespace
                     Misc::Convert::makeBulletQuaternion(ptr.getCellRef().getPosition()), transform.getOrigin());
 
                 const auto start = Misc::Convert::toOsg(closedDoorTransform(center + toPoint));
-                const auto startPoint = physics.castRay(start, start - osg::Vec3f(0, 0, 1000), ptr, {},
+                const auto startPoint = physics.castRay(start, start - osg::Vec3f(0, 0, 1000), { ptr }, {},
                     MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
                         | MWPhysics::CollisionType_Water);
                 const auto connectionStart = startPoint.mHit ? startPoint.mHitPos : start;
 
                 const auto end = Misc::Convert::toOsg(closedDoorTransform(center - toPoint));
-                const auto endPoint = physics.castRay(end, end - osg::Vec3f(0, 0, 1000), ptr, {},
+                const auto endPoint = physics.castRay(end, end - osg::Vec3f(0, 0, 1000), { ptr }, {},
                     MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
                         | MWPhysics::CollisionType_Water);
                 const auto connectionEnd = endPoint.mHit ? endPoint.mHitPos : end;
@@ -226,7 +228,7 @@ namespace
     {
         for (MWWorld::Ptr& ptr : mToInsert)
         {
-            if (!ptr.getRefData().isDeleted() && ptr.getRefData().isEnabled())
+            if (!ptr.mRef->isDeleted() && ptr.getRefData().isEnabled())
             {
                 try
                 {
@@ -259,7 +261,7 @@ namespace
         return false;
     }
 
-    bool removeFromSorted(const ESM::RefNum& refNum, std::vector<ESM::RefNum>& pagedRefs)
+    bool removeFromSorted(ESM::RefNum refNum, std::vector<ESM::RefNum>& pagedRefs)
     {
         const auto it = std::lower_bound(pagedRefs.begin(), pagedRefs.end(), refNum);
         if (it == pagedRefs.end() || *it != refNum)
@@ -271,10 +273,9 @@ namespace
 
 namespace MWWorld
 {
-
     void Scene::removeFromPagedRefs(const Ptr& ptr)
     {
-        const ESM::RefNum& refnum = ptr.getCellRef().getRefNum();
+        ESM::RefNum refnum = ptr.getCellRef().getRefNum();
         if (refnum.hasContentFile() && removeFromSorted(refnum, mPagedRefs))
         {
             if (!ptr.getRefData().getBaseNode())
@@ -283,6 +284,11 @@ namespace MWWorld
             setNodeRotation(ptr, mRendering, makeNodeRotation(ptr, RotationOrder::direct));
             reloadTerrain();
         }
+    }
+
+    bool Scene::isPagedRef(const Ptr& ptr) const
+    {
+        return ptr.getRefData().getBaseNode() == pagedNode.get();
     }
 
     void Scene::updateObjectRotation(const Ptr& ptr, RotationOrder order)
@@ -346,10 +352,7 @@ namespace MWWorld
 
         if (cell->getCell()->isExterior())
         {
-            if (mPhysics->getHeightField(ESM::ExteriorCellLocation(cellX, cellY, cell->getCell()->getWorldSpace()))
-                != nullptr)
-                mNavigator.removeHeightfield(osg::Vec2i(cellX, cellY), navigatorUpdateGuard);
-
+            mNavigator.removeHeightfield(osg::Vec2i(cellX, cellY), navigatorUpdateGuard);
             mPhysics->removeHeightField(cellX, cellY);
         }
 
@@ -414,7 +417,7 @@ namespace MWWorld
                 mPhysics->addHeightField(defaultHeight.data(), cellX, cellY, worldsize, verts,
                     ESM::Land::DEFAULT_HEIGHT, ESM::Land::DEFAULT_HEIGHT, land.get());
             }
-            if (const auto heightField = mPhysics->getHeightField(cellIndex))
+            if (const auto heightField = mPhysics->getHeightField(cellX, cellY))
             {
                 const osg::Vec2i cellPosition(cellX, cellY);
                 const btVector3& origin = heightField->getCollisionObject()->getWorldTransform().getOrigin();
@@ -469,7 +472,7 @@ namespace MWWorld
 
             if (cellVariant.isExterior())
             {
-                if (const auto heightField = mPhysics->getHeightField(cellIndex))
+                if (const auto heightField = mPhysics->getHeightField(cellX, cellY))
                     mNavigator.addWater(
                         osg::Vec2i(cellX, cellY), ESM::Land::REAL_SIZE, waterLevel, navigatorUpdateGuard);
             }
@@ -651,7 +654,7 @@ namespace MWWorld
                 if (ptr.mRef->mData.mPhysicsPostponed)
                 {
                     ptr.mRef->mData.mPhysicsPostponed = false;
-                    if (ptr.mRef->mData.isEnabled() && ptr.mRef->mData.getCount() > 0)
+                    if (ptr.mRef->mData.isEnabled() && ptr.mRef->mRef.getCount() > 0)
                     {
                         std::string model = getModel(ptr);
                         if (!model.empty())
@@ -837,9 +840,6 @@ namespace MWWorld
         mPreloader = std::make_unique<CellPreloader>(rendering.getResourceSystem(), physics->getShapeManager(),
             rendering.getTerrain(), rendering.getLandManager());
         mPreloader->setWorkQueue(mRendering.getWorkQueue());
-
-        rendering.getResourceSystem()->setExpiryDelay(Settings::cells().mCacheExpiryDelay);
-
         mPreloader->setExpiryDelay(Settings::cells().mPreloadCellExpiryDelay);
         mPreloader->setMinCacheSize(Settings::cells().mPreloadCellCacheMin);
         mPreloader->setMaxCacheSize(Settings::cells().mPreloadCellCacheMax);

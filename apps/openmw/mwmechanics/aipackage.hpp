@@ -87,6 +87,8 @@ namespace MWMechanics
 
         /// Get the target actor the AI is targeted at (not applicable to all AI packages, default return empty Ptr)
         virtual MWWorld::Ptr getTarget() const;
+        /// Optimized version of getTarget() == ptr
+        virtual bool targetIs(const MWWorld::Ptr& ptr) const;
 
         /// Get the destination point of the AI package (not applicable to all AI packages, default return (0, 0, 0))
         virtual osg::Vec3f getDestination(const MWWorld::Ptr& actor) const { return osg::Vec3f(0, 0, 0); }
@@ -125,7 +127,8 @@ namespace MWMechanics
     protected:
         /// Handles path building and shortcutting with obstacles avoiding
         /** \return If the actor has arrived at his destination **/
-        bool pathTo(const MWWorld::Ptr& actor, const osg::Vec3f& dest, float duration, float destTolerance = 0.0f,
+        bool pathTo(const MWWorld::Ptr& actor, const osg::Vec3f& dest, float duration,
+            MWWorld::MovementDirectionFlags supportedMovementDirections, float destTolerance = 0.0f,
             float endTolerance = 0.0f, PathType pathType = PathType::Full);
 
         /// Check if there aren't any obstacles along the path to make shortcut possible
@@ -149,7 +152,7 @@ namespace MWMechanics
 
         DetourNavigator::Flags getNavigatorFlags(const MWWorld::Ptr& actor) const;
 
-        DetourNavigator::AreaCosts getAreaCosts(const MWWorld::Ptr& actor) const;
+        DetourNavigator::AreaCosts getAreaCosts(const MWWorld::Ptr& actor, DetourNavigator::Flags flags) const;
 
         const AiPackageTypeId mTypeId;
         const Options mOptions;

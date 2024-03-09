@@ -16,11 +16,13 @@
 
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/class.hpp"
+#include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/esmstore.hpp"
 
 #include "../mwphysics/raycasting.hpp"
 
 #include "actorutil.hpp"
+#include "character.hpp"
 #include "creaturestats.hpp"
 #include "movement.hpp"
 #include "pathgrid.hpp"
@@ -84,7 +86,7 @@ namespace MWMechanics
             return MWBase::Environment::get()
                 .getWorld()
                 ->getRayCasting()
-                ->castRay(position, visibleDestination, actor, {}, mask)
+                ->castRay(position, visibleDestination, { actor }, {}, mask)
                 .mHit;
         }
 
@@ -190,7 +192,7 @@ namespace MWMechanics
      * will kick in.
      */
     bool AiWander::execute(
-        const MWWorld::Ptr& actor, CharacterController& /*characterController*/, AiState& state, float duration)
+        const MWWorld::Ptr& actor, CharacterController& characterController, AiState& state, float duration)
     {
         MWMechanics::CreatureStats& cStats = actor.getClass().getCreatureStats(actor);
         if (cStats.isDead() || cStats.getHealth().getCurrent() <= 0)
@@ -199,7 +201,8 @@ namespace MWMechanics
         // get or create temporary storage
         AiWanderStorage& storage = state.get<AiWanderStorage>();
 
-        mRemainingDuration -= ((duration * MWBase::Environment::get().getWorld()->getTimeScaleFactor()) / 3600);
+        mRemainingDuration
+            -= ((duration * MWBase::Environment::get().getWorld()->getTimeManager()->getGameTimeScale()) / 3600);
 
         cStats.setDrawState(DrawState::Nothing);
         cStats.setMovementFlag(CreatureStats::Flag_Run, false);
@@ -221,12 +224,14 @@ namespace MWMechanics
             {
                 const auto agentBounds = MWBase::Environment::get().getWorld()->getPathfindingAgentBounds(actor);
                 constexpr float endTolerance = 0;
+                const DetourNavigator::Flags navigatorFlags = getNavigatorFlags(actor);
+                const DetourNavigator::AreaCosts areaCosts = getAreaCosts(actor, navigatorFlags);
                 mPathFinder.buildPath(actor, pos.asVec3(), mDestination, actor.getCell(), getPathGridGraph(pathgrid),
-                    agentBounds, getNavigatorFlags(actor), getAreaCosts(actor), endTolerance, PathType::Full);
+                    agentBounds, navigatorFlags, areaCosts, endTolerance, PathType::Full);
             }
 
             if (mPathFinder.isPathConstructed())
-                storage.setState(AiWanderStorage::Wander_Walking);
+                storage.setState(AiWanderStorage::Wander_Walking, !mUsePathgrid);
         }
 
         if (!cStats.getMovementFlag(CreatureStats::Flag_ForceJump)
@@ -244,7 +249,7 @@ namespace MWMechanics
             }
         }
 
-        doPerFrameActionsForState(actor, duration, storage);
+        doPerFrameActionsForState(actor, duration, characterController.getSupportedMovementDirections(), storage);
 
         if (storage.mReaction.update(duration) == Misc::TimerStatus::Waiting)
             return false;
@@ -313,13 +318,6 @@ namespace MWMechanics
             completeManualWalking(actor, storage);
         }
 
-        if (storage.mState == AiWanderStorage::Wander_Walking && mUsePathgrid)
-        {
-            const auto agentBounds = MWBase::Environment::get().getWorld()->getPathfindingAgentBounds(actor);
-            mPathFinder.buildPathByNavMeshToNextPoint(
-                actor, agentBounds, getNavigatorFlags(actor), getAreaCosts(actor));
-        }
-
         if (storage.mState == AiWanderStorage::Wander_MoveNow && storage.mCanWanderAlongPathGrid)
         {
             // Construct a new path if there isn't one
@@ -371,8 +369,8 @@ namespace MWMechanics
         const auto world = MWBase::Environment::get().getWorld();
         const auto agentBounds = world->getPathfindingAgentBounds(actor);
         const auto navigator = world->getNavigator();
-        const auto navigatorFlags = getNavigatorFlags(actor);
-        const auto areaCosts = getAreaCosts(actor);
+        const DetourNavigator::Flags navigatorFlags = getNavigatorFlags(actor);
+        const DetourNavigator::AreaCosts areaCosts = getAreaCosts(actor, navigatorFlags);
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
 
         do
@@ -454,7 +452,8 @@ namespace MWMechanics
         storage.setState(AiWanderStorage::Wander_IdleNow);
     }
 
-    void AiWander::doPerFrameActionsForState(const MWWorld::Ptr& actor, float duration, AiWanderStorage& storage)
+    void AiWander::doPerFrameActionsForState(const MWWorld::Ptr& actor, float duration,
+        MWWorld::MovementDirectionFlags supportedMovementDirections, AiWanderStorage& storage)
     {
         switch (storage.mState)
         {
@@ -463,7 +462,7 @@ namespace MWMechanics
                 break;
 
             case AiWanderStorage::Wander_Walking:
-                onWalkingStatePerFrameActions(actor, duration, storage);
+                onWalkingStatePerFrameActions(actor, duration, supportedMovementDirections, storage);
                 break;
 
             case AiWanderStorage::Wander_ChooseAction:
@@ -502,7 +501,7 @@ namespace MWMechanics
         if (!checkIdle(actor, storage.mIdleAnimation) && (greetingState == Greet_Done || greetingState == Greet_None))
         {
             if (mPathFinder.isPathConstructed())
-                storage.setState(AiWanderStorage::Wander_Walking);
+                storage.setState(AiWanderStorage::Wander_Walking, !mUsePathgrid);
             else
                 storage.setState(AiWanderStorage::Wander_ChooseAction);
         }
@@ -520,11 +519,13 @@ namespace MWMechanics
         return false;
     }
 
-    void AiWander::onWalkingStatePerFrameActions(const MWWorld::Ptr& actor, float duration, AiWanderStorage& storage)
+    void AiWander::onWalkingStatePerFrameActions(const MWWorld::Ptr& actor, float duration,
+        MWWorld::MovementDirectionFlags supportedMovementDirections, AiWanderStorage& storage)
     {
         // Is there no destination or are we there yet?
         if ((!mPathFinder.isPathConstructed())
-            || pathTo(actor, osg::Vec3f(mPathFinder.getPath().back()), duration, DESTINATION_TOLERANCE))
+            || pathTo(actor, osg::Vec3f(mPathFinder.getPath().back()), duration, supportedMovementDirections,
+                DESTINATION_TOLERANCE))
         {
             stopWalking(actor);
             storage.setState(AiWanderStorage::Wander_ChooseAction);
@@ -733,7 +734,7 @@ namespace MWMechanics
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
         int index = Misc::Rng::rollDice(storage.mAllowedNodes.size(), prng);
         ESM::Pathgrid::Point worldDest = storage.mAllowedNodes[index];
-        auto converter = Misc::CoordinateConverter(*actor.getCell()->getCell());
+        const Misc::CoordinateConverter converter = Misc::makeCoordinateConverter(*actor.getCell()->getCell());
         ESM::Pathgrid::Point dest = converter.toLocalPoint(worldDest);
 
         bool isPathGridOccupied = MWBase::Environment::get().getMechanicsManager()->isAnyActorInRange(
@@ -838,7 +839,7 @@ namespace MWMechanics
         if (mDistance && storage.mCanWanderAlongPathGrid && !actor.getClass().isPureWaterCreature(actor))
         {
             // get NPC's position in local (i.e. cell) coordinates
-            auto converter = Misc::CoordinateConverter(*cellStore->getCell());
+            const Misc::CoordinateConverter converter = Misc::makeCoordinateConverter(*cellStore->getCell());
             const osg::Vec3f npcPos = converter.toLocalVec3(mInitialActorPosition);
 
             // Find closest pathgrid point

@@ -1,6 +1,6 @@
 ---
 -- `openmw.ui` controls user interface.
--- Can be used only by local scripts, that are attached to a player.
+-- Can be used only by menu scripts and local scripts, that are attached to a player.
 -- @module ui
 -- @usage
 -- local ui = require('openmw.ui')
@@ -94,6 +94,11 @@
 -- @param #SettingsPageOptions page
 
 ---
+-- Removes the settings page
+-- @function [parent=#ui] removeSettingsPage
+-- @param #SettingsPageOptions page must be the exact same table of options as the one passed to registerSettingsPage
+
+---
 -- Table with settings page options, passed as an argument to ui.registerSettingsPage
 -- @type SettingsPageOptions
 -- @field #string name Name of the page, displayed in the list, used for search
@@ -164,9 +169,9 @@
 
 ---
 -- Content. An array-like container, which allows to reference elements by their name.
--- Implements [iterables#List](iterables.html#List) of #Layout and [iterables#Map](iterables.html#Map) of #string to #Layout.
+-- Implements [iterables#List](iterables.html#List) of #Layout or #Element and [iterables#Map](iterables.html#Map) of #string to #Layout or #Element.
 -- @type Content
--- @list <#Layout>
+-- @list <#any>
 -- @usage
 -- local content = ui.content {
 --    { name = 'input' },
@@ -200,27 +205,27 @@
 -- @function [parent=#Content] __index
 -- @param self
 -- @param #string name
--- @return #Layout
+-- @return #any
 
 ---
 -- Puts the layout at given index by shifting all the elements after it
 -- @function [parent=#Content] insert
 -- @param self
 -- @param #number index
--- @param #Layout layout
+-- @param #any layoutOrElement
 
 ---
 -- Adds the layout at the end of the Content
 -- (same as calling insert with `last index + 1`)
 -- @function [parent=#Content] add
 -- @param self
--- @param #Layout layout
+-- @param #any layoutOrElement
 
 ---
 -- Finds the index of the given layout. If it is not in the container, returns nil
 -- @function [parent=#Content] indexOf
 -- @param self
--- @param #Layout layout
+-- @param #any layoutOrElement
 -- @return #number, #nil index
 
 ---
@@ -228,9 +233,34 @@
 -- @type Element
 
 ---
--- Refreshes the rendered element to match the current layout state
+-- Refreshes the rendered element to match the current layout state.
+-- Refreshes positions and sizes, but not the layout of the child Elements.
 -- @function [parent=#Element] update
 -- @param self
+
+-- @usage
+-- local child = ui.create {
+--     type = ui.TYPE.Text,
+--     props = {
+--         text = 'child 1',
+--     },
+-- }
+-- local parent = ui.create {
+--     content = ui.content {
+--         child,
+--         {
+--             type = ui.TYPE.Text,
+--             props = {
+--                 text = 'parent 1',
+--             },
+--         }
+--     }
+-- }
+-- -- ...
+-- child.layout.props.text = 'child 2'
+-- parent.layout.content[2].props.text = 'parent 2'
+-- parent:update() -- will show 'parent 2', but 'child 1'
+
 
 ---
 -- Destroys the element

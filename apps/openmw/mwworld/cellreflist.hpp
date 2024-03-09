@@ -28,7 +28,8 @@ namespace MWWorld
         /// all methods are known.
         void load(ESM::CellRef& ref, bool deleted, const MWWorld::ESMStore& esmStore);
 
-        void load(const ESM4::Reference& ref, bool deleted, const MWWorld::ESMStore& esmStore);
+        void load(const ESM4::Reference& ref, const MWWorld::ESMStore& esmStore);
+        void load(const ESM4::ActorCharacter& ref, const MWWorld::ESMStore& esmStore);
 
         LiveRef& insert(const LiveRef& item)
         {
@@ -37,7 +38,7 @@ namespace MWWorld
         }
 
         /// Remove all references with the given refNum from this list.
-        void remove(const ESM::RefNum& refNum)
+        void remove(ESM::RefNum refNum)
         {
             for (typename List::iterator it = mList.begin(); it != mList.end();)
             {

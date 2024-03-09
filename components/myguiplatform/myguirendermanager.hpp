@@ -66,13 +66,13 @@ namespace osgMyGUI
 
         void enableShaders(Shader::ShaderManager& shaderManager);
 
-        void setScalingFactor(float factor);
-
         static RenderManager& getInstance() { return *getInstancePtr(); }
         static RenderManager* getInstancePtr()
         {
             return static_cast<RenderManager*>(MyGUI::RenderManager::getInstancePtr());
         }
+
+        bool checkTexture(MyGUI::ITexture* _texture) override;
 
         /** @see RenderManager::getViewSize */
         const MyGUI::IntSize& getViewSize() const override { return mViewSize; }
@@ -112,8 +112,6 @@ namespace osgMyGUI
 
         /** @see IRenderTarget::getInfo */
         const MyGUI::RenderTargetInfo& getInfo() const override { return mInfo; }
-
-        bool checkTexture(MyGUI::ITexture* _texture);
 
         void setViewSize(int width, int height) override;
 

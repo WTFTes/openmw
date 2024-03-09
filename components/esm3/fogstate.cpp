@@ -58,7 +58,8 @@ namespace ESM
 
     void FogState::load(ESMReader& esm)
     {
-        esm.getHNOT(mBounds, "BOUN");
+        if (esm.isNextSub("BOUN"))
+            esm.getHT(mBounds.mMinX, mBounds.mMinY, mBounds.mMaxX, mBounds.mMaxY);
         esm.getHNOT(mNorthMarkerAngle, "ANGL");
         const FormatVersion dataFormat = esm.getFormatVersion();
         while (esm.isNextSub("FTEX"))
@@ -69,11 +70,11 @@ namespace ESM
             esm.getT(tex.mX);
             esm.getT(tex.mY);
 
-            const std::size_t imageSize = esm.getSubSize() - sizeof(int) * 2;
+            const std::size_t imageSize = esm.getSubSize() - sizeof(int32_t) * 2;
             tex.mImageData.resize(imageSize);
             esm.getExact(tex.mImageData.data(), imageSize);
 
-            if (dataFormat <= MaxOldForOfWarFormatVersion)
+            if (dataFormat <= MaxOldFogOfWarFormatVersion)
                 convertFogOfWar(tex.mImageData);
 
             mFogTextures.push_back(tex);

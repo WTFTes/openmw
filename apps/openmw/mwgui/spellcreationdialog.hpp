@@ -31,7 +31,7 @@ namespace MWGui
         void setConstantEffect(bool constant);
 
         void setSkill(ESM::RefId skill);
-        void setAttribute(int attribute);
+        void setAttribute(ESM::RefId attribute);
 
         void newEffect(const ESM::MagicEffect* effect);
         void editEffect(ESM::ENAMstruct effect);
@@ -157,6 +157,8 @@ namespace MWGui
         void onFrame(float dt) override { checkReferenceAvailable(); }
 
         void setPtr(const MWWorld::Ptr& actor) override;
+
+        std::string_view getWindowIdForLua() const override { return "SpellCreationDialog"; }
 
     protected:
         void onReferenceUnavailable() override;
