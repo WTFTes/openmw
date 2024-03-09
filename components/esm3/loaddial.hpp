@@ -63,7 +63,6 @@ namespace ESM
 
         /// Read the next info record
         void readInfo(ESMReader& esm);
-        void storeInfo(DialInfo& info, bool isDeleted, bool merge);
 
         void blank();
         ///< Set record to default state (does not touch the ID and does not change the type).
