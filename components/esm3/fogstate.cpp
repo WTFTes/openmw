@@ -3,10 +3,7 @@
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
-#include <osgDB/ReadFile>
-
 #include <components/debug/debuglog.hpp>
-#include <components/files/memorystream.hpp>
 
 namespace ESM
 {
@@ -14,46 +11,7 @@ namespace ESM
     {
         void convertFogOfWar(std::vector<char>& imageData)
         {
-            if (imageData.empty())
-            {
-                return;
-            }
-
-            osgDB::ReaderWriter* tgaReader = osgDB::Registry::instance()->getReaderWriterForExtension("tga");
-            if (!tgaReader)
-            {
-                Log(Debug::Error) << "Error: Unable to load fog, can't find a tga ReaderWriter";
-                return;
-            }
-
-            Files::IMemStream in(imageData.data(), imageData.size());
-
-            osgDB::ReaderWriter::ReadResult result = tgaReader->readImage(in);
-            if (!result.success())
-            {
-                Log(Debug::Error) << "Error: Failed to read fog: " << result.message() << " code " << result.status();
-                return;
-            }
-
-            osgDB::ReaderWriter* pngWriter = osgDB::Registry::instance()->getReaderWriterForExtension("png");
-            if (!pngWriter)
-            {
-                Log(Debug::Error) << "Error: Unable to write fog, can't find a png ReaderWriter";
-                return;
-            }
-
-            std::ostringstream ostream;
-            osgDB::ReaderWriter::WriteResult png = pngWriter->writeImage(*result.getImage(), ostream);
-            if (!png.success())
-            {
-                Log(Debug::Error) << "Error: Unable to write fog: " << png.message() << " code " << png.status();
-                return;
-            }
-
-            std::string str = ostream.str();
-            imageData = std::vector<char>(str.begin(), str.end());
         }
-
     }
 
     void FogState::load(ESMReader& esm)
